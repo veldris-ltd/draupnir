@@ -1,0 +1,37 @@
+digraph ia {
+  rankdir=LR; bgcolor="white"; fontname="DejaVu Sans"; labelloc="t"; labeljust="l";
+  label=<<b>DRAUPNIR CONSOLE &#183; INFORMATION ARCHITECTURE AND USER JOURNEYS</b><br align="left"/><font point-size="10" color="#1F3350">Built on JARNGREIPR, the Veldris design system. Coloured paths are the four primary journeys.</font><br align="left"/> >;
+  fontsize=19; fontcolor="#0E1A2B";
+  node [fontname="DejaVu Sans", shape=box, style="filled,rounded", penwidth=1.2, color="#0E1A2B", fontsize=9];
+  edge [fontname="DejaVu Sans", fontsize=7.5, color="#7E8FA3"];
+  nodesep=0.25; ranksep=0.7;
+
+  ROOT [label="Console shell\nsite switcher &#183; global search\ncommand palette &#183; alerts", fillcolor="#0E1A2B", fontcolor="white"];
+
+  subgraph cluster_nav {
+    label=<<b>PRIMARY NAVIGATION</b>>; fontsize=9.5; fontcolor="#1F3350"; style=rounded; color="#7E8FA3"; bgcolor="#F5F8FB";
+    OVR [label="Overview\ncapacity, queue depth,\nthermal, anchor freshness", fillcolor="#E9F0F7"];
+    COR [label="Corpora\nsources, licences,\ncuration status", fillcolor="#E9F0F7"];
+    RUN [label="Runs\nboard, detail, logs,\nlive progress", fillcolor="#E9F0F7"];
+    MOD [label="Models\nregistry, lineage,\nsweep comparison", fillcolor="#E9F0F7"];
+    GAT [label="Gates\napproval queue\nwith evidence", fillcolor="#FBEFD6"];
+    ADM [label="Admin\nplug-ins, policy,\nsites, users", fillcolor="#E9F0F7"];
+    AUD [label="Audit\nledger explorer,\nchain verification", fillcolor="#EAF4EE"];
+  }
+
+  ROOT -> OVR; ROOT -> COR; ROOT -> RUN; ROOT -> MOD; ROOT -> GAT; ROOT -> ADM; ROOT -> AUD;
+
+  J1 [label="J1 CURATOR\nregister source &#8594; declare licence\n&#8594; ingest &#8594; curate &#8594; review retention", fillcolor="#DCF0F2", shape=note];
+  J2 [label="J2 OPERATOR\ncompose spec &#8594; dry run &#8594; submit\n&#8594; watch board &#8594; diagnose failure &#8594; retry", fillcolor="#FBEFD6", shape=note];
+  J3 [label="J3 APPROVER\nopen gate queue &#8594; read evidence\n&#8594; see sole-approver notice &#8594; sign &#8594; publish", fillcolor="#FBF2F0", shape=note];
+  J4 [label="J4 AUDITOR\npick release &#8594; walk lineage to base\nlicence and corpus hash &#8594; verify chain &#8594; export", fillcolor="#EAF4EE", shape=note];
+
+  COR -> J1 [color="#177E89", penwidth=2];
+  RUN -> J2 [color="#E0A030", penwidth=2];
+  GAT -> J3 [color="#B3402F", penwidth=2];
+  AUD -> J4 [color="#2E8B57", penwidth=2];
+
+  DS [label="JARNGREIPR design system\n\n&#183; tokens: colour, type, space, motion\n&#183; primitives: button, field, table, badge\n&#183; composites: run card, gate card,\n  lineage tree, sweep matrix, log viewer\n&#183; states: loading, empty, error, denied,\n  partitioned, read-only\n&#183; WCAG 2.2 AA, keyboard-complete,\n  dark and light, 200 per cent zoom",
+      fillcolor="#F4F1FA", color="#6C5B9E", shape=note, fontsize=8.5];
+  ROOT -> DS [style=dotted, color="#6C5B9E", penwidth=2, arrowhead=none];
+}

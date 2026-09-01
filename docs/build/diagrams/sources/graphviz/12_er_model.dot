@@ -1,0 +1,105 @@
+digraph er {
+  rankdir=LR; bgcolor="white"; fontname="DejaVu Sans"; labelloc="t"; labeljust="l";
+  label=<<b>DRAUPNIR &#183; DATA MODEL</b><br align="left"/><font point-size="10" color="#1F3350">PK in bold. site_id present on every scoped entity from the first migration. CONFIDENTIAL — RECIPIENT EYES ONLY</font><br align="left"/> >;
+  fontsize=19; fontcolor="#0E1A2B";
+  node [shape=plaintext, fontname="DejaVu Sans", fontsize=8.5];
+  edge [fontname="DejaVu Sans", fontsize=7.5, color="#3E5C82"];
+  nodesep=0.4; ranksep=1.0;
+
+  site [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="4" bgcolor="#FDF7EC">
+    <tr><td colspan="2" bgcolor="#E0A030"><b>site</b></td></tr>
+    <tr><td align="left"><b>id</b></td><td align="left">uuid</td></tr>
+    <tr><td align="left">name, location</td><td align="left">text</td></tr>
+    <tr><td align="left">control_plane_uri</td><td align="left">text</td></tr>
+    <tr><td align="left">anchor_state</td><td align="left">enum</td></tr>
+    <tr><td align="left">last_anchored_at</td><td align="left">tstz</td></tr></table>>];
+
+  ledger [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="4" bgcolor="#EAF4EE">
+    <tr><td colspan="2" bgcolor="#2E8B57"><font color="white"><b>ledger_entry</b></font></td></tr>
+    <tr><td align="left"><b>id</b></td><td align="left">uuid</td></tr>
+    <tr><td align="left">site_id, seq</td><td align="left">fk, bigint</td></tr>
+    <tr><td align="left">prev_hash, entry_hash</td><td align="left">bytea</td></tr>
+    <tr><td align="left">ts, actor</td><td align="left">tstz, text</td></tr>
+    <tr><td align="left">subject_type, subject_id</td><td align="left">enum, uuid</td></tr>
+    <tr><td align="left">transition, payload</td><td align="left">text, jsonb</td></tr></table>>];
+
+  source [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="4" bgcolor="#F5F8FB">
+    <tr><td colspan="2" bgcolor="#3E5C82"><font color="white"><b>source</b></font></td></tr>
+    <tr><td align="left"><b>id</b></td><td align="left">uuid</td></tr>
+    <tr><td align="left">jurisdiction, url</td><td align="left">char(3), text</td></tr>
+    <tr><td align="left">licence_spdx</td><td align="left">text</td></tr>
+    <tr><td align="left">attribution_required</td><td align="left">bool</td></tr>
+    <tr><td align="left">sha256, retrieved_at</td><td align="left">bytea, tstz</td></tr>
+    <tr><td align="left">personal_data, dpia_ref</td><td align="left">bool, text</td></tr>
+    <tr><td align="left">residency_constraint</td><td align="left">text[]</td></tr></table>>];
+
+  artefact [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="4" bgcolor="#F4F1FA">
+    <tr><td colspan="2" bgcolor="#6C5B9E"><font color="white"><b>artefact</b></font></td></tr>
+    <tr><td align="left"><b>id</b></td><td align="left">uuid</td></tr>
+    <tr><td align="left">site_id, locality</td><td align="left">fk, uuid[]</td></tr>
+    <tr><td align="left">kind, uri</td><td align="left">enum, text</td></tr>
+    <tr><td align="left">sha256_manifest, size</td><td align="left">bytea, bigint</td></tr>
+    <tr><td align="left">created_from_run</td><td align="left">fk</td></tr>
+    <tr><td align="left">immutable_at</td><td align="left">tstz</td></tr></table>>];
+
+  run [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="4" bgcolor="#FDF7EC">
+    <tr><td colspan="2" bgcolor="#E0A030"><b>run</b></td></tr>
+    <tr><td align="left"><b>id</b></td><td align="left">uuid</td></tr>
+    <tr><td align="left">site_id, spec_hash</td><td align="left">fk, bytea</td></tr>
+    <tr><td align="left">kind, state</td><td align="left">enum, enum</td></tr>
+    <tr><td align="left">scheduler_job_id, node</td><td align="left">text, text</td></tr>
+    <tr><td align="left">retry_count</td><td align="left">int</td></tr>
+    <tr><td align="left">started_at, ended_at</td><td align="left">tstz</td></tr></table>>];
+
+  gate [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="4" bgcolor="#F5F8FB">
+    <tr><td colspan="2" bgcolor="#3E5C82"><font color="white"><b>gate_result</b></font></td></tr>
+    <tr><td align="left"><b>id</b></td><td align="left">uuid</td></tr>
+    <tr><td align="left">run_id, artefact_sha256</td><td align="left">fk, bytea</td></tr>
+    <tr><td align="left">gate, suite_version</td><td align="left">enum, text</td></tr>
+    <tr><td align="left">value, baseline_value</td><td align="left">numeric</td></tr>
+    <tr><td align="left">margin, passed</td><td align="left">numeric, bool</td></tr></table>>];
+
+  approval [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="4" bgcolor="#FBF2F0">
+    <tr><td colspan="2" bgcolor="#B3402F"><font color="white"><b>approval</b></font></td></tr>
+    <tr><td align="left"><b>id</b></td><td align="left">uuid</td></tr>
+    <tr><td align="left">subject_id, approver</td><td align="left">uuid, text</td></tr>
+    <tr><td align="left">decision, reason</td><td align="left">enum, text</td></tr>
+    <tr><td align="left">sole_approver_exception</td><td align="left">bool</td></tr>
+    <tr><td align="left">signature, decided_at</td><td align="left">bytea, tstz</td></tr></table>>];
+
+  release [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="4" bgcolor="#EEF2F7">
+    <tr><td colspan="2" bgcolor="#0E1A2B"><font color="white"><b>release</b></font></td></tr>
+    <tr><td align="left"><b>id</b></td><td align="left">uuid</td></tr>
+    <tr><td align="left">artefact_id, approval_id</td><td align="left">fk, fk</td></tr>
+    <tr><td align="left">model_card_uri, sbom_uri</td><td align="left">text</td></tr>
+    <tr><td align="left">lineage_uri</td><td align="left">text</td></tr>
+    <tr><td align="left">training_summary_uri</td><td align="left">text</td></tr>
+    <tr><td align="left">copyright_policy_uri</td><td align="left">text</td></tr>
+    <tr><td align="left">signature, anchored_at</td><td align="left">bytea, tstz</td></tr></table>>];
+
+  plugin [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="4" bgcolor="#F2FAFB">
+    <tr><td colspan="2" bgcolor="#177E89"><font color="white"><b>plugin</b></font></td></tr>
+    <tr><td align="left"><b>name, version</b></td><td align="left">text</td></tr>
+    <tr><td align="left">interface, capabilities</td><td align="left">text, text[]</td></tr>
+    <tr><td align="left">signature_verified</td><td align="left">bool</td></tr></table>>];
+
+  retention [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="4" bgcolor="#FBF2F0">
+    <tr><td colspan="2" bgcolor="#B3402F"><font color="white"><b>retention_action</b></font></td></tr>
+    <tr><td align="left"><b>id</b></td><td align="left">uuid</td></tr>
+    <tr><td align="left">subject_id, policy</td><td align="left">uuid, text</td></tr>
+    <tr><td align="left">due_at, approved_by</td><td align="left">tstz, text</td></tr>
+    <tr><td align="left">manifests_retained</td><td align="left">bool</td></tr></table>>];
+
+  site -> ledger   [label=" 1 : N "];
+  site -> run      [label=" 1 : N "];
+  site -> artefact [label=" 1 : N "];
+  source -> artefact [label=" N : M\n corpus lineage "];
+  run -> artefact  [label=" 1 : N produces "];
+  artefact -> run  [label=" N : M consumes ", style=dashed];
+  run -> gate      [label=" 1 : N "];
+  artefact -> approval [label=" 1 : N "];
+  approval -> release  [label=" 1 : 1 required "];
+  artefact -> release  [label=" 1 : 1 "];
+  run -> plugin    [label=" driver version pinned ", style=dashed];
+  artefact -> retention [label=" 1 : N "];
+}

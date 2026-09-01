@@ -1,0 +1,58 @@
+digraph l3 {
+  rankdir=TB; bgcolor="white"; fontname="DejaVu Sans"; labelloc="t"; labeljust="l";
+  label=<<b>DRAUPNIR CORE &#183; C4 LEVEL 3 &#183; COMPONENTS</b><br align="left"/><font point-size="10" color="#1F3350">Internal decomposition of the control plane container. Arrows are call direction.</font><br align="left"/> >;
+  fontsize=19; fontcolor="#0E1A2B";
+  node [fontname="DejaVu Sans", shape=box, style="filled,rounded", penwidth=1.2, color="#0E1A2B", fontsize=9];
+  edge [fontname="DejaVu Sans", fontsize=7.5, color="#3E5C82"];
+  nodesep=0.3; ranksep=0.45;
+
+  subgraph cluster_edge {
+    label=<<b>EDGE</b>>; fontsize=9.5; fontcolor="#1F3350"; style=rounded; color="#7E8FA3"; bgcolor="#F5F8FB";
+    RT  [label="Router\nOpenAPI 3.1 route table\nrole declaration required\nat registration", fillcolor="#E9F0F7"];
+    AUTHN [label="Authn middleware\nOIDC token validation", fillcolor="#E9F0F7"];
+    AUTHZ [label="Authz guard\nfail-closed decorator", fillcolor="#E9F0F7"];
+    VAL [label="Request validation\nPydantic + JSON Schema", fillcolor="#E9F0F7"];
+    SSE [label="Event stream\nserver-sent events\nfor the run board", fillcolor="#E9F0F7"];
+    ERR [label="Error mapper\nRFC 9457 problem+json", fillcolor="#E9F0F7"];
+  }
+
+  subgraph cluster_app {
+    label=<<b>APPLICATION</b>>; fontsize=9.5; fontcolor="#E0A030"; style=rounded; color="#E0A030"; bgcolor="#FDF7EC";
+    SPEC [label="Spec compiler\nvalidate, hash, resolve\nartefact references", fillcolor="#FBEFD6"];
+    SM  [label="State machine\ndeclarative transitions\nwith guards", fillcolor="#E0A030"];
+    ORCH [label="Transition orchestrator\nguard, act, ledger, project\nsingle transaction", fillcolor="#E0A030"];
+    BUS [label="Event bus\nin-process pub/sub\nfeeds SSE and workers", fillcolor="#FBEFD6"];
+    WRK [label="Worker pool\npolls actionable\ntransitions, backoff", fillcolor="#FBEFD6"];
+  }
+
+  subgraph cluster_dom {
+    label=<<b>DOMAIN</b>>; fontsize=9.5; fontcolor="#2E8B57"; style=rounded; color="#2E8B57"; bgcolor="#EAF4EE";
+    LED [label="Ledger writer\nhash chain, append-only", fillcolor="#2E8B57", fontcolor="white"];
+    PROJ [label="Projector\nledger to relational\nrebuildable from zero", fillcolor="#EAF4EE"];
+    SITE [label="Site resolver\nscope enforcement,\nunscoped query raises", fillcolor="#EAF4EE"];
+    REG [label="Run registry\nidentity = H(spec + inputs)\nduplicate detection", fillcolor="#EAF4EE"];
+  }
+
+  subgraph cluster_port {
+    label=<<b>PORTS (plug-in loader)</b>>; fontsize=9.5; fontcolor="#177E89"; style=rounded; color="#177E89"; bgcolor="#F2FAFB";
+    LOAD [label="Entry-point loader\nversion negotiation,\ncapability check,\nsignature verification", fillcolor="#177E89", fontcolor="white"];
+    CONF [label="Conformance harness\npurity and determinism\nassertions", fillcolor="#DCF0F2"];
+  }
+
+  subgraph cluster_inf {
+    label=<<b>INFRASTRUCTURE</b>>; fontsize=9.5; fontcolor="#1F3350"; style=rounded; color="#7E8FA3"; bgcolor="#F5F8FB";
+    REPO [label="Repositories\nSQLAlchemy, unit of work", fillcolor="#D7E0EA"];
+    OBJ [label="Object store client\nMinIO / S3", fillcolor="#D7E0EA"];
+    TEL [label="Telemetry\nOpenTelemetry traces,\nProm metrics, structlog", fillcolor="#D7E0EA"];
+  }
+
+  RT -> AUTHN -> AUTHZ -> VAL -> SPEC;
+  RT -> ERR [style=dashed];
+  SPEC -> REG -> ORCH;
+  ORCH -> SM; ORCH -> LED -> PROJ -> REPO;
+  ORCH -> BUS -> SSE;
+  BUS -> WRK -> LOAD;
+  LOAD -> CONF [style=dashed];
+  ORCH -> SITE [style=dashed, label=" scope "];
+  PROJ -> OBJ; ORCH -> TEL [style=dotted];
+}

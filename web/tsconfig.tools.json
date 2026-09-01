@@ -1,0 +1,23 @@
+{
+  // Everything that is real TypeScript but is not shipped: build and test
+  // configuration, the Playwright specs, the Vitest setup and the Storybook
+  // stories. They are type-checked and linted like the rest; they are simply
+  // not part of any package's emitted output.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    "types": ["node", "vite/client"]
+  },
+  "include": [
+    "*.config.ts",
+    "e2e/**/*.ts",
+    "tests/**/*.ts",
+    ".storybook/**/*.ts",
+    "packages/*/*.config.ts",
+    "apps/*/*.config.ts",
+    "packages/*/src/**/*.stories.tsx"
+  ]
+}

@@ -1,0 +1,50 @@
+digraph cont {
+  rankdir=TB; bgcolor="white"; fontname="DejaVu Sans";
+  labelloc="t"; labeljust="l";
+  label=<<b>DRAUPNIR &#183; C4 LEVEL 2 &#183; CONTAINERS AND MODULES</b><br align="left"/><font point-size="11" color="#1F3350">Every module is a replaceable plug-in behind a stable interface. Module names follow the Veldris naming standard: dwarf-made works.</font><br align="left"/> >;
+  fontsize=21; fontcolor="#0E1A2B";
+  node [fontname="DejaVu Sans", shape=box, style="filled,rounded", penwidth=1.3, color="#0E1A2B", fontsize=9.5];
+  edge [fontname="DejaVu Sans", fontsize=8, color="#3E5C82", penwidth=1.2];
+  nodesep=0.35; ranksep=0.55;
+
+  subgraph cluster_ui {
+    label=<<b>PRESENTATION</b>>; fontsize=10; fontcolor="#1F3350"; style=rounded; color="#7E8FA3"; bgcolor="#F5F8FB";
+    WEB [label="Web console (React + TS)\nrun board, gate queue,\nlineage explorer", fillcolor="#E9F0F7"];
+    CLI [label="draupnirctl (Python CLI)\nscriptable, CI-friendly", fillcolor="#E9F0F7"];
+    TUI [label="CON-A local console view\nread-only status, kiosk\non DVALIN", fillcolor="#E9F0F7"];
+  }
+
+  API [label="DRAUPNIR CORE\nFastAPI + async workers\nWorkflow state machine &#183; Run registry\nAppend-only audit ledger &#183; Event bus\nPlug-in loader (entry-point contracts)",
+       fillcolor="#0E1A2B", fontcolor="white", penwidth=2.2, width=4.4];
+
+  subgraph cluster_mod {
+    label=<<b>PIPELINE MODULES (plug-in, versioned interfaces)</b>>; fontsize=10; fontcolor="#E0A030"; style=rounded; color="#E0A030"; bgcolor="#FDF7EC";
+    HODD [label="HODD\nCorpus and artefact store\nimmutable ingest, SHA-256,\nlicence register, retention", fillcolor="#2E8B57", fontcolor="white"];
+    GLEI [label="GLEIPNIR\nPolicy and assurance gates\nlicence, DPIA, approval,\nrelease sign-off", fillcolor="#B3402F", fontcolor="white"];
+    MOTS [label="MOTSOGNIR\nJob dispatch and placement\nSlurm / Ray drivers,\narray concurrency, retries", fillcolor="#177E89", fontcolor="white"];
+    HAMA [label="HAMARR\nTraining executors\nLLaMA-Factory, Axolotl,\nNeMo, TRL drivers", fillcolor="#E0A030"];
+    BRIS [label="BRISINGAMEN\nReweight and merge\nmergekit driver, weight\nsweeps, route A / B", fillcolor="#6C5B9E", fontcolor="white"];
+    RAUN [label="RAUN\nEvaluation and assurance\nE1-E6 gate suite, baselines,\nquantisation regression", fillcolor="#3E5C82", fontcolor="white"];
+    SKID [label="SKIDBLADNIR\nQuantise, package, release\nNVFP4 / GGUF / MLX,\nSBOM, model card, lineage", fillcolor="#1F3350", fontcolor="white"];
+  }
+
+  SVAL [label="SVALINN  (cross-cutting)\nOIDC identity &#183; RBAC &#183; mTLS &#183; secrets broker &#183; artefact signing (Sigstore)\nsandboxed plug-in execution &#183; egress policy enforcement",
+        fillcolor="#8A5A08", fontcolor="white", width=5.4];
+
+  subgraph cluster_data {
+    label=<<b>PERSISTENCE</b>>; fontsize=10; fontcolor="#1F3350"; style=rounded; color="#7E8FA3"; bgcolor="#F5F8FB";
+    PG  [label="PostgreSQL\nrun state, ledger,\nregisters, RBAC", fillcolor="#D7E0EA"];
+    S3  [label="MinIO (S3)\nartefacts, weights,\nadapters, reports", fillcolor="#D7E0EA"];
+    NFS [label="HODD vault (NFS)\ncorpora, checkpoints", fillcolor="#D7E0EA"];
+  }
+
+  WEB -> API; CLI -> API; TUI -> API [style=dashed, label=" read-only "];
+  API -> HODD; API -> GLEI; API -> MOTS; API -> HAMA; API -> BRIS; API -> RAUN; API -> SKID;
+  SVAL -> API [style=dotted, arrowhead=none, color="#8A5A08", penwidth=2.0];
+  API -> PG; HODD -> S3; HODD -> NFS;
+  MOTS -> HAMA [style=dashed, label=" schedules "];
+  HAMA -> RAUN [style=dashed, label=" artefact "];
+  RAUN -> GLEI [style=dashed, label=" gate result "];
+  BRIS -> RAUN [style=dashed];
+  SKID -> GLEI [style=dashed, label=" release gate "];
+}

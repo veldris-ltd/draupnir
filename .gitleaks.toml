@@ -1,0 +1,18 @@
+# gitleaks configuration for DRAUPNIR.
+# AC-Q3: secret scanning runs on every commit and the history is clean.
+
+title = "DRAUPNIR"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Development fixtures. These are not credentials."
+paths = [
+  '''\.env\.example$''',
+  '''docker/compose\.dev\.yaml$''',
+  '''docs/CONTRIBUTING\.md$''',
+]
+regexes = [
+  '''draupnir-dev-secret''',
+]

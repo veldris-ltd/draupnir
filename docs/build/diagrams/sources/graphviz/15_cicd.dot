@@ -1,0 +1,51 @@
+digraph ci {
+  rankdir=LR; bgcolor="white"; fontname="DejaVu Sans"; labelloc="t"; labeljust="l";
+  label=<<b>DRAUPNIR &#183; CONTINUOUS INTEGRATION AND DELIVERY</b><br align="left"/><font point-size="10" color="#1F3350">Self-hosted runner on ALVISS. No stage may be skipped on the main branch.</font><br align="left"/> >;
+  fontsize=19; fontcolor="#0E1A2B";
+  node [fontname="DejaVu Sans", shape=box, style="filled,rounded", penwidth=1.2, color="#0E1A2B", fontsize=8.5];
+  edge [fontname="DejaVu Sans", fontsize=7.5, color="#3E5C82"];
+  nodesep=0.25; ranksep=0.45;
+
+  PR [label="Pull request", fillcolor="#E9F0F7"];
+
+  subgraph cluster_static {
+    label=<<b>1 STATIC</b>>; fontsize=9; fontcolor="#1F3350"; style=rounded; color="#7E8FA3"; bgcolor="#F5F8FB";
+    L1 [label="ruff format + lint", fillcolor="#E9F0F7"];
+    L2 [label="mypy --strict", fillcolor="#E9F0F7"];
+    L3 [label="eslint + tsc --noEmit", fillcolor="#E9F0F7"];
+    L4 [label="secret scan\n(gitleaks)", fillcolor="#FBF2F0"];
+    L5 [label="dependency audit\n+ SBOM diff", fillcolor="#FBF2F0"];
+  }
+
+  subgraph cluster_test {
+    label=<<b>2 TEST</b>>; fontsize=9; fontcolor="#E0A030"; style=rounded; color="#E0A030"; bgcolor="#FDF7EC";
+    T1 [label="unit\npytest, 90% core", fillcolor="#FBEFD6"];
+    T2 [label="property\nhypothesis on ledger\nand spec hashing", fillcolor="#FBEFD6"];
+    T3 [label="contract\ndriver conformance\nharness", fillcolor="#FBEFD6"];
+    T4 [label="integration\nephemeral PG + MinIO", fillcolor="#FBEFD6"];
+    T5 [label="API contract\nOpenAPI diff, breaking\nchange gate", fillcolor="#FBEFD6"];
+    T6 [label="frontend\nvitest + testing-library", fillcolor="#FBEFD6"];
+    T7 [label="e2e\nPlaywright, 4 journeys", fillcolor="#FBEFD6"];
+    T8 [label="a11y\naxe on every route", fillcolor="#FBEFD6"];
+    T9 [label="visual regression\nstorybook snapshots", fillcolor="#FBEFD6"];
+  }
+
+  subgraph cluster_build {
+    label=<<b>3 BUILD</b>>; fontsize=9; fontcolor="#177E89"; style=rounded; color="#177E89"; bgcolor="#F2FAFB";
+    B1 [label="aarch64 images\nrootless, distroless base", fillcolor="#DCF0F2"];
+    B2 [label="client regeneration\nCLI + TS from OpenAPI\nfails if drifted", fillcolor="#DCF0F2"];
+    B3 [label="CycloneDX SBOM", fillcolor="#DCF0F2"];
+    B4 [label="sign artefacts\ninternal PKI", fillcolor="#DCF0F2"];
+  }
+
+  subgraph cluster_dep {
+    label=<<b>4 DEPLOY</b>>; fontsize=9; fontcolor="#1F3350"; style=rounded; color="#1F3350"; bgcolor="#EEF2F7";
+    D1 [label="migrate\nforward-only, dry-run first", fillcolor="#D7E0EA"];
+    D2 [label="deploy to ALVISS", fillcolor="#D7E0EA"];
+    D3 [label="smoke: healthz, readyz,\nledger chain verify", fillcolor="#D7E0EA"];
+    D4 [label="rollback on failure", fillcolor="#FBF2F0"];
+  }
+
+  PR -> L1 -> L2 -> L3 -> L4 -> L5 -> T1 -> T2 -> T3 -> T4 -> T5 -> T6 -> T7 -> T8 -> T9 -> B1 -> B2 -> B3 -> B4 -> D1 -> D2 -> D3;
+  D3 -> D4 [label=" fail ", style=dashed, color="#B3402F", fontcolor="#B3402F"];
+}

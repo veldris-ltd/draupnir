@@ -1,0 +1,60 @@
+digraph tm {
+  rankdir=TB; bgcolor="white"; fontname="DejaVu Sans";
+  labelloc="t"; labeljust="l";
+  label=<<b>DRAUPNIR &#183; THREAT MODEL DATAFLOW (STRIDE-aligned)</b><br align="left"/><font point-size="11" color="#1F3350">Dashed red boundaries are trust boundaries. T-numbers reference the threat register in the SAD security section.</font><br align="left"/> >;
+  fontsize=20; fontcolor="#0E1A2B";
+  node [fontname="DejaVu Sans", shape=box, style="filled,rounded", penwidth=1.3, color="#0E1A2B", fontsize=9.5];
+  edge [fontname="DejaVu Sans", fontsize=8, color="#3E5C82", penwidth=1.2];
+  nodesep=0.35; ranksep=0.6;
+
+  subgraph cluster_tb1 {
+    label=<<b>TB1 &#183; INTERNET</b>  <font point-size="8">untrusted</font>>; fontsize=10; fontcolor="#B3402F";
+    style="rounded,dashed"; color="#B3402F"; bgcolor="#FBF2F0";
+    HF  [label="Hugging Face Hub", fillcolor="#F6E3E0"];
+    SRC [label="Corpus source sites", fillcolor="#F6E3E0"];
+    TCH [label="Teacher model API", fillcolor="#F6E3E0"];
+  }
+
+  subgraph cluster_tb2 {
+    label=<<b>TB2 &#183; OPERATOR EDGE</b>  <font point-size="8">authenticated humans</font>>; fontsize=10; fontcolor="#E0A030";
+    style="rounded,dashed"; color="#E0A030"; bgcolor="#FDF7EC";
+    OPS [label="Operator via WireGuard\nor CON-A local console", fillcolor="#FBEFD6"];
+    APR [label="Release approver", fillcolor="#FBEFD6"];
+  }
+
+  subgraph cluster_tb3 {
+    label=<<b>TB3 &#183; DRAUPNIR CONTROL PLANE</b>  <font point-size="8">trusted, audited</font>>; fontsize=10; fontcolor="#1F3350";
+    style="rounded,dashed"; color="#1F3350"; bgcolor="#F5F8FB";
+    API [label="DRAUPNIR Core API\nOIDC + RBAC + mTLS", fillcolor="#0E1A2B", fontcolor="white"];
+    LED [label="Append-only audit ledger\nhash-chained", fillcolor="#2E8B57", fontcolor="white"];
+    SEC [label="SVALINN secrets broker\nshort-lived tokens", fillcolor="#8A5A08", fontcolor="white"];
+  }
+
+  subgraph cluster_tb4 {
+    label=<<b>TB4 &#183; EXECUTION PLANE</b>  <font point-size="8">semi-trusted, sandboxed</font>>; fontsize=10; fontcolor="#177E89";
+    style="rounded,dashed"; color="#177E89"; bgcolor="#F2FAFB";
+    JOB [label="HAMARR training job\nrootless container,\nno outbound network", fillcolor="#E0A030"];
+    PLG [label="Third-party plug-in\nsigned, capability-scoped", fillcolor="#DCF0F2"];
+  }
+
+  subgraph cluster_tb5 {
+    label=<<b>TB5 &#183; DATA AT REST</b>  <font point-size="8">encrypted</font>>; fontsize=10; fontcolor="#6C5B9E";
+    style="rounded,dashed"; color="#6C5B9E"; bgcolor="#F4F1FA";
+    HODD [label="HODD vault\nAPFS encrypted, SED", fillcolor="#E8E2F5"];
+    PG   [label="PostgreSQL\nrun state and registers", fillcolor="#E8E2F5"];
+  }
+
+  HF  -> API [label=" T1 supply-chain:\n poisoned weights ", color="#B3402F", fontcolor="#B3402F"];
+  SRC -> API [label=" T2 corpus poisoning,\n unlicensed material ", color="#B3402F", fontcolor="#B3402F"];
+  TCH -> API [label=" T3 exfiltration via\n prompt content ", color="#B3402F", fontcolor="#B3402F", style=dashed];
+  OPS -> API [label=" T4 spoofed identity,\n privilege escalation "];
+  APR -> API [label=" T5 approval bypass,\n repudiation "];
+  API -> LED [label=" every transition "];
+  API -> SEC;
+  SEC -> JOB [label=" T6 credential leak\n into checkpoint ", color="#B3402F", fontcolor="#B3402F"];
+  API -> JOB [label=" dispatch "];
+  JOB -> PLG [label=" T7 malicious plug-in,\n arbitrary code ", color="#B3402F", fontcolor="#B3402F"];
+  JOB -> HODD [label=" checkpoint write "];
+  API -> PG;
+  HODD -> API [label=" T8 tampered artefact\n between gate and release ", color="#B3402F", fontcolor="#B3402F", style=dashed];
+}

@@ -1,0 +1,61 @@
+digraph forge {
+  rankdir=TB;
+  bgcolor="white";
+  fontname="DejaVu Sans";
+  labelloc="t";
+  labeljust="l";
+  label=<<b>SINDRI FORGE &#183; NETWORK TOPOLOGY</b><br align="left"/><font point-size="11" color="#1F3350">Veldris Ltd &#183; three isolated fabrics: BAUGR, BRAUT, TAUMR &#183; CONFIDENTIAL — RECIPIENT EYES ONLY</font><br align="left"/> >;
+  fontsize=22; fontcolor="#0E1A2B";
+  node [fontname="DejaVu Sans", shape=box, style="filled,rounded", penwidth=1.4, color="#0E1A2B", fontsize=10];
+  edge [fontname="DejaVu Sans", fontsize=8, color="#3E5C82", penwidth=1.3];
+  nodesep=0.45; ranksep=0.55;
+
+  subgraph cluster_wan {
+    label=<<b>SITE / WAN</b>>; fontsize=11; fontcolor="#1F3350";
+    style="rounded,dashed"; color="#7E8FA3";
+    RTR [label="Site router / firewall\n10.10.0.1\nNAT + egress allow-list only", fillcolor="#E9F0F7"];
+    WG  [label="WireGuard endpoint\nVeldris_NXT VPS (UK)\nremote operator access", fillcolor="#E9F0F7"];
+  }
+
+  subgraph cluster_mgmt {
+    label=<<b>FABRIC 3 &#183; TAUMR &#183; MANAGEMENT  :  1 GbE  :  10.10.0.0/24</b>>; fontsize=11; fontcolor="#177E89";
+    style="rounded"; color="#177E89"; bgcolor="#F2FAFB";
+    SWM [label="NORI  (SW-MGMT-01)\nTP-Link TL-SG108S\n8 x 1 GbE", fillcolor="#177E89", fontcolor="white"];
+    PI  [label="REGIN  10.10.0.5\nRaspberry Pi 5 16 GB\nslurmctld + slurmdbd + MariaDB\nProm + Grafana + Loki + Alertmanager\ndnsmasq (sindri.veldris.internal) + chrony", fillcolor="#2E8B57", fontcolor="white"];
+    LCD [label="CON-B operations console\n9\" 1280x720 touch\ndriven by REGIN", fillcolor="#6C5B9E", fontcolor="white"];
+  }
+
+  subgraph cluster_data {
+    label=<<b>FABRIC 2 &#183; BRAUT &#183; DATA / STORAGE  :  10 GbE &#38; 2.5 GbE  :  10.20.0.0/24</b>>; fontsize=11; fontcolor="#3E5C82";
+    style="rounded"; color="#3E5C82"; bgcolor="#F5F8FB";
+    SWD [label="NAIN  (SW-DATA-01)\n6-port unmanaged\n2 x 10G RJ45 + 4 x 2.5G\n60 Gbps switching capacity", fillcolor="#3E5C82", fontcolor="white"];
+    M1  [label="ANDVARI  10.20.0.21\nMac mini M4 Pro\nHODD VAULT + MLflow + MinIO\nTB5 -> SN850X 4 TB", fillcolor="#B9C6D4"];
+    M2  [label="ALVISS  10.20.0.22\nMac mini M4 Pro\nRAUN eval / CI runner /\nAnsible control node", fillcolor="#B9C6D4"];
+  }
+
+  subgraph cluster_ring {
+    label=<<b>FABRIC 1 &#183; BAUGR &#183; CX-7 RoCEv2 RING  :  200 GbE  :  192.168.0-5.0/24</b>>; fontsize=11; fontcolor="#E0A030";
+    style="rounded"; color="#E0A030"; bgcolor="#FDF7EC";
+    S1 [label="DVALIN   (dgx-spark-1)\nGB10 &#183; 128 GB &#183; 4 TB\n10.20.0.11", fillcolor="#E0A030"];
+    S2 [label="DURIN   (dgx-spark-2)\nGB10 &#183; 128 GB &#183; 4 TB\n10.20.0.12", fillcolor="#E0A030"];
+    S3 [label="DAIN   (dgx-spark-3)\nGB10 &#183; 128 GB &#183; 4 TB\n10.20.0.13", fillcolor="#E0A030"];
+
+    S1 -> S2 [label="  DAC-1  200 GbE\n  P0 -> P1", dir=both, color="#C6851C", penwidth=3.2, fontcolor="#8A5A08"];
+    S2 -> S3 [label="  DAC-2  200 GbE\n  P0 -> P1", dir=both, color="#C6851C", penwidth=3.2, fontcolor="#8A5A08"];
+    S3 -> S1 [label="  DAC-3  200 GbE\n  P0 -> P1", dir=both, color="#C6851C", penwidth=3.2, fontcolor="#8A5A08"];
+  }
+
+  RTR -> SWM [label=" uplink 1 GbE ", dir=both];
+  WG  -> RTR [style=dashed, dir=both, label=" encrypted "];
+  SWM -> PI  [dir=both, label=" P2 "];
+  PI  -> LCD [style=dotted, arrowhead=none, label=" HDMI+USB "];
+  SWM -> SWD [label=" P1 <-> P6 uplink 1 GbE\n (2.5G port, 1G negotiated) ", dir=both, penwidth=2.0];
+
+  SWD -> M1 [label=" P1  10 GbE ", dir=both, penwidth=2.4];
+  SWD -> S1 [label=" P2  10 GbE ", dir=both, penwidth=2.4];
+  SWD -> S2 [label=" P3  2.5 GbE ", dir=both, penwidth=1.8];
+  SWD -> S3 [label=" P4  2.5 GbE ", dir=both, penwidth=1.8];
+  SWD -> M2 [label=" P5  2.5 GbE ", dir=both, penwidth=1.8];
+
+  { rank=same; M1; M2; }
+}

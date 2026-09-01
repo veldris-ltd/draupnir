@@ -1,0 +1,68 @@
+# Development dependencies only: PostgreSQL and MinIO, which SAD 7.2 places on
+# ANDVARI in the real estate. The API and the console run on the host under
+# `make dev` so that reload works; the deployable images are built by
+# `make images` and are what the pipeline ships.
+name: draupnir-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: draupnir-postgres
+    environment:
+      # The application connects as the unprivileged `draupnir` role created by
+      # the init script. This matters: a superuser bypasses row level security,
+      # so seeding as one would silently defeat SAD 11C constraint 3.
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: draupnir
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d draupnir"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: draupnir-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: draupnir
+      MINIO_ROOT_PASSWORD: draupnir-dev-secret
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: draupnir-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 draupnir draupnir-dev-secret
+        mc mb --ignore-existing local/draupnir
+        mc version enable local/draupnir
+        echo "bucket ready"
+    restart: "no"
+
+volumes:
+  postgres-data:
+  minio-data:

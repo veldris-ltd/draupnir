@@ -1,0 +1,37 @@
+digraph sm {
+  rankdir=LR; bgcolor="white"; fontname="DejaVu Sans";
+  labelloc="t"; labeljust="l";
+  label=<<b>DRAUPNIR &#183; MODEL LIFECYCLE STATE MACHINE</b><br align="left"/><font point-size="11" color="#1F3350">One state machine per artefact. Every transition is an append-only ledger entry carrying actor, timestamp, input hashes and gate result.</font><br align="left"/> >;
+  fontsize=20; fontcolor="#0E1A2B";
+  node [fontname="DejaVu Sans", shape=box, style="filled,rounded", penwidth=1.3, color="#0E1A2B", fontsize=9.5];
+  edge [fontname="DejaVu Sans", fontsize=8, color="#3E5C82", penwidth=1.2];
+  nodesep=0.3; ranksep=0.5;
+
+  DRAFT   [label="DRAFT", fillcolor="#E9F0F7"];
+  CORPUS  [label="CORPUS_REGISTERED\nHODD", fillcolor="#2E8B57", fontcolor="white"];
+  LICOK   [label="LICENCE_CLEARED\nGLEIPNIR", fillcolor="#B3402F", fontcolor="white"];
+  CURATED [label="CURATED\nHODD", fillcolor="#2E8B57", fontcolor="white"];
+  QUEUED  [label="QUEUED\nMOTSOGNIR", fillcolor="#177E89", fontcolor="white"];
+  TRAIN   [label="TRAINING\nHAMARR", fillcolor="#E0A030"];
+  TRAINED [label="TRAINED", fillcolor="#FBEFD6"];
+  EVAL    [label="EVALUATING\nRAUN", fillcolor="#3E5C82", fontcolor="white"];
+  MERGED  [label="MERGED\nBRISINGAMEN", fillcolor="#6C5B9E", fontcolor="white"];
+  QUANT   [label="QUANTISED\nSKIDBLADNIR", fillcolor="#1F3350", fontcolor="white"];
+  APPROVE [label="AWAITING_APPROVAL\nGLEIPNIR", fillcolor="#B3402F", fontcolor="white"];
+  RELEASE [label="RELEASED", fillcolor="#0E1A2B", fontcolor="white", penwidth=2.2];
+  FAILED  [label="FAILED", fillcolor="#F6E3E0"];
+  QUAR    [label="QUARANTINED\nno delete, ledger retained", fillcolor="#F6E3E0"];
+
+  DRAFT -> CORPUS -> LICOK -> CURATED -> QUEUED -> TRAIN -> TRAINED -> EVAL;
+  EVAL -> MERGED [label=" E1-E6 pass "];
+  EVAL -> QUEUED [label=" gate fail: requeue ", style=dashed, color="#B3402F", fontcolor="#B3402F"];
+  MERGED -> EVAL [label=" re-gate merged ", style=dashed];
+  MERGED -> QUANT;
+  QUANT -> EVAL [label=" re-gate quantised ", style=dashed];
+  QUANT -> APPROVE;
+  APPROVE -> RELEASE [label=" human sign-off "];
+  APPROVE -> QUAR [label=" rejected ", style=dashed, color="#B3402F", fontcolor="#B3402F"];
+  LICOK -> QUAR [label=" licence fail ", style=dashed, color="#B3402F", fontcolor="#B3402F"];
+  TRAIN -> FAILED [style=dashed, color="#B3402F"];
+  FAILED -> QUEUED [label=" retry ", style=dashed];
+}

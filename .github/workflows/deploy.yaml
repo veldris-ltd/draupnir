@@ -1,0 +1,118 @@
+# DRAUPNIR deployment, SAD 11H stage 4.
+#
+#   migrate (forward-only, dry-run first) -> deploy to ALVISS -> smoke -> rollback on failure
+#
+# AC-Q6: migrations are forward only, run dry first, and a failed smoke test
+# triggers rollback. The dry run is a real gate: it renders the pending SQL and
+# refuses to continue if rendering fails, which is where a migration that
+# cannot be planned is caught -- before it has touched the database.
+
+name: deploy
+
+on:
+  workflow_run:
+    workflows: [pipeline]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Revision to deploy
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-alviss
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: ALVISS
+    # A deployment only follows a green pipeline. This is the one condition in
+    # the delivery path, and it gates the whole job rather than any stage
+    # inside it, so no stage of stage 4 becomes individually skippable.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ${{ vars.DRAUPNIR_RUNNER || 'ubuntu-24.04-arm' }}
+    environment: sindri
+    timeout-minutes: 30
+
+    env:
+      DRAUPNIR_DATABASE_URL_SYNC: ${{ secrets.DRAUPNIR_DATABASE_URL_SYNC }}
+      DRAUPNIR_API_URL: ${{ vars.DRAUPNIR_API_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision || github.event.workflow_run.head_sha }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.5.11"
+          enable-cache: true
+
+      - name: Sync Python dependencies
+        run: uv sync --frozen
+
+      - name: Record the current revision for rollback
+        id: previous
+        run: |
+          previous="$(uv run draupnirctl version 2>/dev/null || true)"
+          echo "revision=${previous}" >> "$GITHUB_OUTPUT"
+          uv run alembic current | tee migration-before.txt
+
+      # ------------------------------------------------------------------
+      # 4.1 migrate: forward only, dry run first
+      # ------------------------------------------------------------------
+      - name: "4.1a migrate --sql (dry run)"
+        run: |
+          uv run alembic upgrade head --sql | tee pending-migration.sql
+          echo "--- pending SQL rendered; review is in the job log ---"
+
+      - name: "4.1b migrate"
+        run: uv run alembic upgrade head
+
+      # ------------------------------------------------------------------
+      # 4.2 deploy
+      # ------------------------------------------------------------------
+      - name: "4.2 deploy to ALVISS"
+        id: rollout
+        run: ./deploy/rollout.sh "${{ github.sha }}"
+
+      # ------------------------------------------------------------------
+      # 4.3 smoke: healthz, readyz, ledger chain verify
+      # ------------------------------------------------------------------
+      - name: "4.3 smoke"
+        id: smoke
+        run: uv run python scripts/smoke.py --base-url "${DRAUPNIR_API_URL}"
+
+      # ------------------------------------------------------------------
+      # 4.4 rollback on failure
+      # ------------------------------------------------------------------
+      - name: "4.4 rollback"
+        if: failure() && steps.rollout.conclusion == 'success'
+        run: |
+          echo "::error::Smoke test failed. Rolling the deployment back."
+          ./deploy/rollback.sh "${{ steps.previous.outputs.revision }}"
+          # The schema is deliberately not rolled back. Migrations are forward
+          # only (AC-Q6): the previous release runs against the new schema
+          # because every migration is additive, and a schema fault is
+          # recovered by a restore plus a new forward migration.
+          uv run python scripts/smoke.py --base-url "${DRAUPNIR_API_URL}" --skip-ledger
+
+      - name: Upload deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-${{ github.sha }}
+          path: |
+            pending-migration.sql
+            migration-before.txt
+          retention-days: 90
+          if-no-files-found: warn

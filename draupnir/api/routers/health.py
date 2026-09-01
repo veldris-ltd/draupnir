@@ -1,0 +1,66 @@
+"""Liveness and readiness.
+
+These two endpoints are the smoke test of the deployment stage (SAD 11H,
+stage 4): `healthz`, `readyz`, then a ledger chain verification. They are
+deliberately unversioned; an operator probe is not part of the `/v1` contract.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from fastapi import APIRouter
+from pydantic import BaseModel
+from sqlalchemy import text
+
+from draupnir.core.infrastructure.config import get_settings
+from draupnir.core.infrastructure.database import create_engine
+
+router = APIRouter(tags=["operations"])
+
+
+class Health(BaseModel):
+    """Liveness answer."""
+
+    status: Literal["ok"]
+    version: str
+    site_id: str
+
+
+class Readiness(BaseModel):
+    """Readiness answer, one entry per dependency."""
+
+    status: Literal["ready", "degraded"]
+    checks: dict[str, bool]
+
+
+@router.get("/healthz", summary="Liveness", operation_id="getHealth")
+async def healthz() -> Health:
+    """Return liveness. This touches no dependency by design."""
+    from draupnir import __version__
+
+    settings = get_settings()
+    return Health(status="ok", version=__version__, site_id=settings.site_id)
+
+
+@router.get("/readyz", summary="Readiness", operation_id="getReadiness")
+async def readyz() -> Readiness:
+    """Return readiness, having checked each dependency.
+
+    SAD 11.2 requires degraded modes to be visible rather than fatal, so a
+    failed dependency reports `degraded` rather than raising.
+    """
+    checks: dict[str, bool] = {}
+
+    engine = create_engine()
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
+        checks["database"] = True
+    except Exception:
+        checks["database"] = False
+    finally:
+        await engine.dispose()
+
+    status: Literal["ready", "degraded"] = "ready" if all(checks.values()) else "degraded"
+    return Readiness(status=status, checks=checks)

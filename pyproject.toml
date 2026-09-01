@@ -1,0 +1,176 @@
+# DRAUPNIR - CIM-56 Model Factory Control Plane
+# Managed with uv. See docs/CONTRIBUTING.md.
+
+[project]
+name = "draupnir"
+version = "0.1.0"
+description = "DRAUPNIR, the CIM-56 model factory control plane"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "Proprietary" }
+authors = [{ name = "Veldris" }]
+classifiers = [
+  "Private :: Do Not Upload",
+  "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+  # Edge
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.6",
+  # Infrastructure
+  "sqlalchemy[asyncio]>=2.0.36",
+  "asyncpg>=0.30",
+  "alembic>=1.14",
+  "minio>=7.2",
+  # Signing, SAD 11H stage 3.4 and Decision S9
+  "cryptography>=44.0",
+  # Identifiers: UUIDv7, SAD 11E.2
+  "uuid6>=2024.7.10",
+  # Observability, SAD 11E.4
+  "structlog>=24.4",
+  "opentelemetry-api>=1.28",
+  "opentelemetry-sdk>=1.28",
+  "opentelemetry-instrumentation-fastapi>=0.49b0",
+  "prometheus-client>=0.21",
+  # CLI
+  "typer>=0.15",
+  "httpx>=0.28",
+]
+
+[project.scripts]
+draupnirctl = "draupnirctl.__main__:main"
+
+[dependency-groups]
+dev = [
+  # Test
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "pytest-cov>=6.0",
+  "hypothesis>=6.119",
+  "testcontainers[postgres,minio]>=4.8",
+  "psycopg[binary]>=3.2",
+  # The Docker SDK reaches Docker Desktop over a named pipe, which it can
+  # only open with pywin32. Without it every integration test errors out on
+  # a Windows development machine while `docker ps` works fine.
+  "pywin32>=308; sys_platform == 'win32'",
+  # Static analysis
+  "ruff>=0.8",
+  "mypy>=1.13",
+  "import-linter>=2.1",
+  # Supply chain
+  "pip-audit>=2.7",
+  "cyclonedx-bom>=5.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["draupnir", "draupnirctl"]
+artifacts = ["draupnir/py.typed", "draupnirctl/py.typed"]
+
+# --------------------------------------------------------------------------
+# uv
+# --------------------------------------------------------------------------
+# Deployment targets are linux/aarch64 (ALVISS, the forge control plane host)
+# and darwin/arm64 (Apple silicon workstations). win32/AMD64 is resolved as
+# well so the lockfile is usable from a Windows development machine; nothing
+# is deployed there.
+[tool.uv]
+required-version = ">=0.5.0"
+environments = [
+  "sys_platform == 'linux' and platform_machine == 'aarch64'",
+  "sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "sys_platform == 'win32'",
+]
+
+# --------------------------------------------------------------------------
+# ruff
+# --------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["draupnir", "draupnirctl", "plugins", "scripts", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W",      # pycodestyle
+  "F",           # pyflakes
+  "I",           # isort
+  "N",           # pep8-naming
+  "UP",          # pyupgrade
+  "B",           # bugbear
+  "A",           # builtins shadowing
+  "C4",          # comprehensions
+  "DTZ",         # naive datetimes -- SAD 11E.2 forbids them
+  "T20",         # no print
+  "SIM",
+  "RUF",
+  "S",           # bandit
+  "ANN",         # annotations
+  "D",           # docstrings
+]
+ignore = [
+  "D203",   # conflicts with D211
+  "D213",   # conflicts with D212
+  "ANN401", # Any is occasionally the honest annotation
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "D100", "D103", "D104", "ANN"]
+"scripts/**" = ["T20"]
+"migrations/**" = ["D", "ANN", "N999"]
+# The task runner is a script. Each task's documentation is the description in
+# its decorator, which is what `make` prints; a docstring would duplicate it.
+"tasks.py" = ["T20", "D103", "N818"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["draupnir", "draupnirctl", "plugins", "scripts", "tests"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+docstring-code-format = true
+
+# --------------------------------------------------------------------------
+# mypy
+# --------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+warn_unused_configs = true
+disallow_any_unimported = true
+plugins = ["pydantic.mypy"]
+files = ["draupnir", "draupnirctl", "scripts", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["uuid6.*"]
+ignore_missing_imports = true
+
+# --------------------------------------------------------------------------
+# pytest
+# --------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+  "unit: pure domain logic",
+  "property: Hypothesis invariants",
+  "contract: driver conformance harness",
+  "integration: requires ephemeral PostgreSQL and MinIO containers",
+]
+
+[tool.coverage.run]
+source = ["draupnir"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]

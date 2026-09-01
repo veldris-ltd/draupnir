@@ -1,0 +1,19 @@
+{
+  "name": "@draupnir/console",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The DRAUPNIR console",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --build --force && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --build --force"
+  },
+  "dependencies": {
+    "@draupnir/api-client": "workspace:*",
+    "@draupnir/jarngreipr": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}

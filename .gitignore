@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.uv-bootstrap/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+.coverage
+coverage.xml
+htmlcov/
+/dist/
+/build/
+*.egg-info/
+
+# Node
+node_modules/
+web/**/dist/
+web/**/dist-types/
+web/**/*.tsbuildinfo
+web/**/storybook-static/
+web/**/.vite/
+web/**/playwright-report/
+web/**/test-results/
+web/**/blob-report/
+.pnpm-store/
+
+# Local state
+.env
+.env.local
+docker/.env
+artefacts/
+*.log
+
+# Generated evidence, rebuilt by the pipeline
+sbom/
+
+# Playwright output. Recorded visual baselines are committed; failures are not.
+web/**/*-actual.png
+web/**/*-diff.png

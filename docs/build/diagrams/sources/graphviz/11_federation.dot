@@ -1,0 +1,66 @@
+digraph fed {
+  rankdir=TB; bgcolor="white"; fontname="DejaVu Sans";
+  labelloc="t"; labeljust="l";
+  label=<<b>DRAUPNIR &#183; MULTI-FORGE FEDERATION</b><br align="left"/><font point-size="11" color="#1F3350">MEGINGJORD anchors many forges. Each forge keeps its own ledger and continues through a WAN outage. CONFIDENTIAL — RECIPIENT EYES ONLY</font><br align="left"/> >;
+  fontsize=21; fontcolor="#0E1A2B";
+  node [fontname="DejaVu Sans", shape=box, style="filled,rounded", penwidth=1.3, color="#0E1A2B", fontsize=9.5];
+  edge [fontname="DejaVu Sans", fontsize=8, color="#3E5C82", penwidth=1.3];
+  nodesep=0.4; ranksep=0.75;
+
+  subgraph cluster_central {
+    label=<<b>FEDERATION TIER</b>  <font point-size="8">Veldris_NXT VPS, United Kingdom</font>>;
+    fontsize=10.5; fontcolor="#8A5A08"; style=rounded; color="#8A5A08"; bgcolor="#FDF7EC";
+    MEG [label="MEGINGJORD\nFederation registry and anchor\n\n&#183; global CIM-56 model registry\n&#183; cross-forge ledger anchors\n&#183; policy and gate distribution\n&#183; OIDC issuer, RBAC source of truth\n&#183; plug-in signature trust root\n&#183; internal PKI + self-hosted Rekor log",
+         fillcolor="#8A5A08", fontcolor="white", penwidth=2.4, width=3.8];
+  }
+
+  subgraph cluster_loc1 {
+    label=<<b>LOCATION 1 &#183; NUNEATON</b>>; fontsize=10.5; fontcolor="#1F3350";
+    style="rounded,dashed"; color="#7E8FA3"; bgcolor="#F5F8FB";
+
+    subgraph cluster_sindri {
+      label=<<b>FORGE: SINDRI</b>  <font point-size="8">3 x GB10, live</font>>; fontsize=9.5; fontcolor="#E0A030";
+      style=rounded; color="#E0A030"; bgcolor="#FDF7EC";
+      G1 [label="GULLINBURSTI\nsite agent", fillcolor="#E0A030"];
+      D1 [label="DRAUPNIR Core\non ALVISS", fillcolor="#0E1A2B", fontcolor="white"];
+      L1 [label="Local ledger segment\nhash-chained", fillcolor="#2E8B57", fontcolor="white"];
+      H1 [label="HODD vault\non ANDVARI", fillcolor="#E8E2F5"];
+      N1 [label="DVALIN / DURIN / DAIN\nBAUGR ring", fillcolor="#FBEFD6"];
+      D1 -> L1; D1 -> H1; D1 -> N1; G1 -> D1 [dir=both];
+    }
+
+    subgraph cluster_brokkr {
+      label=<<b>FORGE: BROKKR</b>  <font point-size="8">planned, same premises</font>>; fontsize=9.5; fontcolor="#7E8FA3";
+      style="rounded,dashed"; color="#7E8FA3"; bgcolor="#F0F3F7";
+      G2 [label="GULLINBURSTI\nsite agent", fillcolor="#D7E0EA"];
+      D2 [label="DRAUPNIR Core", fillcolor="#D7E0EA"];
+      L2 [label="Local ledger segment", fillcolor="#D7E0EA"];
+      D2 -> L2; G2 -> D2 [dir=both];
+    }
+  }
+
+  subgraph cluster_loc2 {
+    label=<<b>LOCATION 2 &#183; FUTURE SITE</b>>; fontsize=10.5; fontcolor="#1F3350";
+    style="rounded,dashed"; color="#7E8FA3"; bgcolor="#F5F8FB";
+    subgraph cluster_eitri {
+      label=<<b>FORGE: EITRI</b>  <font point-size="8">planned</font>>; fontsize=9.5; fontcolor="#7E8FA3";
+      style="rounded,dashed"; color="#7E8FA3"; bgcolor="#F0F3F7";
+      G3 [label="GULLINBURSTI\nsite agent", fillcolor="#D7E0EA"];
+      D3 [label="DRAUPNIR Core", fillcolor="#D7E0EA"];
+      L3 [label="Local ledger segment", fillcolor="#D7E0EA"];
+      D3 -> L3; G3 -> D3 [dir=both];
+    }
+  }
+
+  G1 -> MEG [label="  anchor chain head\n  pull policy, push release\n  WireGuard, mTLS  ", dir=both, penwidth=2.2, color="#8A5A08", fontcolor="#8A5A08"];
+  G2 -> MEG [dir=both, style=dashed, color="#8A5A08"];
+  G3 -> MEG [dir=both, style=dashed, color="#8A5A08"];
+
+  PART [label="PARTITION BEHAVIOUR\nA forge that loses the WAN continues training, evaluating and\nrecording locally. Release is BLOCKED until the chain head\nre-anchors, because release requires the federation trust root.",
+        shape=note, fillcolor="#FBF2F0", color="#B3402F", fontsize=9];
+  MEG -> PART [style=invis];
+
+  DNS [label="NAMING\nhost.forge.veldris.internal\ndvalin.sindri.veldris.internal\ndvalin.brokkr.veldris.internal\nForges are smiths; hosts are dwarves.",
+       shape=note, fillcolor="#F5F8FB", color="#7E8FA3", fontsize=9];
+  PART -> DNS [style=invis];
+}

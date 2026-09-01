@@ -1,0 +1,55 @@
+digraph ctx {
+  rankdir=TB; bgcolor="white"; fontname="DejaVu Sans";
+  labelloc="t"; labeljust="l";
+  label=<<b>DRAUPNIR &#183; C4 LEVEL 1 &#183; SYSTEM CONTEXT</b><br align="left"/><font point-size="11" color="#1F3350">Veldris Ltd &#183; SPECIFIED architecture, not observed &#183; CONFIDENTIAL — RECIPIENT EYES ONLY</font><br align="left"/> >;
+  fontsize=21; fontcolor="#0E1A2B";
+  node [fontname="DejaVu Sans", shape=box, style="filled,rounded", penwidth=1.3, color="#0E1A2B", fontsize=10];
+  edge [fontname="DejaVu Sans", fontsize=8.5, color="#3E5C82", penwidth=1.3];
+  nodesep=0.5; ranksep=0.7;
+
+  subgraph cluster_people {
+    label=<<b>ACTORS</b>>; fontsize=10; fontcolor="#1F3350"; style="rounded,dashed"; color="#7E8FA3";
+    OPS  [label="Forge Operator\nsubmits and monitors runs", fillcolor="#E9F0F7"];
+    CUR  [label="Corpus Curator\ningests sources, sets licences", fillcolor="#E9F0F7"];
+    APR  [label="Release Approver\nsigns off GLEIPNIR gates", fillcolor="#FBEFD6"];
+    AUD  [label="Auditor / Counsel\nread-only ledger and lineage", fillcolor="#E9F0F7"];
+  }
+
+  DRA [label="DRAUPNIR\nCIM-56 model factory control plane\nOne application governing corpus,\ntraining, reweighting, evaluation,\nquantisation and release",
+       fillcolor="#0E1A2B", fontcolor="white", penwidth=2.4, width=3.6];
+
+  subgraph cluster_int {
+    label=<<b>SINDRI FORGE (internal, trusted)</b>>; fontsize=10; fontcolor="#E0A030"; style=rounded; color="#E0A030"; bgcolor="#FDF7EC";
+    SLU [label="Slurm on REGIN\njob scheduler", fillcolor="#FBEFD6"];
+    NOD [label="DVALIN / DURIN / DAIN\nGB10 training appliances", fillcolor="#E0A030"];
+    VLT [label="HODD vault on ANDVARI\nNFS + MinIO object store", fillcolor="#FBEFD6"];
+    MLF [label="MLflow + PostgreSQL\nrun tracking", fillcolor="#FBEFD6"];
+    OBS [label="Prometheus / Grafana / Loki\ntelemetry", fillcolor="#FBEFD6"];
+    MLX [label="ALVISS\nMLX cross-platform eval", fillcolor="#FBEFD6"];
+  }
+
+  subgraph cluster_ext {
+    label=<<b>EXTERNAL (egress allow-list only)</b>>; fontsize=10; fontcolor="#B3402F"; style="rounded,dashed"; color="#B3402F"; bgcolor="#FBF2F0";
+    HF  [label="Hugging Face Hub\nbase weight acquisition\n(one-shot, hashed)", fillcolor="#F6E3E0"];
+    PKG [label="PyPI / GitHub / NGC\ndependency and image pull", fillcolor="#F6E3E0"];
+    TCH [label="Teacher model API\n(GLM-5.x, optional Phase 2)\nsynthetic data only", fillcolor="#F6E3E0"];
+    SRC [label="National corpus sources\nlegislation, gazettes,\nstatistics, standards", fillcolor="#F6E3E0"];
+  }
+
+  OPS -> DRA [label=" submit, monitor, cancel "];
+  CUR -> DRA [label=" register corpus + licence "];
+  APR -> DRA [label=" approve or reject gate "];
+  DRA -> AUD [label=" append-only ledger,\n lineage, model cards "];
+
+  DRA -> SLU [label=" MOTSOGNIR dispatch "];
+  SLU -> NOD;
+  DRA -> VLT [label=" HODD read / write "];
+  DRA -> MLF [label=" run metadata "];
+  OBS -> DRA [label=" metrics, logs "];
+  DRA -> MLX [label=" RAUN cross-platform check "];
+
+  DRA -> HF  [label=" pull, hash, archive licence ", style=dashed];
+  DRA -> PKG [style=dashed];
+  DRA -> TCH [label=" distillation only ", style=dashed];
+  SRC -> CUR [style=dashed, label=" out-of-band acquisition "];
+}

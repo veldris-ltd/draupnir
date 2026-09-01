@@ -1,0 +1,29 @@
+# AC-Q3: secret scanning runs on every commit.
+# Install with `make hooks` (or `python tasks.py hooks`).
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+        args: ["--config", ".gitleaks.toml"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+        # The two rendered specification PDFs are the one deliberate
+        # exception. The guard stays at 1 MB for everything else, which is
+        # what stops a checkpoint or a corpus sample reaching the history.
+        exclude: '^docs/build/draupnir-(sad|ux)\.pdf$'

@@ -1,0 +1,45 @@
+digraph ring {
+  rankdir=LR;
+  bgcolor="white";
+  fontname="DejaVu Sans";
+  labelloc="t"; labeljust="l";
+  label=<<b>BAUGR &#183; CX-7 200 GbE RING &#183; PORT AND ADDRESS MAP</b><br align="left"/><font point-size="10" color="#1F3350">Port0 = QSFP cage adjacent to the RJ45 jack &#183; Port1 = outer cage. Each physical port presents TWO logical interfaces (enp1... and enP2p...); both must be addressed.</font><br align="left"/> >;
+  fontsize=20; fontcolor="#0E1A2B";
+  node [fontname="DejaVu Sans", shape=plaintext, fontsize=9];
+  edge [fontname="DejaVu Sans", fontsize=9, penwidth=3.4, color="#C6851C", fontcolor="#8A5A08"];
+  nodesep=1.0; ranksep=1.9;
+
+  N1 [label=<
+   <table border="0" cellborder="1" cellspacing="0" cellpadding="5" bgcolor="#FDF7EC" color="#0E1A2B">
+    <tr><td colspan="2" bgcolor="#E0A030"><b>DVALIN &#183; dgx-spark-1</b><br/><font point-size="8">RING NODE 1 &#183; RANK 0</font></td></tr>
+    <tr><td align="left"><b>P0</b> enp1s0f0np0</td><td align="left">192.168.0.1/24</td></tr>
+    <tr><td align="left"><b>P0</b> enP2p1s0f0np0</td><td align="left">192.168.1.1/24</td></tr>
+    <tr><td align="left"><b>P1</b> enp1s0f1np1</td><td align="left">192.168.2.1/24</td></tr>
+    <tr><td align="left"><b>P1</b> enP2p1s0f1np1</td><td align="left">192.168.3.1/24</td></tr>
+    <tr><td align="left" bgcolor="#F5F8FB">RJ45 10 GbE</td><td align="left" bgcolor="#F5F8FB">10.20.0.11/24</td></tr>
+   </table>>];
+
+  N2 [label=<
+   <table border="0" cellborder="1" cellspacing="0" cellpadding="5" bgcolor="#FDF7EC" color="#0E1A2B">
+    <tr><td colspan="2" bgcolor="#E0A030"><b>DURIN &#183; dgx-spark-2</b><br/><font point-size="8">RING NODE 2 &#183; RANK 1</font></td></tr>
+    <tr><td align="left"><b>P0</b> enp1s0f0np0</td><td align="left">192.168.4.1/24</td></tr>
+    <tr><td align="left"><b>P0</b> enP2p1s0f0np0</td><td align="left">192.168.5.1/24</td></tr>
+    <tr><td align="left"><b>P1</b> enp1s0f1np1</td><td align="left">192.168.0.2/24</td></tr>
+    <tr><td align="left"><b>P1</b> enP2p1s0f1np1</td><td align="left">192.168.1.2/24</td></tr>
+    <tr><td align="left" bgcolor="#F5F8FB">RJ45 10 GbE</td><td align="left" bgcolor="#F5F8FB">10.20.0.12/24</td></tr>
+   </table>>];
+
+  N3 [label=<
+   <table border="0" cellborder="1" cellspacing="0" cellpadding="5" bgcolor="#FDF7EC" color="#0E1A2B">
+    <tr><td colspan="2" bgcolor="#E0A030"><b>DAIN &#183; dgx-spark-3</b><br/><font point-size="8">RING NODE 3 &#183; RANK 2</font></td></tr>
+    <tr><td align="left"><b>P0</b> enp1s0f0np0</td><td align="left">192.168.2.2/24</td></tr>
+    <tr><td align="left"><b>P0</b> enP2p1s0f0np0</td><td align="left">192.168.3.2/24</td></tr>
+    <tr><td align="left"><b>P1</b> enp1s0f1np1</td><td align="left">192.168.4.2/24</td></tr>
+    <tr><td align="left"><b>P1</b> enP2p1s0f1np1</td><td align="left">192.168.5.2/24</td></tr>
+    <tr><td align="left" bgcolor="#F5F8FB">RJ45 10 GbE</td><td align="left" bgcolor="#F5F8FB">10.20.0.13/24</td></tr>
+   </table>>];
+
+  N1 -> N2 [label="  DAC-1\n  N1:P0  ->  N2:P1  ", dir=both];
+  N2 -> N3 [label="  DAC-2\n  N2:P0  ->  N3:P1  ", dir=both];
+  N3 -> N1 [label="  DAC-3\n  N3:P0  ->  N1:P1  ", dir=both, constraint=false];
+}

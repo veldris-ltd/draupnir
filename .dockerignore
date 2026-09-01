@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+.git
+.github
+docs/build
+sbom
+web/**/storybook-static
+web/**/playwright-report
+web/**/test-results

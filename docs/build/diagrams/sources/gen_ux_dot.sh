@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+
+cat > dot/25_screens.dot <<'EOF'
+digraph screens {
+  rankdir=LR; bgcolor="white"; fontname="DejaVu Sans"; labelloc="t"; labeljust="l";
+  label=<<b>DRAUPNIR CONSOLE &#183; SCREEN INVENTORY AND NAVIGATION MODEL</b><br align="left"/><font point-size="10" color="#1F3350">Every screen is listed. Screens marked with a role are unreachable without it. CONFIDENTIAL — RECIPIENT EYES ONLY</font><br align="left"/> >;
+  fontsize=19; fontcolor="#0E1A2B";
+  node [fontname="DejaVu Sans", shape=box, style="filled,rounded", penwidth=1.1, color="#0E1A2B", fontsize=8.5];
+  edge [fontname="DejaVu Sans", fontsize=7, color="#7E8FA3"];
+  nodesep=0.16; ranksep=0.85;
+
+  SHELL [label="Console shell\nsite switcher · command palette (⌘K)\nglobal search · alert tray · account", fillcolor="#0E1A2B", fontcolor="white", width=2.6];
+
+  subgraph cluster_o { label=<<b>OVERVIEW</b>>; fontsize=9; color="#7E8FA3"; style=rounded; bgcolor="#F5F8FB";
+    O1 [label="S01 Overview\ncapacity · queue depth · thermal\nanchor freshness · recent releases", fillcolor="#E9F0F7"]; }
+
+  subgraph cluster_c { label=<<b>CORPORA</b>  <font point-size="7">curator</font>>; fontsize=9; color="#177E89"; style=rounded; bgcolor="#F2FAFB";
+    C1 [label="S02 Corpus list\nby jurisdiction · status · tokens", fillcolor="#DCF0F2"];
+    C2 [label="S03 Source register\nlicence · attribution · personal data\nresidency · hash · retrieved", fillcolor="#DCF0F2"];
+    C3 [label="S04 Register source wizard\n4 steps · DPIA gate", fillcolor="#DCF0F2"];
+    C4 [label="S05 Curation run\nstage retention · decontamination", fillcolor="#DCF0F2"];
+    C5 [label="S06 Retention schedule\ndue dates · approve deletion", fillcolor="#DCF0F2"];
+    C1 -> C2 -> C3; C1 -> C4; C1 -> C5; }
+
+  subgraph cluster_r { label=<<b>RUNS</b>  <font point-size="7">operator</font>>; fontsize=9; color="#E0A030"; style=rounded; bgcolor="#FDF7EC";
+    R1 [label="S07 Run board\nfilter · live · site scoped", fillcolor="#FBEFD6"];
+    R2 [label="S08 Run detail\noverview · spec · logs · gates\nlineage · ledger", fillcolor="#FBEFD6"];
+    R3 [label="S09 Compose run\nspec editor · schema validation", fillcolor="#FBEFD6"];
+    R4 [label="S10 Dry run result\nrendered job plan · no allocation", fillcolor="#FBEFD6"];
+    R5 [label="S11 Failure diagnosis\ncause · suggested action · evidence", fillcolor="#FBEFD6"];
+    R6 [label="S12 Array monitor\n56 elements · concurrency · requeue", fillcolor="#FBEFD6"];
+    R1 -> R2 -> R5; R1 -> R3 -> R4; R1 -> R6; }
+
+  subgraph cluster_m { label=<<b>MODELS</b>>; fontsize=9; color="#6C5B9E"; style=rounded; bgcolor="#F4F1FA";
+    M1 [label="S13 Model registry\n56 jurisdictions · tier · version", fillcolor="#E8E2F5"];
+    M2 [label="S14 Model detail\ncard · artefacts · quantised builds", fillcolor="#E8E2F5"];
+    M3 [label="S15 Sweep comparison\nmerge points vs gate results", fillcolor="#E8E2F5"];
+    M4 [label="S16 Lineage explorer\nrelease to base licence and corpus", fillcolor="#E8E2F5"];
+    M5 [label="S17 Release package\ncard · SBOM · manifest · Art. 53", fillcolor="#E8E2F5"];
+    M1 -> M2 -> M3; M2 -> M4; M2 -> M5; }
+
+  subgraph cluster_g { label=<<b>GATES</b>  <font point-size="7">approver</font>>; fontsize=9; color="#B3402F"; style=rounded; bgcolor="#FBF2F0";
+    G1 [label="S18 Approval queue\nby age · gate status", fillcolor="#F6E3E0"];
+    G2 [label="S19 Approval detail\nevidence above decision\nsole approver notice", fillcolor="#F6E3E0"];
+    G3 [label="S20 Publish\npre-flight checklist · anchor state", fillcolor="#F6E3E0"];
+    G4 [label="S21 Reject\nreason required · quarantine", fillcolor="#F6E3E0"];
+    G1 -> G2 -> G3; G2 -> G4; }
+
+  subgraph cluster_a { label=<<b>ADMIN</b>  <font point-size="7">admin</font>>; fontsize=9; color="#3E5C82"; style=rounded; bgcolor="#F5F8FB";
+    A1 [label="S22 Sites\nForge Matrix · anchor state", fillcolor="#E9F0F7"];
+    A2 [label="S23 Plug-ins\nversion · capabilities · signature", fillcolor="#E9F0F7"];
+    A3 [label="S24 Policy\nlicence · copyright · retention", fillcolor="#E9F0F7"];
+    A4 [label="S25 Users and roles", fillcolor="#E9F0F7"];
+    A1 -> A2 -> A3 -> A4 [style=invis]; }
+
+  subgraph cluster_u { label=<<b>AUDIT</b>  <font point-size="7">viewer and above</font>>; fontsize=9; color="#2E8B57"; style=rounded; bgcolor="#EAF4EE";
+    U1 [label="S26 Ledger explorer\nfilter · chain verification", fillcolor="#DCEFE3"];
+    U2 [label="S27 Entry detail\npayload · hash · actor", fillcolor="#DCEFE3"];
+    U3 [label="S28 Attestation export", fillcolor="#DCEFE3"];
+    U1 -> U2 -> U3; }
+
+  subgraph cluster_x { label=<<b>OUTSIDE THE SHELL</b>>; fontsize=9; color="#B9C6D4"; style="rounded,dashed"; bgcolor="white";
+    X1 [label="S29 Sign in (OIDC)", fillcolor="white"];
+    X2 [label="S30 CON-A local view\nread only · no API dependency", fillcolor="#0E1A2B", fontcolor="white"];
+    X3 [label="S31 CON-B ops dashboard\nkiosk · thermal and fabric", fillcolor="#E9F0F7"]; }
+
+  SHELL -> O1; SHELL -> C1; SHELL -> R1; SHELL -> M1; SHELL -> G1; SHELL -> A1; SHELL -> U1;
+  X1 -> SHELL [style=dashed];
+  R2 -> M4 [style=dotted, label=" lineage "];
+  G2 -> M3 [style=dotted, label=" sweep evidence "];
+  M5 -> U3 [style=dotted];
+}
+EOF
+
+cat > dot/26_journeys.dot <<'EOF'
+digraph j {
+  rankdir=LR; bgcolor="white"; fontname="DejaVu Sans"; labelloc="t"; labeljust="l";
+  label=<<b>DRAUPNIR CONSOLE &#183; THE FOUR PRIMARY JOURNEYS</b><br align="left"/><font point-size="10" color="#1F3350">Each is an end to end Playwright test and the acceptance evidence for AC-U1. Red is an error path.</font><br align="left"/> >;
+  fontsize=19; fontcolor="#0E1A2B";
+  node [fontname="DejaVu Sans", shape=box, style="filled,rounded", penwidth=1.1, color="#0E1A2B", fontsize=8];
+  edge [fontname="DejaVu Sans", fontsize=7, color="#3E5C82"];
+  nodesep=0.18; ranksep=0.42;
+
+  subgraph cluster_j1 { label=<<b>J1 CURATE</b>  <font point-size="7">curator &#183; target 6 min for a new source</font>>;
+    fontsize=9.5; color="#177E89"; style=rounded; bgcolor="#F2FAFB";
+    a1 [label="Corpora", fillcolor="#DCF0F2"]; a2 [label="Register source", fillcolor="#DCF0F2"];
+    a3 [label="Declare licence\nand attribution", fillcolor="#DCF0F2"];
+    a4 [label="Personal data?", shape=diamond, fillcolor="#FBF3E0"];
+    a5 [label="Enter DPIA ref", fillcolor="#FBF3E0"];
+    a6 [label="Residency\nconstraint", fillcolor="#DCF0F2"];
+    a7 [label="Ingest and hash", fillcolor="#DCF0F2"]; a8 [label="Curate", fillcolor="#DCF0F2"];
+    a9 [label="Curated\ncorpus", fillcolor="#177E89", fontcolor="white"];
+    aX [label="Licence fails policy\nQUARANTINED, rule named", fillcolor="#F6E3E0"];
+    a1->a2->a3->a4; a4->a5 [label=" yes "]; a5->a6; a4->a6 [label=" no "];
+    a6->a7->a8->a9; a3->aX [color="#B3402F", fontcolor="#B3402F", label=" fail "]; }
+
+  subgraph cluster_j2 { label=<<b>J2 OPERATE</b>  <font point-size="7">operator &#183; target 3 min to submit, 2 min to diagnose</font>>;
+    fontsize=9.5; color="#E0A030"; style=rounded; bgcolor="#FDF7EC";
+    b1 [label="Runs", fillcolor="#FBEFD6"]; b2 [label="Compose spec", fillcolor="#FBEFD6"];
+    b3 [label="Dry run\nno allocation", fillcolor="#FBEFD6"]; b4 [label="Submit", fillcolor="#FBEFD6"];
+    b5 [label="Watch board\nlive, 5 s", fillcolor="#FBEFD6"];
+    b6 [label="Outcome?", shape=diamond, fillcolor="#FBEFD6"];
+    b7 [label="TRAINED", fillcolor="#E0A030"];
+    b8 [label="Diagnose\ncause + suggested action", fillcolor="#F6E3E0"];
+    b9 [label="Retry\nbudget shown", fillcolor="#FBEFD6"];
+    b1->b2->b3->b4->b5->b6; b6->b7 [label=" pass "];
+    b6->b8 [label=" fail ", color="#B3402F", fontcolor="#B3402F"]; b8->b9->b5; }
+
+  subgraph cluster_j3 { label=<<b>J3 APPROVE</b>  <font point-size="7">approver &#183; evidence before decision, always</font>>;
+    fontsize=9.5; color="#B3402F"; style=rounded; bgcolor="#FBF2F0";
+    c1 [label="Gate queue", fillcolor="#F6E3E0"]; c2 [label="Open artefact", fillcolor="#F6E3E0"];
+    c3 [label="Read E1 to E6\nvalue, baseline, margin", fillcolor="#F6E3E0"];
+    c4 [label="Sole approver\nnotice shown", fillcolor="#FBF3E0"];
+    c5 [label="Decision?", shape=diamond, fillcolor="#F6E3E0"];
+    c6 [label="Sign and approve", fillcolor="#F6E3E0"];
+    c7 [label="Anchored?", shape=diamond, fillcolor="#F4F1FA"];
+    c8 [label="Publish", fillcolor="#2E8B57", fontcolor="white"];
+    c9 [label="Held\nrelease disabled,\nreason stated", fillcolor="#F4F1FA"];
+    cX [label="Reject with reason\nQUARANTINED", fillcolor="#F6E3E0"];
+    c1->c2->c3->c4->c5; c5->c6 [label=" approve "]; c6->c7;
+    c7->c8 [label=" yes "]; c7->c9 [label=" partitioned ", color="#6C5B9E", fontcolor="#6C5B9E"];
+    c5->cX [label=" reject ", color="#B3402F", fontcolor="#B3402F"]; }
+
+  subgraph cluster_j4 { label=<<b>J4 AUDIT</b>  <font point-size="7">auditor &#183; complete lineage in 3 interactions or fewer</font>>;
+    fontsize=9.5; color="#2E8B57"; style=rounded; bgcolor="#EAF4EE";
+    d1 [label="Models", fillcolor="#DCEFE3"]; d2 [label="Select release", fillcolor="#DCEFE3"];
+    d3 [label="Lineage explorer", fillcolor="#DCEFE3"];
+    d4 [label="Walk to base licence\nand corpus hashes", fillcolor="#DCEFE3"];
+    d5 [label="Verify ledger chain", fillcolor="#DCEFE3"];
+    d6 [label="Export attestation", fillcolor="#2E8B57", fontcolor="white"];
+    dX [label="Gap in chain\nmarked explicitly,\nnever omitted", fillcolor="#F6E3E0"];
+    d1->d2->d3->d4->d5->d6;
+    d4->dX [color="#B3402F", fontcolor="#B3402F", label=" gap "]; }
+}
+EOF
+
+for f in 25_screens 26_journeys; do dot -Tpng -Gdpi=160 "dot/$f.dot" -o "diagrams/$f.png"; echo "wrote $f"; done

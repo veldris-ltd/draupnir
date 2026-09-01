@@ -1,0 +1,112 @@
+; Architectural fitness functions for DRAUPNIR.
+;
+; SAD 11B: "Dependencies point inward only. A domain module importing from the
+; edge layer fails review, and an import linter enforces it in continuous
+; integration rather than by convention."
+;
+; This file is authored before the first feature module so the rule is enforced
+; from the first import rather than asserted after the fact.
+
+[importlinter]
+root_packages =
+    draupnir
+    draupnirctl
+include_external_packages = True
+
+; -------------------------------------------------------------------------
+; The five layers of SAD 11B, inside the core.
+; -------------------------------------------------------------------------
+[importlinter:contract:core-layers]
+name = Core layers point inward only (SAD 11B)
+type = layers
+layers =
+    infrastructure
+    application
+    domain
+containers =
+    draupnir.core
+
+; -------------------------------------------------------------------------
+; Edge above modules above core above ports.
+; -------------------------------------------------------------------------
+[importlinter:contract:system-layers]
+name = Edge, modules, core, ports (SAD 11B)
+type = layers
+layers =
+    draupnir.api
+    draupnir.megingjord | draupnir.gullinbursti | draupnir.svalinn | draupnir.skidbladnir | draupnir.raun | draupnir.brisingamen | draupnir.hamarr | draupnir.motsognir | draupnir.gleipnir | draupnir.hodd
+    draupnir.core
+    draupnir.interfaces
+
+; -------------------------------------------------------------------------
+; "Domain: knows the invariants. Pure where possible, no framework imports."
+; -------------------------------------------------------------------------
+[importlinter:contract:domain-purity]
+name = The domain layer imports no framework (SAD 11B)
+type = forbidden
+source_modules =
+    draupnir.core.domain
+forbidden_modules =
+    fastapi
+    starlette
+    uvicorn
+    pydantic
+    pydantic_settings
+    sqlalchemy
+    alembic
+    asyncpg
+    minio
+    httpx
+    typer
+    prometheus_client
+
+; -------------------------------------------------------------------------
+; "Ports: knows interfaces, never implementations."
+; -------------------------------------------------------------------------
+[importlinter:contract:ports-know-no-implementations]
+name = Ports know interfaces, never implementations (SAD 11B)
+type = forbidden
+source_modules =
+    draupnir.interfaces
+forbidden_modules =
+    draupnir.api
+    draupnir.core.infrastructure
+    fastapi
+    sqlalchemy
+    minio
+    httpx
+
+; -------------------------------------------------------------------------
+; "Core: must not know any framework, format or merge method by name." (5.2)
+; -------------------------------------------------------------------------
+[importlinter:contract:core-knows-no-drivers]
+name = The core names no driver implementation (SAD 5.2)
+type = forbidden
+source_modules =
+    draupnir.core
+forbidden_modules =
+    draupnir.api
+    draupnir.hodd
+    draupnir.gleipnir
+    draupnir.motsognir
+    draupnir.hamarr
+    draupnir.brisingamen
+    draupnir.raun
+    draupnir.skidbladnir
+    draupnir.svalinn
+    draupnir.gullinbursti
+    draupnir.megingjord
+
+; -------------------------------------------------------------------------
+; The CLI is a client of the API, not of the database.
+; -------------------------------------------------------------------------
+[importlinter:contract:cli-is-a-client]
+name = draupnirctl reaches the system over HTTP only (SAD 5.1)
+type = forbidden
+source_modules =
+    draupnirctl
+forbidden_modules =
+    draupnir.core.infrastructure
+    sqlalchemy
+    asyncpg
+    minio

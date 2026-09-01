@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist-types",
+    "rootDir": "./src",
+    "tsBuildInfoFile": "./dist-types/.tsbuildinfo",
+    "noEmit": false,
+    "types": ["vite/client", "@testing-library/jest-dom/vitest"]
+  },
+  "include": ["src/**/*"],
+  "references": [{ "path": "../../packages/api-client" }, { "path": "../../packages/jarngreipr" }]
+}

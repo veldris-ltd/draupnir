@@ -1,0 +1,67 @@
+{
+  "name": "@draupnir/web",
+  "private": true,
+  "version": "0.1.0",
+  "description": "JARNGREIPR design system and the DRAUPNIR console",
+  "type": "module",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @draupnir/console dev",
+    "build": "pnpm --recursive --filter ./packages/** run build && pnpm --filter @draupnir/console build",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc --build --force",
+    "format": "prettier --write \"**/*.{ts,tsx,css,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,css,json,md}\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test --project=journeys",
+    "test:a11y": "playwright test --project=a11y",
+    "test:visual": "playwright test --project=visual",
+    "storybook": "storybook dev -p 6006 --no-open",
+    "build-storybook": "storybook build --output-dir storybook-static",
+    "generate:client": "openapi-typescript ../docs/api/openapi.json --output packages/api-client/src/generated/schema.d.ts",
+    "sbom": "npx --yes --package @cyclonedx/cdxgen@11.10.0 -- cdxgen --type pnpm --spec-version 1.6 --output ../sbom/draupnir-web.cdx.json ."
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.0",
+    "@playwright/test": "^1.49.0",
+    "@storybook/addon-a11y": "^8.4.7",
+    "@storybook/addon-essentials": "^8.4.7",
+    "@storybook/react": "^8.4.7",
+    "@storybook/react-vite": "^8.4.7",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.17.0",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "eslint-plugin-storybook": "^0.11.1",
+    "globals": "^15.14.0",
+    "jsdom": "^25.0.1",
+    "openapi-typescript": "^7.4.4",
+    "prettier": "^3.4.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "storybook": "^8.4.7",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.1",
+    "vite": "^6.0.5",
+    "vitest": "^4.1.11"
+  },
+  "pnpm": {
+    "overrides": {
+      "libxmljs2": "^0.37.0",
+      "xmlbuilder2": "^4.0.3",
+      "js-yaml": "^4.1.1",
+      "tar": "^7.5.2"
+    }
+  }
+}

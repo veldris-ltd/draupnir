@@ -1,0 +1,6 @@
+dist
+storybook-static
+playwright-report
+test-results
+packages/api-client/src/generated
+pnpm-lock.yaml
