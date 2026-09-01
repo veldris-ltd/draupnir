@@ -185,6 +185,60 @@ and the AC-N9 demonstration at 75 lines against a 200 line budget).
 `.importlinter` forbids a driver from importing `draupnir.core` at all, so
 "no core file modified" is a rule rather than an observation.
 
+### HODD records, GLEIPNIR judges (SAD Decision S4)
+
+The licence register holds facts: an SPDX identifier as a string, an
+attribution flag, a personal data determination. It holds no verdict, no rule
+and no allow list, because a verdict stored there is a stale verdict stored
+forever.
+
+That separation is what makes a policy change cheap. Re-evaluating every
+source under a new licence policy reads the recorded facts and writes
+decisions; no corpus is re-ingested and no hash recomputed, because nothing
+about the source changed -- only the question being asked of it.
+
+The two modules cannot import each other: the module layering makes them
+independent siblings, and `tests/unit/test_hodd_records_and_does_not_judge.py`
+additionally fails the build if an SPDX identifier appears anywhere in `hodd/`
+outside a docstring. An allow list is the shape licence logic actually arrives
+in, and one constant is all it takes.
+
+The whole interface between them is two functions: `LicenceRegister.
+facts_for_policy()` renders records as mappings, and `PolicyEngine.reassess()`
+consumes mappings. Anything that needs more than that is in the wrong module.
+
+### Ingest is atomic, and artefacts are sealed
+
+    stage -> hash -> manifest -> publish -> seal -> register
+
+Everything before the publish happens under a name no `hodd://` URI resolves
+to, so a crash leaves rubbish in a staging directory and nothing else. Publish
+is one directory rename. Registration is last, so a failure anywhere leaves
+the register exactly as it was.
+
+Sealing is a filesystem permission change rather than a database flag, because
+the thing that must fail is a write by a curation script that never consulted
+the database.
+
+One window cannot be closed: a crash between the rename and the registration
+leaves a sealed artefact nothing names. `Ingestor.orphans()` finds those, and
+reports rather than deletes them -- an artefact HODD sealed is exactly the sort
+of thing a process should not remove on its own initiative.
+
+### `hodd://` URIs, and why nothing records a path
+
+A run specification records `hodd://sindri/corpora/GBR/curated`. Moving the
+vault, or replacing it with an object store, changes which driver resolves that
+URI and changes nothing about the specification -- which is the point, because
+SAD 7.4 exists so that a run recorded in 2026 still resolves in 2030.
+
+One wrinkle worth knowing. SAD 6.2 writes `hodd://models/core/...`, where the
+authority is not a site; SAD 7.4 says the authority carries the site. Both
+spellings resolve: an authority is taken as a site only when it *is* one, which
+is why the store drivers need to know which forges exist. The cost is that a
+mistyped site becomes a local path and is then not found. The failure is the
+safe one -- it can never resolve to a different forge's artefact.
+
 ### First party distributions carry the `veldris-` prefix
 
 The control plane's distribution is **`veldris-draupnir`**, not `draupnir`.

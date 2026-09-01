@@ -34,11 +34,12 @@ Windows, `.\make.ps1 dev`. See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
 
 ## Status
 
-Prompts 0 to 2 of SAD section 13 are complete: the repository, the toolchain
+Prompts 0 to 3 of SAD section 13 are complete: the repository, the toolchain
 and the delivery pipeline; the core foundation -- the hash-chained ledger, the
-state machine of SAD 6.1, the site registry and the run projection; and the
-plug-in system -- the seven interfaces of SAD 8.2, the entry point loader, and
-a conformance suite published for third parties.
+state machine of SAD 6.1, the site registry and the run projection; the
+plug-in system -- the seven interfaces of SAD 8.2, the entry point loader and a
+conformance suite published for third parties; and HODD and GLEIPNIR -- the
+artefact store and the policy gate.
 
 The ledger is the source of truth. `run` is a projection of it, rebuilt from
 sequence 1 by a pure fold, and nothing else writes that table.
@@ -65,6 +66,13 @@ What the build enforces rather than asserts:
   driver, and an import contract forbids a driver from reaching into the core.
 - `render` is pure, and the conformance suite proves it rather than asking:
   three renders agree, no socket opens, and the working directory is untouched.
+- HODD records licence facts and cannot judge them: an SPDX identifier
+  anywhere in `hodd/` outside a docstring fails the build.
+- Ingest is atomic. Each of its four failure points is tested by crashing
+  there, and none leaves a half-registered corpus.
+- The single-approver exception of constraint C-11 is computed, never
+  supplied, and sits inside the signed payload -- so suppressing it invalidates
+  the signature and the release is refused.
 - Playwright, axe and Storybook are wired and running against nothing yet.
 
 Verified: 100,000 ledger entries verify in about four seconds against the

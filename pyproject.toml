@@ -151,7 +151,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "D100", "D102", "D103", "D104", "D107", "ANN"]
+# `copyright` is a GLEIPNIR module name taken from SAD 9A.2, and importing it
+# shadows a builtin nobody uses.
+"tests/**" = ["S101", "A004", "D100", "D102", "D103", "D104", "D107", "ANN"]
 "scripts/**" = ["T20"]
 "migrations/**" = ["D", "ANN", "N999"]
 # The published conformance suite is test code that ships as a library: an
