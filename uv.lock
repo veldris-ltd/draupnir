@@ -14,9 +14,9 @@ supported-markers = [
 
 [manifest]
 members = [
-    "draupnir",
-    "draupnir-local-subprocess",
-    "draupnir-targz-export",
+    "veldris-draupnir",
+    "veldris-draupnir-local-subprocess",
+    "veldris-draupnir-targz-export",
 ]
 
 [[package]]
@@ -357,116 +357,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/88/7f/731ff914b0255d3d0
 wheels = [
     { url = "https://files.pythonhosted.org/packages/75/23/529140fe1aab80fc6992f93a706deec709140a6397439139a054e1515c45/docker-7.2.0-py3-none-any.whl", hash = "sha256:a3f45fdeb9165e2d25d9a1d02ddf3bc70fb572cf5ebbf9b58558c22caf29b71f", size = 148775, upload-time = "2026-07-09T14:53:45.224Z" },
 ]
-
-[[package]]
-name = "draupnir"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "alembic" },
-    { name = "asyncpg" },
-    { name = "cryptography" },
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "minio" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-instrumentation-fastapi" },
-    { name = "opentelemetry-sdk" },
-    { name = "prometheus-client" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "sqlalchemy", extra = ["asyncio"] },
-    { name = "structlog" },
-    { name = "typer" },
-    { name = "uuid6" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.optional-dependencies]
-testing = [
-    { name = "pytest" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "cyclonedx-bom" },
-    { name = "draupnir-local-subprocess" },
-    { name = "draupnir-targz-export" },
-    { name = "hypothesis" },
-    { name = "import-linter" },
-    { name = "mypy" },
-    { name = "pip-audit" },
-    { name = "psycopg", extra = ["binary"] },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pywin32", marker = "sys_platform == 'win32'" },
-    { name = "ruff" },
-    { name = "testcontainers", extra = ["minio"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "alembic", specifier = ">=1.14" },
-    { name = "asyncpg", specifier = ">=0.30" },
-    { name = "cryptography", specifier = ">=44.0" },
-    { name = "fastapi", specifier = ">=0.115" },
-    { name = "httpx", specifier = ">=0.28" },
-    { name = "minio", specifier = ">=7.2" },
-    { name = "opentelemetry-api", specifier = ">=1.28" },
-    { name = "opentelemetry-instrumentation-fastapi", specifier = ">=0.49b0" },
-    { name = "opentelemetry-sdk", specifier = ">=1.28" },
-    { name = "prometheus-client", specifier = ">=0.21" },
-    { name = "pydantic", specifier = ">=2.9" },
-    { name = "pydantic-settings", specifier = ">=2.6" },
-    { name = "pytest", marker = "extra == 'testing'", specifier = ">=8.3" },
-    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.36" },
-    { name = "structlog", specifier = ">=24.4" },
-    { name = "typer", specifier = ">=0.15" },
-    { name = "uuid6", specifier = ">=2024.7.10" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
-]
-provides-extras = ["testing"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "cyclonedx-bom", specifier = ">=5.1" },
-    { name = "draupnir-local-subprocess", editable = "plugins/local_subprocess" },
-    { name = "draupnir-targz-export", editable = "plugins/targz_export" },
-    { name = "hypothesis", specifier = ">=6.119" },
-    { name = "import-linter", specifier = ">=2.1" },
-    { name = "mypy", specifier = ">=1.13" },
-    { name = "pip-audit", specifier = ">=2.7" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
-    { name = "pytest", specifier = ">=8.3" },
-    { name = "pytest-asyncio", specifier = ">=0.24" },
-    { name = "pytest-cov", specifier = ">=6.0" },
-    { name = "pywin32", marker = "sys_platform == 'win32'", specifier = ">=308" },
-    { name = "ruff", specifier = ">=0.8" },
-    { name = "testcontainers", extras = ["postgres", "minio"], specifier = ">=4.8" },
-]
-
-[[package]]
-name = "draupnir-local-subprocess"
-version = "1.0.0"
-source = { editable = "plugins/local_subprocess" }
-dependencies = [
-    { name = "draupnir" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "draupnir", editable = "." }]
-
-[[package]]
-name = "draupnir-targz-export"
-version = "1.0.0"
-source = { editable = "plugins/targz_export" }
-dependencies = [
-    { name = "draupnir" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "draupnir", editable = "." }]
 
 [[package]]
 name = "fastapi"
@@ -1603,6 +1493,116 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/24/68/a6ac446820273e71aa762fa21cdcc09861edd3536ff47c5cd3b7afb10eeb/uvloop-0.22.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:700e674a166ca5778255e0e1dc4e9d79ab2acc57b9171b79e65feba7184b3370", size = 4317413, upload-time = "2025-10-16T22:16:31.644Z" },
     { url = "https://files.pythonhosted.org/packages/90/60/97362554ac21e20e81bcef1150cb2a7e4ffdaf8ea1e5b2e8bf7a053caa18/uvloop-0.22.1-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:e047cc068570bac9866237739607d1313b9253c3051ad84738cbb095be0537b2", size = 4131970, upload-time = "2025-10-16T22:16:34.015Z" },
 ]
+
+[[package]]
+name = "veldris-draupnir"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "alembic" },
+    { name = "asyncpg" },
+    { name = "cryptography" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "minio" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-instrumentation-fastapi" },
+    { name = "opentelemetry-sdk" },
+    { name = "prometheus-client" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "structlog" },
+    { name = "typer" },
+    { name = "uuid6" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.optional-dependencies]
+testing = [
+    { name = "pytest" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "cyclonedx-bom" },
+    { name = "hypothesis" },
+    { name = "import-linter" },
+    { name = "mypy" },
+    { name = "pip-audit" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
+    { name = "ruff" },
+    { name = "testcontainers", extra = ["minio"] },
+    { name = "veldris-draupnir-local-subprocess" },
+    { name = "veldris-draupnir-targz-export" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "alembic", specifier = ">=1.14" },
+    { name = "asyncpg", specifier = ">=0.30" },
+    { name = "cryptography", specifier = ">=44.0" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "minio", specifier = ">=7.2" },
+    { name = "opentelemetry-api", specifier = ">=1.28" },
+    { name = "opentelemetry-instrumentation-fastapi", specifier = ">=0.49b0" },
+    { name = "opentelemetry-sdk", specifier = ">=1.28" },
+    { name = "prometheus-client", specifier = ">=0.21" },
+    { name = "pydantic", specifier = ">=2.9" },
+    { name = "pydantic-settings", specifier = ">=2.6" },
+    { name = "pytest", marker = "extra == 'testing'", specifier = ">=8.3" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.36" },
+    { name = "structlog", specifier = ">=24.4" },
+    { name = "typer", specifier = ">=0.15" },
+    { name = "uuid6", specifier = ">=2024.7.10" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
+]
+provides-extras = ["testing"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "cyclonedx-bom", specifier = ">=5.1" },
+    { name = "hypothesis", specifier = ">=6.119" },
+    { name = "import-linter", specifier = ">=2.1" },
+    { name = "mypy", specifier = ">=1.13" },
+    { name = "pip-audit", specifier = ">=2.7" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
+    { name = "pytest", specifier = ">=8.3" },
+    { name = "pytest-asyncio", specifier = ">=0.24" },
+    { name = "pytest-cov", specifier = ">=6.0" },
+    { name = "pywin32", marker = "sys_platform == 'win32'", specifier = ">=308" },
+    { name = "ruff", specifier = ">=0.8" },
+    { name = "testcontainers", extras = ["postgres", "minio"], specifier = ">=4.8" },
+    { name = "veldris-draupnir-local-subprocess", editable = "plugins/local_subprocess" },
+    { name = "veldris-draupnir-targz-export", editable = "plugins/targz_export" },
+]
+
+[[package]]
+name = "veldris-draupnir-local-subprocess"
+version = "1.0.0"
+source = { editable = "plugins/local_subprocess" }
+dependencies = [
+    { name = "veldris-draupnir" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "veldris-draupnir", editable = "." }]
+
+[[package]]
+name = "veldris-draupnir-targz-export"
+version = "1.0.0"
+source = { editable = "plugins/targz_export" }
+dependencies = [
+    { name = "veldris-draupnir" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "veldris-draupnir", editable = "." }]
 
 [[package]]
 name = "watchfiles"

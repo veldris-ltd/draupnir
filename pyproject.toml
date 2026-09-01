@@ -2,7 +2,12 @@
 # Managed with uv. See docs/CONTRIBUTING.md.
 
 [project]
-name = "draupnir"
+# The distribution name carries the Veldris prefix; the import name does not.
+# A public package called `draupnir` already exists on PyPI -- an unrelated
+# bioinformatics tool -- so a distribution of that name would let a fresh venv
+# or a mistyped install resolve a stranger's code. Import names are unaffected:
+# `import draupnir` and `draupnirctl` are unchanged.
+name = "veldris-draupnir"
 version = "0.1.0"
 description = "DRAUPNIR, the CIM-56 model factory control plane"
 readme = "README.md"
@@ -72,8 +77,8 @@ dev = [
   # for the contract stage, and are not part of what ships: a control plane
   # that shipped its own local-subprocess scheduler would eventually run a
   # production job on one.
-  "draupnir-local-subprocess",
-  "draupnir-targz-export",
+  "veldris-draupnir-local-subprocess",
+  "veldris-draupnir-targz-export",
 ]
 
 [build-system]
@@ -93,10 +98,13 @@ artifacts = ["draupnir/py.typed", "draupnirctl/py.typed"]
 # is deployed there.
 [tool.uv.workspace]
 members = ["plugins/*"]
+# The PyPI name reservation declares the same distribution name as this
+# project and must never be resolved as a member of it.
+exclude = ["packaging/*"]
 
 [tool.uv.sources]
-draupnir-local-subprocess = { workspace = true }
-draupnir-targz-export = { workspace = true }
+veldris-draupnir-local-subprocess = { workspace = true }
+veldris-draupnir-targz-export = { workspace = true }
 
 [tool.uv]
 required-version = ">=0.5.0"

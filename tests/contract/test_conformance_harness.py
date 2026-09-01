@@ -51,6 +51,9 @@ def test_the_distribution_registers_a_versioned_entry_point(distribution: Path) 
 
 
 @pytest.mark.parametrize("distribution", distributions(), ids=lambda path: path.name)
-def test_the_distribution_depends_on_draupnir(distribution: Path) -> None:
+def test_the_distribution_depends_on_the_control_plane(distribution: Path) -> None:
+    """And on the prefixed name, not the one a stranger owns on PyPI."""
     manifest = tomllib.loads((distribution / "pyproject.toml").read_text(encoding="utf-8"))
-    assert "draupnir" in manifest["project"]["dependencies"]
+    assert "veldris-draupnir" in manifest["project"]["dependencies"]
+    assert "draupnir" not in manifest["project"]["dependencies"]
+    assert manifest["project"]["name"].startswith("veldris-")

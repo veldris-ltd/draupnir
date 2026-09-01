@@ -1,0 +1,104 @@
+# Publish the PyPI name reservation for `veldris-draupnir`.
+#
+# This workflow publishes a distribution that contains no code. It is not how
+# the control plane is delivered -- that is the aarch64 images of SAD 11H
+# stage 3, and DRAUPNIR is never published to a public index.
+#
+# Three things keep it from firing by accident:
+#
+#   * `workflow_dispatch` only. No push, no tag, no schedule.
+#   * an environment that a human has to approve before the job runs.
+#   * a guard step that refuses to publish anything importable, so this cannot
+#     become the route by which the real distribution escapes.
+#
+# It uses trusted publishing, so there is no token to store, rotate or leak.
+# See docs/PUBLISHING.md.
+
+name: publish reservation
+
+on:
+  workflow_dispatch:
+    inputs:
+      index:
+        description: Where to publish
+        required: true
+        default: testpypi
+        type: choice
+        options: [testpypi, pypi]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: ${{ inputs.index }}
+    runs-on: ubuntu-24.04
+    # Requires a reviewer on the environment, so a run is approved by a person
+    # who can see exactly what is about to be uploaded.
+    environment: ${{ inputs.index }}
+    permissions:
+      # The whole of the credential. Nothing long lived exists.
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.5.11"
+
+      - name: Build the reservation
+        run: uv build packaging/pypi-reservation --out-dir dist
+
+      - name: Refuse to publish anything importable
+        # The reservation is metadata and a README. If an artefact here ever
+        # carries a module, or a file nobody chose to publish, something has
+        # gone wrong in a way that would put internal source on a public
+        # index. This is the last place to notice.
+        run: |
+          python - <<'PY'
+          import sys, tarfile, zipfile
+          from pathlib import Path
+
+          ALLOWED_SDIST = {"PKG-INFO", "README.md", "pyproject.toml", ".gitignore"}
+          problems = []
+
+          for wheel in sorted(Path("dist").glob("*.whl")):
+              names = zipfile.ZipFile(wheel).namelist()
+              code = [n for n in names if n.endswith((".py", ".so", ".pyd"))]
+              print(f"{wheel.name}: {len(names)} entries, {len(code)} importable")
+              problems += [f"{wheel.name}: {n} is importable" for n in code]
+
+          for sdist in sorted(Path("dist").glob("*.tar.gz")):
+              with tarfile.open(sdist) as archive:
+                  names = archive.getnames()
+              print(f"{sdist.name}: {len(names)} entries")
+              for name in names:
+                  leaf = name.split("/", 1)[-1]
+                  if leaf and leaf not in ALLOWED_SDIST:
+                      problems.append(f"{sdist.name}: {leaf} was not chosen for publication")
+
+          if problems:
+              print("Refusing to publish:")
+              for item in problems:
+                  print(f"  {item}")
+              sys.exit(1)
+          print("metadata only: safe to publish")
+          PY
+
+      - name: Show what will be published
+        run: |
+          ls -l dist
+          python -m zipfile -l dist/*.whl
+
+      - name: Publish to TestPyPI
+        if: inputs.index == 'testpypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+      - name: Publish to PyPI
+        if: inputs.index == 'pypi'
+        uses: pypa/gh-action-pypi-publish@release/v1

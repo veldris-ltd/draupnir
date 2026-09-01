@@ -74,7 +74,7 @@ def test_the_driver_is_added_by_installation_alone(registry: PluginRegistry) -> 
 
     plugin = registry.resolve("draupnir.export", EXPORT)
     assert plugin.capabilities == frozenset({"targz"})
-    assert plugin.distribution == "draupnir-targz-export"
+    assert plugin.distribution == "veldris-draupnir-targz-export"
 
 
 def test_the_registry_refuses_a_format_the_driver_does_not_declare(

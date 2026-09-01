@@ -1,0 +1,2 @@
+# Nothing here is ignored. This file exists so that the sdist carries it
+# rather than the repository root .gitignore, which names internal layout.

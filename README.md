@@ -8,6 +8,10 @@ The CIM-56 model factory control plane.
 
 Architecture: `docs/build/draupnir-sad.md` (VLD-SAD-DRAUPNIR-001).
 Console and design system: `docs/build/draupnir-ux.md` (VLD-UX-DRAUPNIR-001).
+Publishing and distribution naming: [docs/PUBLISHING.md](docs/PUBLISHING.md).
+
+> Distributed as **`veldris-draupnir`**. The import name is `draupnir`; the
+> prefix exists because an unrelated project owns `draupnir` on PyPI.
 
 ---
 

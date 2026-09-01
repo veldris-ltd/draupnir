@@ -185,6 +185,27 @@ and the AC-N9 demonstration at 75 lines against a 200 line budget).
 `.importlinter` forbids a driver from importing `draupnir.core` at all, so
 "no core file modified" is a rule rather than an observation.
 
+### First party distributions carry the `veldris-` prefix
+
+The control plane's distribution is **`veldris-draupnir`**, not `draupnir`.
+The import name is unchanged -- `import draupnir` and the `draupnirctl` script
+are exactly as before -- and only the name a package index knows differs.
+
+The reason is that `draupnir` on PyPI is an unrelated project, published first
+and still maintained. A distribution of ours by that name would let a fresh
+virtual environment, a misconfigured runner or a mistyped `pip install` fetch
+somebody else's code. That is not hypothetical: it happened here, and
+`make audit` spent a minute trying to build a protein dynamics library before
+anyone noticed.
+
+> Every first party distribution is named `veldris-…`. A distribution without
+> that prefix is not ours, whatever its import name suggests.
+
+`tests/unit/test_distribution.py` enforces it and fails the build if a
+distribution named `draupnir` is ever installed. Publishing, and the name
+reservation that keeps `veldris-draupnir` ours, are in
+[PUBLISHING.md](PUBLISHING.md).
+
 ### Plug-ins are signature verified (SAD 9.3)
 
 An unverified plug-in does not load. The verifier arrives in Prompt 6; until

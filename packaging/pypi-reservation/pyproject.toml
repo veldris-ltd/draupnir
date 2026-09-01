@@ -1,0 +1,47 @@
+# The PyPI name reservation for `veldris-draupnir`.
+#
+# This is NOT the control plane. It ships no importable module, on purpose:
+# anyone who installs it from a public index gets a distribution that cannot
+# shadow the real one and cannot quietly half-work. `import draupnir` fails
+# afterwards with ModuleNotFoundError, which is the loudest safe outcome.
+#
+# It exists because `draupnir` on PyPI is an unrelated project that cannot be
+# claimed, so the control plane is distributed as `veldris-draupnir` instead.
+# Reserving that name stops anyone else taking it later.
+#
+# Build and publish from docs/PUBLISHING.md. Nothing here is built by `make`.
+
+[project]
+name = "veldris-draupnir"
+version = "0.0.0"
+description = "Reserved name. DRAUPNIR is Veldris internal software and is not distributed here."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [{ name = "Veldris" }]
+keywords = ["reserved", "placeholder"]
+classifiers = [
+  "Development Status :: 7 - Inactive",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development",
+]
+
+[project.urls]
+Homepage = "https://veldris.internal/draupnir"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# No packages, no modules. The distribution carries metadata and a README and
+# nothing that Python can import.
+[tool.hatch.build.targets.wheel]
+bypass-selection = true
+
+# `only-include` rather than `include`: hatchling walks up to the repository
+# root for VCS rules and will carry its .gitignore into the sdist otherwise.
+# That file names the internal repository layout, and this artefact is public.
+[tool.hatch.build.targets.sdist]
+only-include = ["README.md", "pyproject.toml"]
