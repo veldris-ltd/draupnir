@@ -338,7 +338,11 @@ def audit() -> int:
             "export",
             "--frozen",
             "--all-groups",
-            "--no-emit-project",
+            # Exclude every workspace distribution, not merely the root. The
+            # plug-in members depend on `draupnir`, and a public package of
+            # that name exists on PyPI -- so exporting them makes the audit
+            # resolve a stranger's package instead of ours.
+            "--no-emit-workspace",
             "--no-hashes",
             "--format",
             "requirements-txt",

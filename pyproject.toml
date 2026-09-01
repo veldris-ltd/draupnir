@@ -40,6 +40,11 @@ dependencies = [
   "httpx>=0.28",
 ]
 
+[project.optional-dependencies]
+# A third party writing a driver installs `draupnir[testing]` and gets the
+# published conformance suite (SAD 11E.3).
+testing = ["pytest>=8.3"]
+
 [project.scripts]
 draupnirctl = "draupnirctl.__main__:main"
 
@@ -63,6 +68,12 @@ dev = [
   # Supply chain
   "pip-audit>=2.7",
   "cyclonedx-bom>=5.1",
+  # The reference drivers of SAD 8.2. They are installed for development and
+  # for the contract stage, and are not part of what ships: a control plane
+  # that shipped its own local-subprocess scheduler would eventually run a
+  # production job on one.
+  "draupnir-local-subprocess",
+  "draupnir-targz-export",
 ]
 
 [build-system]
@@ -80,6 +91,13 @@ artifacts = ["draupnir/py.typed", "draupnirctl/py.typed"]
 # and darwin/arm64 (Apple silicon workstations). win32/AMD64 is resolved as
 # well so the lockfile is usable from a Windows development machine; nothing
 # is deployed there.
+[tool.uv.workspace]
+members = ["plugins/*"]
+
+[tool.uv.sources]
+draupnir-local-subprocess = { workspace = true }
+draupnir-targz-export = { workspace = true }
+
 [tool.uv]
 required-version = ">=0.5.0"
 environments = [
@@ -128,12 +146,23 @@ ignore = [
 "tests/**" = ["S101", "D100", "D102", "D103", "D104", "D107", "ANN"]
 "scripts/**" = ["T20"]
 "migrations/**" = ["D", "ANN", "N999"]
+# The published conformance suite is test code that ships as a library: an
+# assertion is what it is for, and each inherited check documents itself
+# through the finding it raises.
+"draupnir/interfaces/testing/suite.py" = ["S101", "D102"]
 # The task runner is a script. Each task's documentation is the description in
 # its decorator, which is what `make` prints; a docstring would duplicate it.
 "tasks.py" = ["T20", "D103", "N818"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["draupnir", "draupnirctl", "plugins", "scripts", "tests"]
+known-first-party = [
+  "draupnir",
+  "draupnir_local_subprocess",
+  "draupnir_targz_export",
+  "draupnirctl",
+  "scripts",
+  "tests",
+]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -151,7 +180,7 @@ warn_unreachable = true
 warn_unused_configs = true
 disallow_any_unimported = true
 plugins = ["pydantic.mypy"]
-files = ["draupnir", "draupnirctl", "scripts", "tests"]
+files = ["draupnir", "draupnirctl", "plugins", "scripts", "tests"]
 exclude = ["^docs/build/"]
 
 [[tool.mypy.overrides]]

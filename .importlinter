@@ -11,6 +11,8 @@
 root_packages =
     draupnir
     draupnirctl
+    draupnir_local_subprocess
+    draupnir_targz_export
 include_external_packages = True
 
 ; -------------------------------------------------------------------------
@@ -110,3 +112,29 @@ forbidden_modules =
     sqlalchemy
     asyncpg
     minio
+
+; -------------------------------------------------------------------------
+; A driver depends on the published interfaces and nothing else. This is what
+; AC-N9 measures -- "no core file modified" -- held as a rule rather than a
+; result: a driver that reached into the core would make the next one think it
+; could too.
+; -------------------------------------------------------------------------
+[importlinter:contract:drivers-depend-on-interfaces-only]
+name = A driver sees the interfaces, never the core (SAD 8.2, AC-N9)
+type = forbidden
+source_modules =
+    draupnir_local_subprocess
+    draupnir_targz_export
+forbidden_modules =
+    draupnir.core
+    draupnir.api
+    draupnir.hodd
+    draupnir.gleipnir
+    draupnir.motsognir
+    draupnir.hamarr
+    draupnir.brisingamen
+    draupnir.raun
+    draupnir.skidbladnir
+    draupnir.svalinn
+    draupnir.gullinbursti
+    draupnir.megingjord

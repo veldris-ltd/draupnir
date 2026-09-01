@@ -1,0 +1,27 @@
+# AC-N9: "A new ExportDriver is added and working -- under 200 lines, no core
+# file modified." This distribution is the demonstration. Nothing under
+# draupnir/ changed to admit it; it is discovered by entry point.
+
+[project]
+name = "draupnir-targz-export"
+version = "1.0.0"
+description = "Reference ExportDriver for DRAUPNIR: packages an artefact as tar.gz"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "Proprietary" }
+dependencies = ["draupnir"]
+
+# The control plane is a workspace sibling during development and a released
+# distribution afterwards; the source declaration is what makes both work.
+[tool.uv.sources]
+draupnir = { workspace = true }
+
+[project.entry-points."draupnir.export"]
+"skidbladnir.targz/v1" = "draupnir_targz_export:driver"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["draupnir_targz_export"]

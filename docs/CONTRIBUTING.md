@@ -153,6 +153,80 @@ make reset-db && make seed
 The seed itself writes chains rather than rows, so it exercises the same path
 a live transition takes.
 
+### A driver is an installation, never a core change (SAD 10.2)
+
+The seven interfaces of SAD 8.2 are Protocols in `draupnir/interfaces/`, and a
+driver is a separate distribution that registers an entry point. Nothing in
+DRAUPNIR names a driver, so adding one changes no file here:
+
+```toml
+[project.entry-points."draupnir.export"]
+"skidbladnir.targz/v1" = "draupnir_targz_export:driver"
+```
+
+The entry point *name* is the versioned interface name of SAD 10.3, and four
+rules follow from it. The core takes the current and immediately previous
+major version and refuses anything else, naming both what it found and what it
+expected. A specification resolves the version it recorded, and never a newer
+one. A driver declares its capabilities as a frozenset, and the core refuses to
+plan a job needing one it has not declared -- before an allocation is consumed,
+because scheduler time is the scarce resource here.
+
+Some groups are chosen by name and some by capability. A specification names
+its train and schedule drivers; it asks the `release` block for *formats* and
+never for an exporter, so the core finds a driver declaring them. That is what
+makes a new export format an installation: no table in the core lists which
+driver produces what.
+
+Two reference drivers live in `plugins/` and are installed for development:
+`local_subprocess` (a `ScheduleDriver`) and `targz_export` (an `ExportDriver`,
+and the AC-N9 demonstration at 75 lines against a 200 line budget).
+
+`.importlinter` forbids a driver from importing `draupnir.core` at all, so
+"no core file modified" is a rule rather than an observation.
+
+### Plug-ins are signature verified (SAD 9.3)
+
+An unverified plug-in does not load. The verifier arrives in Prompt 6; until
+then every plug-in is unverified, and the development concession is exactly one
+environment variable wide:
+
+```bash
+DRAUPNIR_DEV=1
+```
+
+With it set, an unverified plug-in loads and logs a warning naming the
+distribution. Without it, the plug-in is refused and the refusal is reported by
+`PluginRegistry.failures` -- discovery does not raise, because one bad third
+party plug-in must not stop the control plane starting, but asking for that
+plug-in afterwards does raise, with the reason.
+
+### Writing a driver
+
+Install `draupnir[testing]` and inherit the published conformance suite:
+
+```python
+from draupnir.interfaces.testing import ScheduleDriverConformance
+
+
+class TestMyDriver(ScheduleDriverConformance):
+    @pytest.fixture
+    def driver(self):
+        return MyDriver()
+```
+
+The suite is what enforces Decision S5, which requires `render` to be pure.
+"Pure" is not something a code review establishes, so three properties are
+checked instead: rendering three times gives byte-identical plans, rendering
+opens no socket, and rendering leaves the working directory as it found it.
+
+The third render is taken after a deliberate pause rather than back to back.
+The system clock advances in steps -- about 15.6 ms on Windows -- so a driver
+stamping the wall clock into its plan returns the *same* value to two
+consecutive calls and passes a two-call check. That was found by trying to get
+an impure driver past the harness, which is what
+`tests/unit/test_conformance_harness.py` does for every rule it enforces.
+
 ### Generated clients stay generated (AC-Q2)
 
 `draupnirctl/_generated.py` and `web/packages/api-client/src/generated/` are

@@ -1,0 +1,31 @@
+# The reference ScheduleDriver: "local subprocess for development" (SAD 8.2).
+#
+# A separate distribution on purpose. It is installed into the API virtual
+# environment and discovered by entry point, so adding or removing it changes
+# no file under draupnir/.
+
+[project]
+name = "draupnir-local-subprocess"
+version = "1.0.0"
+description = "Reference ScheduleDriver for DRAUPNIR: runs a job plan as a local subprocess"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "Proprietary" }
+dependencies = ["draupnir"]
+
+# The control plane is a workspace sibling during development and a released
+# distribution afterwards; the source declaration is what makes both work.
+[tool.uv.sources]
+draupnir = { workspace = true }
+
+# The entry point NAME is the versioned interface name of SAD 10.3; the value
+# is what to import. The core reads the name and never the module path.
+[project.entry-points."draupnir.schedule"]
+"motsognir.local_subprocess/v1" = "draupnir_local_subprocess:driver"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["draupnir_local_subprocess"]

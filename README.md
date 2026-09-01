@@ -30,10 +30,11 @@ Windows, `.\make.ps1 dev`. See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
 
 ## Status
 
-Prompts 0 and 1 of SAD section 13 are complete: the repository, the toolchain
-and the delivery pipeline, and on top of them the core foundation -- the
-hash-chained ledger, the state machine of SAD 6.1, the site registry and the
-run projection.
+Prompts 0 to 2 of SAD section 13 are complete: the repository, the toolchain
+and the delivery pipeline; the core foundation -- the hash-chained ledger, the
+state machine of SAD 6.1, the site registry and the run projection; and the
+plug-in system -- the seven interfaces of SAD 8.2, the entry point loader, and
+a conformance suite published for third parties.
 
 The ledger is the source of truth. `run` is a projection of it, rebuilt from
 sequence 1 by a pure fold, and nothing else writes that table.
@@ -56,11 +57,17 @@ What the build enforces rather than asserts:
   on row level security.
 - A deterministic seed writes chains, not rows: 2 sites, 6 sources, 12 runs
   resting in every run state, 3 releases and 400 hash-chained ledger entries.
+- A driver is an installation, not a core change. Nothing in DRAUPNIR names a
+  driver, and an import contract forbids a driver from reaching into the core.
+- `render` is pure, and the conformance suite proves it rather than asking:
+  three renders agree, no socket opens, and the working directory is untouched.
 - Playwright, axe and Storybook are wired and running against nothing yet.
 
 Verified: 100,000 ledger entries verify in about four seconds against the
 sixty second budget of AC-N5, and a rebuild of the run projection is
-byte-identical to the one before it.
+byte-identical to the one before it. AC-N9 is demonstrated end to end: a new
+export format, discovered by entry point, rendered, run through the reference
+scheduler and collected, in 75 lines against a 200 line budget.
 
 ## Modules
 
