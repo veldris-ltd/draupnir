@@ -8,6 +8,7 @@ __pycache__/
 .pytest_cache/
 .hypothesis/
 .coverage
+.coverage.*
 coverage.xml
 htmlcov/
 /dist/

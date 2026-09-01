@@ -95,6 +95,10 @@ environments = [
 target-version = "py312"
 line-length = 100
 src = ["draupnir", "draupnirctl", "plugins", "scripts", "tests"]
+# The diagram generators under docs/build belong to the architecture
+# documents, not to DRAUPNIR. They are rendered by their own shell scripts
+# and are not part of this toolchain.
+extend-exclude = ["docs/build"]
 
 [tool.ruff.lint]
 select = [
@@ -121,7 +125,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "D100", "D103", "D104", "ANN"]
+"tests/**" = ["S101", "D100", "D102", "D103", "D104", "D107", "ANN"]
 "scripts/**" = ["T20"]
 "migrations/**" = ["D", "ANN", "N999"]
 # The task runner is a script. Each task's documentation is the description in
@@ -148,6 +152,7 @@ warn_unused_configs = true
 disallow_any_unimported = true
 plugins = ["pydantic.mypy"]
 files = ["draupnir", "draupnirctl", "scripts", "tests"]
+exclude = ["^docs/build/"]
 
 [[tool.mypy.overrides]]
 module = ["uuid6.*"]

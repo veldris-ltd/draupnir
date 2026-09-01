@@ -494,15 +494,22 @@ def seed() -> int:
 
 @task("test-unit", "Unit tests, 90 per cent statement coverage on core/")
 def test_unit() -> int:
-    # SAD 11E.3 sets the coverage target on core/, not on the repository as a
-    # whole: the edge and the modules are covered by the levels above this one.
+    # SAD 11E.3 scopes the unit level to "pure domain logic" and sets the
+    # target at 90 per cent; AC-N8 names the state machine and the ledger
+    # specifically. Both are `draupnir/core/domain`. The infrastructure half of
+    # the core is measured by the integration stage, which is the only level
+    # that can honestly exercise a repository.
     uv_run(
         "pytest",
         "tests/unit",
-        "--cov=draupnir/core",
+        "--cov=draupnir/core/domain",
         "--cov-fail-under=90",
         "--cov-report=term-missing",
         "--cov-report=xml",
+        # Its own data file. Two pipeline stages measuring coverage into the
+        # same one contend for it, and on Windows the loser reports a corrupt
+        # database rather than a coverage failure.
+        env={"COVERAGE_FILE": str(ROOT / ".coverage.unit")},
     )
     return 0
 
@@ -521,7 +528,14 @@ def test_contract() -> int:
 
 @task("test-integration", "Integration tests against ephemeral PostgreSQL and MinIO")
 def test_integration() -> int:
-    uv_run("pytest", "tests/integration")
+    uv_run(
+        "pytest",
+        "tests/integration",
+        "--cov=draupnir/core/infrastructure",
+        "--cov-fail-under=80",
+        "--cov-report=term-missing",
+        env={"COVERAGE_FILE": str(ROOT / ".coverage.integration")},
+    )
     return 0
 
 

@@ -122,6 +122,37 @@ The development database connects as an unprivileged role on purpose. A
 PostgreSQL superuser bypasses every row level security policy, so seeding as
 one would make site isolation pass locally and fail in production.
 
+### The ledger is the source of truth, and `run` is derived (SAD 11B)
+
+`ledger_entry` is the only authoritative table. The run registry is a
+projection of it, produced by `draupnir/core/domain/projector.py`, and
+`RunProjection.rebuild()` replays the chain from sequence 1 to reproduce it
+byte for byte.
+
+That has three consequences worth knowing before you write a query.
+
+- **Never write to `run` by hand.** A rebuild discards anything the chain does
+  not account for, so an edit survives exactly until the next rebuild and then
+  vanishes without trace. The table carries a comment in the database saying
+  so, for the benefit of whoever finds it through `psql`.
+- **A state change is one transaction.** Guard, append the entry, project.
+  `draupnir.core.domain.states.apply` performs the first half: it refuses a
+  transition its guard rejects, and refuses a ledger payload that omits a field
+  SAD 6.1 says the entry must record.
+- **The projector is pure.** It takes entries and returns rows, reading nothing
+  and calling nothing. That is what makes a rebuild reproducible on another
+  machine years later, and it is enforced: `draupnir.core.domain` may not
+  import a framework.
+
+To rebuild by hand:
+
+```bash
+make reset-db && make seed
+```
+
+The seed itself writes chains rather than rows, so it exercises the same path
+a live transition takes.
+
 ### Generated clients stay generated (AC-Q2)
 
 `draupnirctl/_generated.py` and `web/packages/api-client/src/generated/` are
@@ -147,7 +178,7 @@ changes are additive only.
 
 | Level | Command | Scope |
 |---|---|---|
-| Unit | `make test-unit` | Pure domain logic. 90% statement coverage on `core/` |
+| Unit | `make test-unit` | Pure domain logic. 90% statement coverage on `core/domain` |
 | Property | `make test-property` | Ledger invariants. 500 examples minimum |
 | Contract | `make test-contract` | Every driver against the conformance harness |
 | Integration | `make test-integration` | Ephemeral PostgreSQL and MinIO, real migrations |
@@ -158,6 +189,18 @@ changes are additive only.
 
 Only the integration level needs Docker. Everything else runs on a machine with
 nothing but Python and Node.
+
+The unit gate measures `draupnir/core/domain`, which is what SAD 11E.3 scopes
+the unit level to ("pure domain logic") and what AC-N8 names ("the core state
+machine and ledger"). The infrastructure half of the core is gated by the
+integration stage, because a repository cannot be honestly exercised without a
+database. AC-N5 -- 100,000 ledger entries verified in under 60 seconds -- is
+measured in `tests/integration/test_ledger_performance.py`, and the build log
+carries the number.
+
+Every transition in SAD 6.1 has a test, and that claim is maintained by the
+build rather than by memory: adding a row to the transition table without a
+case in `tests/unit/test_states.py` fails `test_every_transition_has_a_case`.
 
 `make ci` runs every stage in pipeline order. Run it before opening a pull
 request; it is the same set of commands the runner executes.
@@ -265,7 +308,10 @@ image build never blocks local work.
 
 ```
 draupnir/           domain and application, the edge, and the eleven modules
-  core/             ledger, state machine, sites, registry, plug-in loader
+  core/
+    domain/         ledger, state machine, projector, sites -- pure, no framework
+    application/    the orchestrator: guard, act, write ledger, project
+    infrastructure/ models, repositories, configuration -- substitutable
   interfaces/       the seven Protocols and the conformance harness
   api/              FastAPI edge: routers, schemas, guards, error mapping
   hodd/ gleipnir/ motsognir/ hamarr/ brisingamen/ raun/ skidbladnir/

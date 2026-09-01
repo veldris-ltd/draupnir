@@ -143,21 +143,54 @@ def verify_chain(entries: Sequence[LedgerEntry], anchor: Anchor | None = None) -
             msg = f"expected one site chain, found {sorted(site_ids)}"
             raise LedgerChainError(msg)
 
-    expected_prev = GENESIS_HASH
-    for index, entry in enumerate(entries, start=1):
-        if entry.seq != index:
-            msg = f"sequence break at position {index}: seq is {entry.seq}"
-            raise LedgerChainError(msg)
-        if entry.prev_hash != expected_prev:
-            msg = f"chain break at seq {entry.seq}: prev_hash does not match seq {entry.seq - 1}"
-            raise LedgerChainError(msg)
-        if entry.entry_hash != entry.recompute():
-            msg = f"payload at seq {entry.seq} does not hash to its recorded entry_hash"
-            raise LedgerChainError(msg)
-        expected_prev = entry.entry_hash
+    divergence = first_divergence(entries)
+    if divergence is not None:
+        raise LedgerChainError(divergence.message)
 
     if anchor is not None:
         verify_anchor(entries, anchor)
+
+
+@dataclass(frozen=True, slots=True)
+class Divergence:
+    """The first sequence number at which a chain stops verifying."""
+
+    seq: int
+    reason: str
+
+    @property
+    def message(self) -> str:
+        """A line for a log or an exception."""
+        return f"seq {self.seq}: {self.reason}"
+
+
+def first_divergence(
+    entries: Sequence[LedgerEntry],
+    *,
+    expected_prev: str = GENESIS_HASH,
+    start_seq: int = 1,
+) -> Divergence | None:
+    """Return the first divergent entry, or None if the window verifies.
+
+    Windowed rather than whole-chain, because verifying 100,000 entries
+    (AC-N5) means streaming them in slices and carrying the link forward.
+    Pass the `entry_hash` of the entry before the window as `expected_prev`;
+    for a window starting at seq 1 that is the genesis hash.
+
+    Returning rather than raising is what lets the caller name the sequence
+    number in an alarm: SAD 11A.4 requires a divergence to be reported, not
+    merely detected.
+    """
+    for offset, entry in enumerate(entries):
+        expected_seq = start_seq + offset
+        if entry.seq != expected_seq:
+            return Divergence(entry.seq, f"expected sequence {expected_seq}, found {entry.seq}")
+        if entry.prev_hash != expected_prev:
+            return Divergence(entry.seq, "prev_hash does not match the preceding entry")
+        if entry.entry_hash != entry.recompute():
+            return Divergence(entry.seq, "the payload does not hash to the recorded entry_hash")
+        expected_prev = entry.entry_hash
+    return None
 
 
 def verify_anchor(entries: Sequence[LedgerEntry], anchor: Anchor) -> None:
@@ -190,3 +223,31 @@ def anchor_of(entries: Sequence[LedgerEntry]) -> Anchor | None:
     """Return the anchor GULLINBURSTI would submit for this chain."""
     latest = head(entries)
     return None if latest is None else (latest.seq, latest.entry_hash)
+
+
+@dataclass(frozen=True, slots=True)
+class ChainHead:
+    """A site's chain head, in the form GULLINBURSTI submits for anchoring.
+
+    SAD 11A.3: "GULLINBURSTI submits the current chain head, being the sequence
+    number and entry hash, to MEGINGJORD. MEGINGJORD countersigns and records
+    it." Nothing else travels; the federation holds hashes, never content.
+    """
+
+    site_id: str
+    seq: int
+    entry_hash: str
+
+    def as_anchor(self) -> Anchor:
+        """The pair `verify_anchor` compares a chain against."""
+        return (self.seq, self.entry_hash)
+
+    def signing_payload(self) -> bytes:
+        """The exact bytes a detached signature covers.
+
+        Canonical JSON of the three fields and nothing else. The signature is
+        over these bytes rather than over a rendering of them, so a verifier
+        years later reconstructs the payload from the three values without
+        having to reproduce anyone's formatting.
+        """
+        return canonical({"site_id": self.site_id, "seq": self.seq, "entry_hash": self.entry_hash})

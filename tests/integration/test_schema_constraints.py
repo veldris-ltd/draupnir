@@ -75,7 +75,9 @@ def test_the_ledger_accepts_an_insert(owner: Connection) -> None:
     _site(owner, "sindri")
     _set_site(owner, "sindri")
     _ledger_entry(owner, "sindri")
-    count = owner.execute(text("SELECT count(*) FROM ledger_entry")).scalar_one()
+    count = owner.execute(
+        text("SELECT count(*) FROM ledger_entry WHERE site_id = :s"), {"s": "sindri"}
+    ).scalar_one()
     assert count == 1
 
 

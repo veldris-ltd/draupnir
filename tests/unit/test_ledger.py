@@ -16,6 +16,7 @@ from draupnir.core.domain.ledger import (
     append,
     canonical,
     compute_entry_hash,
+    first_divergence,
     head,
     verify_chain,
 )
@@ -93,7 +94,7 @@ def test_verification_catches_a_removed_entry(moment: datetime) -> None:
         previous = _append(previous, moment + timedelta(minutes=index), payload={"i": index})
         entries.append(previous)
 
-    with pytest.raises(LedgerChainError, match="sequence break"):
+    with pytest.raises(LedgerChainError, match="expected sequence"):
         verify_chain([entries[0], entries[2], entries[3]])
 
 
@@ -160,3 +161,66 @@ def test_an_anchor_below_sequence_one_is_refused(moment: datetime) -> None:
     first = _append(None, moment)
     with pytest.raises(LedgerChainError, match="positive sequence"):
         verify_chain([first], (0, first.entry_hash))
+
+
+# ---------------------------------------------------------------------------
+# Windowed verification, which is what makes AC-N5 affordable
+# ---------------------------------------------------------------------------
+
+
+def _chain(moment: datetime, length: int) -> list[LedgerEntry]:
+    entries: list[LedgerEntry] = []
+    previous: LedgerEntry | None = None
+    for index in range(length):
+        previous = _append(previous, moment + timedelta(minutes=index), payload={"i": index})
+        entries.append(previous)
+    return entries
+
+
+def test_an_intact_window_reports_no_divergence(moment: datetime) -> None:
+    entries = _chain(moment, 6)
+    assert first_divergence(entries) is None
+
+
+def test_a_window_is_verified_against_the_entry_before_it(moment: datetime) -> None:
+    entries = _chain(moment, 6)
+    window = entries[3:]
+    assert first_divergence(window, expected_prev=entries[2].entry_hash, start_seq=4) is None
+
+
+def test_a_window_verified_against_the_wrong_predecessor_diverges(moment: datetime) -> None:
+    entries = _chain(moment, 6)
+    divergence = first_divergence(entries[3:], expected_prev=GENESIS_HASH, start_seq=4)
+    assert divergence is not None
+    assert divergence.seq == 4
+    assert "prev_hash" in divergence.reason
+
+
+def test_divergence_names_the_first_bad_sequence(moment: datetime) -> None:
+    entries = _chain(moment, 6)
+    entries[3] = replace(entries[3], payload={"i": "rewritten"})
+    divergence = first_divergence(entries)
+    assert divergence is not None
+    assert divergence.seq == 4
+    assert "seq 4" in divergence.message
+
+
+def test_a_gap_is_reported_at_the_entry_that_follows_it(moment: datetime) -> None:
+    entries = _chain(moment, 6)
+    del entries[2]
+    divergence = first_divergence(entries)
+    assert divergence is not None
+    assert divergence.seq == 4
+
+
+def test_an_empty_window_reports_no_divergence() -> None:
+    assert first_divergence([]) is None
+
+
+def test_a_chain_holding_two_sites_is_refused(moment: datetime) -> None:
+    # Each forge keeps its own segment (SAD 11A.3). A list of entries from two
+    # of them is not a chain, and verifying it as one would be meaningless.
+    sindri = _append(None, moment)
+    brokkr = replace(sindri, site_id="brokkr")
+    with pytest.raises(LedgerChainError, match="one site chain"):
+        verify_chain([sindri, brokkr])
