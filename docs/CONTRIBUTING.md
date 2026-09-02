@@ -331,6 +331,131 @@ as authoritative and the example as predating it, so `config.prepare` refuses
 SAD 6.2's example verbatim. See the note at the top of
 `draupnir/hamarr/config.py`.
 
+### Gate results bind to bytes, never to a path (AC-S8, threat T8)
+
+`draupnir/core/domain/evidence.py` is small and it is the spine of the release
+half of the system. Evidence names a SHA-256 and carries no path, no URI and no
+bucket, and `test_evidence_carries_no_location` walks the dataclass fields and
+fails if one appears.
+
+That test is not fastidiousness. The way this control decays is not somebody
+removing the hash; it is somebody adding `artefact_uri` because a console needs
+it, and the next person resolving the URI instead of the hash. A path is a name
+for wherever the bytes happen to be now, and evidence bound to one stays true
+after the bytes are replaced.
+
+It lives in the core rather than in RAUN because BRISINGAMEN and SKIDBLADNIR
+both need it and the modules cannot import each other. Evidence defined in one
+would mean evidence redefined in the others, and a second definition of "which
+bytes passed" is the whole of threat T8.
+
+`publish.verify_artefact` re-hashes the artefact it is about to publish. It does
+not look the hash up. A lookup answers "what did we record about this artefact";
+the question at publication is "what do we know about these bytes".
+
+### GLEIPNIR judges, RAUN executes, and they cannot import each other
+
+SAD 5.2 gives GLEIPNIR "gate definitions" and RAUN "gate suite execution,
+baseline management, comparison, regression detection". The module independence
+contract makes that structural, so the seam is a shape rather than a call:
+`raun.judging.Judge` is a protocol, and RAUN hands over measurements, baselines
+and gate identifiers, receiving outcomes and a verdict.
+
+RAUN therefore never sees a threshold, a comparison operator or a blocking flag.
+There is nowhere in RAUN for a gate to be softened.
+
+The wiring lives in `draupnir/api/assurance.py`, which is the layer above both
+and the only place permitted to know two modules at once. Anything that grows
+there beyond translation is policy that has escaped GLEIPNIR, and it will be
+visible in one file rather than dispersed through call sites.
+
+### Every built format is re-gated (AC-F9)
+
+`publish.verify_formats` is driven by the set of formats that were **built**,
+not by the set that has evidence. Iterating the evidence would confirm that
+everything evaluated passed -- which is true of an empty set, and true of a set
+missing the one format nobody ran.
+
+A format that was built and never evaluated is reported as failing rather than
+omitted, for the same reason: an omission is invisible to the guard, and the
+guard would then approve a set of builds smaller than the set that exists.
+
+### The sweep is an object (AC-F8)
+
+Five runs sharing a naming convention are not a sweep. Comparing them means
+reconstructing which five, from names, at the point of asking, and a sixth with
+a typo is either silently missing or silently included -- so the selected point
+is chosen from a set nobody can reproduce.
+
+`Sweep` holds its points, the comparison is a method on it, and the selection is
+recorded on it. An unevaluated point appears in the matrix with a null rather
+than being dropped: a comparison that omits the points that failed to build is a
+comparison of the survivors.
+
+`Sweep.select` refuses a point whose gates did not pass. BRISINGAMEN runs the
+sweep and RAUN decides whether a merge is acceptable (SAD 5.2), so selection
+reads the verdict rather than forming one.
+
+### The model card says what it does not know
+
+Every value on a card is a `Fact`: either recorded with a source, or absent with
+a reason. The reason this is a type rather than a convention is `None` -- a
+renderer handed a mapping cannot tell a measured absence from a missing key from
+a misspelling upstream, and the natural rendering of a missing key is to skip the
+row. That is exactly the silent omission the requirement forbids.
+
+A recorded `False` is a fact, not a gap. A release where the approver did not
+also submit the run has `soleApproverException: false`, and rendering it as "not
+recorded" would be a different and worse claim.
+
+### Article 53 is generated; Article 50 is not ours
+
+`skidbladnir/article53.py` renders the training content summary from the licence
+register, on a versioned AI Office template recorded with the release (SAD 10.2
+keeps a published release on the version in force at its date). No template with
+blanks exists anywhere; a fact the register does not hold is stated as absent.
+
+**The template version and the text of the Regulation must be checked at
+implementation and at each release.** The SAD says so and it is true; both are
+being revised actively.
+
+Article 50 belongs to the Midgard Suite (SAD 9A.1). `test_this_package_implements
+_no_watermarking` parses this package's own AST and fails if any function, class,
+name or import mentions watermarking or content credentials. It reads names and
+imports rather than text, because the modules discuss Article 50 at length in
+order to place it with the Suite, and saying where a duty belongs is not
+discharging it.
+
+### The MLX build is checked against the NVFP4 build
+
+A quantisation defect does not look like a defect. Both builds load, both
+generate fluent text, and both score within the loss a gate was written to
+tolerate. What catches it is the two disagreeing: they came from the same
+weights, so a divergence between them is not model quality, it is one of the two
+conversion pipelines being wrong.
+
+`DIVERGENCE_THRESHOLD` is therefore tighter than any relative gate margin, and a
+divergence **raises** rather than failing a gate. A gate failure would send
+somebody to look at training data for a problem that is in a conversion script.
+
+The check is only worth anything across hosts, so `BUILDS` records that MLX is
+built on ALVISS and NVFP4 on the forge, and the export driver refuses a
+specification asking for MLX without NVFP4.
+
+### Route A and Route B
+
+**This is an interpretation and it needs confirming.** SAD 5.2 gives BRISINGAMEN
+"release route selection" and SAD 6.2 carries `route: B`, but nothing in the
+document says what A and B are. `brisingamen/routes.py` reads A as publishing the
+adapter and B as publishing merged dense weights, quantised -- which is what
+BRISINGAMEN's "adapter to dense export" and SAD 6.2's pairing of `route: B` with
+`[nvfp4, gguf-q4km, mlx4]` both point at.
+
+Both routes merge, because the state machine has no path around MERGED and
+because an adapter's capability is a claim about base plus adapter. What differs
+is which artefact reaches the customer. If the programme means something else,
+the change is one table and two functions.
+
 ### `hodd://` URIs, and why nothing records a path
 
 A run specification records `hodd://sindri/corpora/GBR/curated`. Moving the

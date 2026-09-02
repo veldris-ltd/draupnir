@@ -34,13 +34,14 @@ Windows, `.\make.ps1 dev`. See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
 
 ## Status
 
-Prompts 0 to 4 of SAD section 13 are complete: the repository, the toolchain
+Prompts 0 to 5 of SAD section 13 are complete: the repository, the toolchain
 and the delivery pipeline; the core foundation -- the hash-chained ledger, the
 state machine of SAD 6.1, the site registry and the run projection; the
 plug-in system -- the seven interfaces of SAD 8.2, the entry point loader and a
 conformance suite published for third parties; HODD and GLEIPNIR -- the
-artefact store and the policy gate; and MOTSOGNIR and HAMARR -- placement and
-array concurrency, and the training executors.
+artefact store and the policy gate; MOTSOGNIR and HAMARR -- placement and array
+concurrency, and the training executors; and BRISINGAMEN, RAUN and SKIDBLADNIR
+-- reweighting, evaluation and release.
 
 The ledger is the source of truth. `run` is a projection of it, rebuilt from
 sequence 1 by a pure fold, and nothing else writes that table.
@@ -94,6 +95,27 @@ What the build enforces rather than asserts:
 - An unknown base model raises rather than resolving a default chat template.
   The alternative failure is silent: training proceeds, the loss curve looks
   ordinary, and the damage surfaces at evaluation days later.
+- Gate results bind to the artefact's SHA-256 and to nothing else. `Evidence`
+  carries no path, no URI and no bucket, and a test walks its fields and fails
+  if one is added -- because the way this control decays is somebody adding a
+  URI for a console's convenience. Publish re-hashes the bytes it is about to
+  release and refuses on mismatch.
+- Every built format is re-gated, and the check is driven by what was built
+  rather than by what was evaluated. Iterating the evidence would confirm that
+  everything evaluated passed, which is true of an empty set.
+- The weight sweep is one object, not five runs sharing a naming convention.
+  The comparison is a method on it and the selected point is recorded on it, so
+  what the console showed and what the model card publishes are the same fact.
+- The model card is rendered from `Fact`s, each either recorded with a source
+  or absent with a reason. There is no path by which a missing value becomes a
+  missing row.
+- Article 53 artefacts are generated from the licence register, on a versioned
+  AI Office template recorded with the release. Article 50 belongs to the
+  Midgard Suite: a test reads this package's own AST and fails if anything here
+  defines or imports watermarking.
+- The MLX build is compared against the NVFP4 build and raises beyond a
+  threshold tighter than any gate margin. A quantisation defect looks like a
+  healthy model; what catches it is two builds of the same weights disagreeing.
 - Playwright, axe and Storybook are wired and running against nothing yet.
 
 Verified: 100,000 ledger entries verify in about four seconds against the

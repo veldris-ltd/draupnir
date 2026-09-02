@@ -128,3 +128,89 @@ def test_the_slurm_driver_conforms_to_what_every_plugin_must_declare(
     driver = installed(registry, "draupnir.schedule", "motsognir.slurm/v1").driver
 
     assert check_driver(driver) == []
+
+
+class TestMergekitConformance(JobDriverConformance):
+    """The mergekit MergeDriver, against the published suite."""
+
+    @pytest.fixture
+    def driver(self, registry: PluginRegistry) -> Any:
+        return installed(registry, "draupnir.merge", "brisingamen.mergekit/v1").driver
+
+    @pytest.fixture
+    def spec(self) -> RunSpec:
+        """A two model TIES merge, which is what this driver is for."""
+        return sample_spec(
+            train={
+                "driver": "brisingamen.mergekit/v1",
+                "method": "ties",
+                "params": {
+                    "merge_method": "ties",
+                    "base_model": "hodd://sindri/models/core/base",
+                    "models": [
+                        {"model": "adapter-gbr", "weight": 0.6, "tokenizer_sha256": "a" * 64},
+                        {"model": "adapter-can", "weight": 0.4, "tokenizer_sha256": "a" * 64},
+                    ],
+                },
+                "precision": "bf16",
+            }
+        )
+
+
+class TestLmEvalConformance(JobDriverConformance):
+    """The lm-evaluation-harness EvalDriver, against the published suite."""
+
+    @pytest.fixture
+    def driver(self, registry: PluginRegistry) -> Any:
+        return installed(registry, "draupnir.eval", "raun.lmeval/v1").driver
+
+
+class TestQuantiseConformance(JobDriverConformance):
+    """The NVFP4/GGUF/MLX ExportDriver, against the published suite."""
+
+    @pytest.fixture
+    def driver(self, registry: PluginRegistry) -> Any:
+        return installed(registry, "draupnir.export", "skidbladnir.quantise/v1").driver
+
+    @pytest.fixture
+    def spec(self) -> RunSpec:
+        """The formats of SAD 6.2, which is what this driver builds."""
+        return sample_spec(
+            release={
+                "route": "B",
+                "formats": ["nvfp4", "gguf-q4km", "mlx4"],
+                "approval": "required",
+            }
+        )
+
+
+def test_every_prompt_five_driver_is_discoverable(registry: PluginRegistry) -> None:
+    """All three arrive by entry point, the way the control plane loads them."""
+    assert "brisingamen.mergekit/v1" in registry.names("draupnir.merge")
+    assert "raun.lmeval/v1" in registry.names("draupnir.eval")
+    assert "skidbladnir.quantise/v1" in registry.names("draupnir.export")
+
+
+def test_the_eval_driver_never_decides_whether_a_gate_passed(
+    registry: PluginRegistry, tmp_path: Any
+) -> None:
+    """A driver that filled `passed` in could pass its own evaluation.
+
+    The value is reported; the verdict needs the threshold, the baseline and the
+    comparison, all of which are GLEIPNIR's (Decision S4).
+    """
+    import json
+
+    driver = installed(registry, "draupnir.eval", "raun.lmeval/v1").driver
+    (tmp_path / "results.json").write_text(
+        json.dumps(
+            {"results": {"mmlu": {"acc_norm": 0.81}, "ifeval": {"prompt_level_strict_acc": 0.77}}}
+        ),
+        encoding="utf-8",
+    )
+
+    outcomes = driver.collect_gates(tmp_path, "2026.01")
+
+    assert {item.gate for item in outcomes} == {"E1", "E3"}
+    assert all(item.passed is False for item in outcomes)
+    assert all(item.baseline_value is None for item in outcomes)

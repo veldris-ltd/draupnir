@@ -13,6 +13,11 @@ root_packages =
     draupnirctl
     draupnir_local_subprocess
     draupnir_targz_export
+    draupnir_motsognir_slurm
+    draupnir_hamarr_llamafactory
+    draupnir_brisingamen_mergekit
+    draupnir_raun_lmeval
+    draupnir_skidbladnir_quantise
 include_external_packages = True
 
 ; -------------------------------------------------------------------------
@@ -125,6 +130,11 @@ type = forbidden
 source_modules =
     draupnir_local_subprocess
     draupnir_targz_export
+    draupnir_motsognir_slurm
+    draupnir_hamarr_llamafactory
+    draupnir_brisingamen_mergekit
+    draupnir_raun_lmeval
+    draupnir_skidbladnir_quantise
 forbidden_modules =
     draupnir.core
     draupnir.api
