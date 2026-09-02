@@ -79,3 +79,52 @@ class TestTarGzExportConformance(JobDriverConformance):
     def spec(self) -> RunSpec:
         """A specification asking for the one format this driver produces."""
         return sample_spec(release={"route": "B", "formats": ["targz"], "approval": "required"})
+
+
+class TestLlamaFactoryConformance(JobDriverConformance):
+    """The LLaMA-Factory TrainDriver, against the published suite.
+
+    The specification below is one HAMARR has already prepared: it carries the
+    checkpoint interval the driver refuses to invent for itself. That refusal
+    is what keeps the thirty minute budget in the control plane rather than in
+    a third party package.
+    """
+
+    @pytest.fixture
+    def driver(self, registry: PluginRegistry) -> Any:
+        return installed(registry, "draupnir.train", "hamarr.llamafactory/v1").driver
+
+    @pytest.fixture
+    def spec(self) -> RunSpec:
+        return sample_spec(
+            train={
+                "driver": "hamarr.llamafactory/v1",
+                "method": "lora",
+                "params": {"save_steps": 150, "lora_rank": 64},
+                "precision": "bf16",
+            }
+        )
+
+
+def test_the_slurm_and_llamafactory_drivers_are_discoverable(
+    registry: PluginRegistry,
+) -> None:
+    """Both arrive by entry point, the way the control plane loads them."""
+    assert "motsognir.slurm/v1" in registry.names("draupnir.schedule")
+    assert "hamarr.llamafactory/v1" in registry.names("draupnir.train")
+
+
+def test_the_slurm_driver_conforms_to_what_every_plugin_must_declare(
+    registry: PluginRegistry,
+) -> None:
+    """The submit/poll/cancel suite needs a live Slurm; the rest does not.
+
+    The behaviour that suite would exercise is covered against Slurm's real
+    output formats in `tests/unit/test_slurm_driver.py`, with the command
+    layer replaced and everything above it running for real.
+    """
+    from draupnir.interfaces.testing.harness import check_driver
+
+    driver = installed(registry, "draupnir.schedule", "motsognir.slurm/v1").driver
+
+    assert check_driver(driver) == []

@@ -1,0 +1,28 @@
+# The Slurm ScheduleDriver of SAD 8.2.
+#
+# A separate distribution, like every driver. The `drivers-depend-on-
+# interfaces-only` import contract forbids anything here from importing
+# draupnir.motsognir: placement, array concurrency and retry are the module's,
+# and a driver that could reach them would be able to make policy.
+
+[project]
+name = "veldris-draupnir-slurm"
+version = "1.0.0"
+description = "Slurm ScheduleDriver for DRAUPNIR"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "Proprietary" }
+dependencies = ["veldris-draupnir"]
+
+[tool.uv.sources]
+veldris-draupnir = { workspace = true }
+
+[project.entry-points."draupnir.schedule"]
+"motsognir.slurm/v1" = "draupnir_motsognir_slurm:driver"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["draupnir_motsognir_slurm"]

@@ -15,7 +15,9 @@ supported-markers = [
 [manifest]
 members = [
     "veldris-draupnir",
+    "veldris-draupnir-llamafactory",
     "veldris-draupnir-local-subprocess",
+    "veldris-draupnir-slurm",
     "veldris-draupnir-targz-export",
 ]
 
@@ -1583,9 +1585,31 @@ dev = [
 ]
 
 [[package]]
+name = "veldris-draupnir-llamafactory"
+version = "1.0.0"
+source = { editable = "plugins/hamarr_llamafactory" }
+dependencies = [
+    { name = "veldris-draupnir" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "veldris-draupnir", editable = "." }]
+
+[[package]]
 name = "veldris-draupnir-local-subprocess"
 version = "1.0.0"
 source = { editable = "plugins/local_subprocess" }
+dependencies = [
+    { name = "veldris-draupnir" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "veldris-draupnir", editable = "." }]
+
+[[package]]
+name = "veldris-draupnir-slurm"
+version = "1.0.0"
+source = { editable = "plugins/motsognir_slurm" }
 dependencies = [
     { name = "veldris-draupnir" },
 ]

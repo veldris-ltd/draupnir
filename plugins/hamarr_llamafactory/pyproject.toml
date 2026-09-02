@@ -1,0 +1,28 @@
+# The LLaMA-Factory TrainDriver of SAD 8.2.
+#
+# LLaMA-Factory itself is not a dependency. The driver renders a command and
+# reads its output; the trainer is installed on the appliance that runs the
+# job, not in the control plane, which has no GPU and must not need one to
+# validate a specification.
+
+[project]
+name = "veldris-draupnir-llamafactory"
+version = "1.0.0"
+description = "LLaMA-Factory TrainDriver for DRAUPNIR"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "Proprietary" }
+dependencies = ["veldris-draupnir"]
+
+[tool.uv.sources]
+veldris-draupnir = { workspace = true }
+
+[project.entry-points."draupnir.train"]
+"hamarr.llamafactory/v1" = "draupnir_hamarr_llamafactory:driver"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["draupnir_hamarr_llamafactory"]

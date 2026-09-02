@@ -225,6 +225,112 @@ leaves a sealed artefact nothing names. `Ingestor.orphans()` finds those, and
 reports rather than deletes them -- an artefact HODD sealed is exactly the sort
 of thing a process should not remove on its own initiative.
 
+### A ring run refuses rather than degrades (SAD Decision S8)
+
+Two partitions, and they behave differently when the estate is short of a
+machine.
+
+`adapters` runs independent single-node jobs, so losing an appliance costs
+throughput and nothing else. Concurrency follows the appliances that are up,
+and the array runs slower.
+
+`ring` runs one job across all three appliances over the BAUGR ring, ranks 0 to
+2. Losing an appliance there does not make the job slower, it makes it a
+different job: two nodes of a three node specification produces a model that is
+not the model the specification describes, and it would be discovered at
+evaluation, after days of compute. So `plan` raises `DegradedRingError` instead.
+
+`ALL_OR_NOTHING` is the set of partitions this applies to. Adding one is a line
+there, not a branch somewhere else.
+
+### The array throttle is a throttle, not a count
+
+    --array=0-55%3
+
+All fifty six elements exist from the moment of submission and Slurm runs three
+of them. The alternative -- submitting three and topping up as they finish --
+would make the estate's utilisation depend on the control plane being awake,
+which SAD 11.2 does not assume.
+
+A failed element is retried as `--array=<index>` on a fresh submission, never
+by resubmitting the array. Resubmitting restarts every element, discarding the
+compute of the fifty five that succeeded, which for CIM-56 is most of a week.
+`ArrayPlan.with_element` replaces one element and leaves the others as the
+objects they were, which is what makes that testable rather than asserted.
+
+An element that failed within its retry budget is `AWAITING_RETRY`, not
+`FAILED`. An operator reading fifty six rows needs FAILED to mean "will not be
+tried again" more than they need the scheduler's vocabulary.
+
+### The checkpoint interval is derived, not authored
+
+No more than thirty minutes of work may ever be unwritten. An interval fixed in
+a specification cannot deliver that, because it is a guess about hardware: too
+high and a node failure eighteen hours in loses eighteen hours; too low and a
+27B run spends its allocation writing optimiser state.
+
+So `hamarr/checkpoints.py` derives the largest `save_steps` that keeps exposure
+inside the budget, from the step time. At submission the step time is assumed
+and the policy says so (`provisional`); after fifty steps the measurement
+replaces the guess and the driver's configuration is rewritten. Fifty, because
+earlier steps carry compilation, allocator warm-up and the first optimiser
+allocation, and are not representative of the next eighteen hours.
+
+A specification may still name `save_steps`. It is checked against the same
+budget at submission rather than trusted.
+
+### Progress is structure, and the regular expressions live in the driver
+
+`TrainDriver.parse_progress` turns one line of executor output into a
+`ProgressEvent`. `hamarr/progress.py` folds those into a `Progress` record of
+numbers, and the API serves that. Nothing downstream ever sees a line of
+executor output, so no component can come to depend on the wording of a log
+message and an upgrade that changes LLaMA-Factory's log format is a plug-in
+version bump.
+
+`Progress` is derived, never stored: fold the events again and you get the same
+record, the same property the run projection has.
+
+### Tier drives base selection, and an unknown base raises
+
+Tier A -- GBR, CYP, MLT, IND, CAN, AUS, NGA, ZAF, SGP -- trains on the 27B
+dense base; Tier B, the remaining forty seven, on the 35B-A3B MoE base.
+`tiers.validate()` runs at submission and refuses unless the two lists
+enumerate all fifty six with no duplicate and no omission (AC-F16).
+`tiers.tier_of` raises for a jurisdiction nobody assigned, because a default
+would silently train a fifty seventh model.
+
+The chat template is resolved from a versioned map in
+`plugins/hamarr_llamafactory/`, and an unknown base model raises. There is no
+default and there must not be one: applying the wrong chat template does not
+crash, it trains a model against a conversation format nobody will send it. The
+loss curve looks ordinary and the damage surfaces at evaluation, days later,
+looking like a data problem.
+
+Two things the source documents left open, both now settled and both recorded
+in the code rather than in anyone's memory.
+
+The SAD does not enumerate the fifty six. `draupnir/hamarr/tiers.py` derives
+them from Commonwealth of Nations membership and records the derivation twice:
+as the tier split, 9 and 47, and region by region -- Africa 21, Asia 8,
+Caribbean and Americas 13, Europe 3, Pacific 11. The regional grouping is what
+makes the list auditable. A missing jurisdiction is invisible in a flat list of
+fifty six and obvious in a region whose count is one short, so keep the
+grouping if you touch those tuples.
+
+Suspended members are in scope. Gabon has been suspended from the Councils of
+the Commonwealth since August 2023 and still receives a model, decided 2
+September 2026. That is a delivery decision rather than a fact about the
+Commonwealth, so it has a test of its own: reversing it makes the programme
+fifty five and changes `EXPECTED_TOTAL` and AC-F16 with it, which should take an
+argument rather than an edit.
+
+SAD 6.2's worked example is `cim-gbr-v0.1`, `tier: A`, pointing at the 35B-A3B
+MoE base -- which SAD 13.5 and SAD Q2 both assign to Tier B. The rule is taken
+as authoritative and the example as predating it, so `config.prepare` refuses
+SAD 6.2's example verbatim. See the note at the top of
+`draupnir/hamarr/config.py`.
+
 ### `hodd://` URIs, and why nothing records a path
 
 A run specification records `hodd://sindri/corpora/GBR/curated`. Moving the

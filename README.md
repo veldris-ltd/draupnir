@@ -34,12 +34,13 @@ Windows, `.\make.ps1 dev`. See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
 
 ## Status
 
-Prompts 0 to 3 of SAD section 13 are complete: the repository, the toolchain
+Prompts 0 to 4 of SAD section 13 are complete: the repository, the toolchain
 and the delivery pipeline; the core foundation -- the hash-chained ledger, the
 state machine of SAD 6.1, the site registry and the run projection; the
 plug-in system -- the seven interfaces of SAD 8.2, the entry point loader and a
-conformance suite published for third parties; and HODD and GLEIPNIR -- the
-artefact store and the policy gate.
+conformance suite published for third parties; HODD and GLEIPNIR -- the
+artefact store and the policy gate; and MOTSOGNIR and HAMARR -- placement and
+array concurrency, and the training executors.
 
 The ledger is the source of truth. `run` is a projection of it, rebuilt from
 sequence 1 by a pure fold, and nothing else writes that table.
@@ -73,6 +74,26 @@ What the build enforces rather than asserts:
 - The single-approver exception of constraint C-11 is computed, never
   supplied, and sits inside the signed payload -- so suppressing it invalidates
   the signature and the release is refused.
+- A ring run refuses to plan when an appliance is down rather than running on
+  two nodes of a three node specification. An adapter array reduces its
+  concurrency instead, because losing a machine there costs throughput and
+  nothing else.
+- Fifty six elements go in as one submission, `--array=0-55%3`, where the `%3`
+  is a throttle rather than a count -- so utilisation does not depend on the
+  control plane being awake. A failed element is retried as `--array=<index>`,
+  which is what keeps the other fifty five untouched.
+- The checkpoint interval is derived from observed step time, not authored:
+  the largest interval that keeps unwritten work under thirty minutes,
+  provisional at submission and recomputed once fifty steps have actually run.
+- Progress reaches the UI as numbers. The regular expressions live in the
+  driver, so a change to LLaMA-Factory's log format is a plug-in version bump
+  and touches no core file.
+- The tier table drives base selection and validates at submission that the two
+  lists enumerate all fifty six with no duplicate and no omission (AC-F16). An
+  unknown jurisdiction raises; there is no default tier.
+- An unknown base model raises rather than resolving a default chat template.
+  The alternative failure is silent: training proceeds, the loss curve looks
+  ordinary, and the damage surfaces at evaluation days later.
 - Playwright, axe and Storybook are wired and running against nothing yet.
 
 Verified: 100,000 ledger entries verify in about four seconds against the

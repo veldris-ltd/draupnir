@@ -503,10 +503,19 @@ def test_unit() -> int:
     # specifically. Both are `draupnir/core/domain`. The infrastructure half of
     # the core is measured by the integration stage, which is the only level
     # that can honestly exercise a repository.
+    #
+    # The MOTSOGNIR and HAMARR policy modules are measured here too. They are
+    # pure domain logic by the same test -- no I/O, no framework, no clock --
+    # and they decide things (where a ring run may be placed, how much work may
+    # be unwritten) that must not go unmeasured because of where they sit in
+    # the tree. The scheduler and trainer drivers themselves are plug-ins and
+    # are measured by the contract level.
     uv_run(
         "pytest",
         "tests/unit",
         "--cov=draupnir/core/domain",
+        "--cov=draupnir/motsognir",
+        "--cov=draupnir/hamarr",
         "--cov-fail-under=90",
         "--cov-report=term-missing",
         "--cov-report=xml",
