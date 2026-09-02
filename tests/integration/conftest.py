@@ -17,6 +17,8 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Connection, Engine, create_engine, text
 
+from draupnir.core.infrastructure.config import get_settings
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -84,6 +86,15 @@ def migrate_and_grant(url: str) -> None:
     config.set_main_option("script_location", str(REPO_ROOT / "migrations"))
     config.set_main_option("sqlalchemy.url", url)
     os.environ["DRAUPNIR_DATABASE_URL_SYNC"] = url
+
+    # `get_settings` is `lru_cache`d process-wide, so anything that read the
+    # settings before this line -- one request to `/healthz` is enough -- has
+    # pinned the default `localhost:5432`, where nothing is listening. Every
+    # later fixture then times out, and the failure looks like a broken
+    # container rather than a stale cache. Clearing it here makes the ordering
+    # hazard impossible rather than merely unlikely.
+    get_settings.cache_clear()
+
     command.upgrade(config, "head")
 
     engine = create_engine(url, future=True)

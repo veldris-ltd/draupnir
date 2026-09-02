@@ -281,3 +281,53 @@ def test_a_source_cannot_hold_a_run_only_state(owner: Connection) -> None:
             ),
             {"id": new_id(), "sha": "d" * 64},
         )
+
+
+def test_an_unscoped_query_returns_zero_rows_rather_than_all_rows(
+    app: Connection, owner_engine: Engine
+) -> None:
+    """AC-B10, and the prompt's exit condition, stated directly.
+
+    The distinction matters more than it looks. A policy that failed *open*
+    when the session variable is unset would return every site's rows to a
+    caller that forgot to set a scope -- and forgetting is exactly what a new
+    code path does. The policy compares `site_id` against the variable, and an
+    unset variable compares equal to nothing, so the failure mode is an empty
+    result and a puzzled developer rather than a cross-site disclosure.
+    """
+    with owner_engine.begin() as setup:
+        _site(setup, "sindri")
+        _site(setup, "brokkr")
+        _set_site(setup, "sindri")
+        _ledger_entry(setup, "sindri", seq=911)
+        _set_site(setup, "brokkr")
+        _ledger_entry(setup, "brokkr", seq=912)
+
+    # Scoped: the site's own rows are visible, so the data is really there.
+    _set_site(app, "sindri")
+    scoped = app.execute(text("SELECT count(*) FROM ledger_entry")).scalar_one()
+    assert scoped >= 1
+
+    # Unset: zero rows, not every row.
+    app.execute(text("SELECT set_config('draupnir.site_id', '', true)"))
+
+    for table in SITE_SCOPED_TABLES:
+        unscoped = app.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()  # noqa: S608
+        assert unscoped == 0, (
+            f"{table} returned {unscoped} rows with draupnir.site_id unset. Row level "
+            "security must fail closed: an unset scope returns nothing rather than "
+            "everything (AC-B10, SAD 11C)."
+        )
+
+
+def test_an_unscoped_write_is_refused_rather_than_attributed_somewhere(
+    app: Connection, owner_engine: Engine
+) -> None:
+    """The other half. A write with no scope must not land under some default."""
+    with owner_engine.begin() as setup:
+        _site(setup, "sindri")
+
+    app.execute(text("SELECT set_config('draupnir.site_id', '', true)"))
+
+    with pytest.raises(DBAPIError):
+        _ledger_entry(app, "sindri", seq=913)

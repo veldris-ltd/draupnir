@@ -1,6 +1,306 @@
 {
   "components": {
     "schemas": {
+      "Accepted": {
+        "additionalProperties": false,
+        "description": "A long operation that has been accepted but not completed. AC-B9.",
+        "properties": {
+          "detail": {
+            "description": "What was accepted.",
+            "title": "Detail",
+            "type": "string"
+          },
+          "events": {
+            "description": "Where to watch this run's event stream.",
+            "title": "Events",
+            "type": "string"
+          },
+          "runId": {
+            "description": "The run this operation concerns.",
+            "format": "uuid",
+            "title": "Runid",
+            "type": "string"
+          },
+          "status": {
+            "const": "accepted",
+            "description": "Always `accepted`.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId",
+          "status",
+          "detail",
+          "events"
+        ],
+        "title": "Accepted",
+        "type": "object"
+      },
+      "ApprovalItem": {
+        "additionalProperties": false,
+        "description": "One artefact awaiting a decision.",
+        "properties": {
+          "artefactSha256": {
+            "description": "The bytes being decided on.",
+            "title": "Artefactsha256",
+            "type": "string"
+          },
+          "awaitingSince": {
+            "description": "When it entered the queue.",
+            "format": "date-time",
+            "title": "Awaitingsince",
+            "type": "string"
+          },
+          "gates": {
+            "description": "The gate results.",
+            "items": {
+              "$ref": "#/components/schemas/GateOut"
+            },
+            "title": "Gates",
+            "type": "array"
+          },
+          "id": {
+            "description": "The subject awaiting approval.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "model": {
+            "description": "What the artefact is.",
+            "title": "Model",
+            "type": "string"
+          },
+          "runId": {
+            "description": "The run that produced it.",
+            "format": "uuid",
+            "title": "Runid",
+            "type": "string"
+          },
+          "submittedBy": {
+            "description": "Who submitted the run.",
+            "title": "Submittedby",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "runId",
+          "model",
+          "artefactSha256",
+          "submittedBy",
+          "awaitingSince"
+        ],
+        "title": "ApprovalItem",
+        "type": "object"
+      },
+      "ApprovalPage": {
+        "additionalProperties": false,
+        "description": "A page of the approval queue.",
+        "properties": {
+          "items": {
+            "description": "This page's pending approvals.",
+            "items": {
+              "$ref": "#/components/schemas/ApprovalItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "description": "Page size.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor for the next page.",
+            "title": "Nextcursor"
+          }
+        },
+        "required": [
+          "items",
+          "limit"
+        ],
+        "title": "ApprovalPage",
+        "type": "object"
+      },
+      "CancelIn": {
+        "additionalProperties": false,
+        "description": "Why a run is being cancelled.",
+        "properties": {
+          "reason": {
+            "description": "Recorded in the ledger against the transition.",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "CancelIn",
+        "type": "object"
+      },
+      "DecisionIn": {
+        "additionalProperties": false,
+        "description": "An approver's signed decision. SAD 7.1 `approval`.",
+        "properties": {
+          "decision": {
+            "description": "The decision taken.",
+            "enum": [
+              "approved",
+              "rejected"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why. Recorded on the approval and visible in lineage.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "signature": {
+            "description": "Detached signature over the approval payload, from the approver's key. Whitespace is stripped and an empty result is refused: a blank signature is a row somebody could have written, and publication verifies it.",
+            "minLength": 1,
+            "title": "Signature",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision",
+          "reason",
+          "signature"
+        ],
+        "title": "DecisionIn",
+        "type": "object"
+      },
+      "DecisionOut": {
+        "additionalProperties": false,
+        "description": "A recorded decision.",
+        "properties": {
+          "approver": {
+            "description": "Who decided.",
+            "title": "Approver",
+            "type": "string"
+          },
+          "decidedAt": {
+            "description": "When it was decided.",
+            "format": "date-time",
+            "title": "Decidedat",
+            "type": "string"
+          },
+          "decision": {
+            "description": "The decision taken.",
+            "enum": [
+              "approved",
+              "rejected"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "id": {
+            "description": "The approval record.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "soleApproverException": {
+            "description": "True where the approver also submitted the run. Computed, never supplied. Constraint C-11; visible here, in the lineage and in the model card.",
+            "title": "Soleapproverexception",
+            "type": "boolean"
+          },
+          "subjectId": {
+            "description": "What was decided on.",
+            "format": "uuid",
+            "title": "Subjectid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subjectId",
+          "approver",
+          "decision",
+          "reason",
+          "soleApproverException",
+          "decidedAt"
+        ],
+        "title": "DecisionOut",
+        "type": "object"
+      },
+      "GateOut": {
+        "additionalProperties": false,
+        "description": "One gate result, with its baseline and margin. SAD 7.1.",
+        "properties": {
+          "baselineValue": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What it was compared against.",
+            "title": "Baselinevalue"
+          },
+          "gate": {
+            "description": "Gate identifier, E1 to E6.",
+            "title": "Gate",
+            "type": "string"
+          },
+          "margin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Measurement minus baseline.",
+            "title": "Margin"
+          },
+          "passed": {
+            "description": "Whether the gate was satisfied.",
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "suiteVersion": {
+            "description": "The suite version that produced it.",
+            "title": "Suiteversion",
+            "type": "string"
+          },
+          "value": {
+            "description": "The measurement.",
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "gate",
+          "suiteVersion",
+          "value",
+          "passed"
+        ],
+        "title": "GateOut",
+        "type": "object"
+      },
       "Health": {
         "description": "Liveness answer.",
         "properties": {
@@ -24,6 +324,295 @@
           "site_id"
         ],
         "title": "Health",
+        "type": "object"
+      },
+      "LedgerEntryOut": {
+        "additionalProperties": false,
+        "description": "One hash-chained ledger entry. SAD 7.1.",
+        "properties": {
+          "actor": {
+            "description": "Who caused it.",
+            "title": "Actor",
+            "type": "string"
+          },
+          "entryHash": {
+            "description": "This entry's hash.",
+            "title": "Entryhash",
+            "type": "string"
+          },
+          "id": {
+            "description": "Entry identifier.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "prevHash": {
+            "description": "The previous entry's hash.",
+            "title": "Prevhash",
+            "type": "string"
+          },
+          "seq": {
+            "description": "Position in this site's chain.",
+            "title": "Seq",
+            "type": "integer"
+          },
+          "siteId": {
+            "description": "The site whose segment this belongs to.",
+            "title": "Siteid",
+            "type": "string"
+          },
+          "subjectId": {
+            "description": "Which one.",
+            "format": "uuid",
+            "title": "Subjectid",
+            "type": "string"
+          },
+          "subjectType": {
+            "description": "What kind of thing it concerns.",
+            "title": "Subjecttype",
+            "type": "string"
+          },
+          "transition": {
+            "description": "The state transition recorded.",
+            "title": "Transition",
+            "type": "string"
+          },
+          "ts": {
+            "description": "When it was recorded.",
+            "format": "date-time",
+            "title": "Ts",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "siteId",
+          "seq",
+          "prevHash",
+          "entryHash",
+          "ts",
+          "actor",
+          "subjectType",
+          "subjectId",
+          "transition"
+        ],
+        "title": "LedgerEntryOut",
+        "type": "object"
+      },
+      "LedgerSlice": {
+        "additionalProperties": false,
+        "description": "A slice of the ledger, with its chain verification.",
+        "properties": {
+          "divergence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the chain first diverges, if it does.",
+            "title": "Divergence"
+          },
+          "items": {
+            "description": "The entries in the slice.",
+            "items": {
+              "$ref": "#/components/schemas/LedgerEntryOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "description": "Page size.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor for the next page.",
+            "title": "Nextcursor"
+          },
+          "verified": {
+            "description": "Whether the returned slice's hash chain verifies end to end.",
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "limit",
+          "verified"
+        ],
+        "title": "LedgerSlice",
+        "type": "object"
+      },
+      "LineageOut": {
+        "additionalProperties": false,
+        "description": "A lineage attestation. AC-F11.",
+        "properties": {
+          "approval": {
+            "additionalProperties": true,
+            "description": "The approval, carrying the sole approver exception (SAD 9.4).",
+            "title": "Approval",
+            "type": "object"
+          },
+          "artefact": {
+            "description": "The artefact this chain describes.",
+            "title": "Artefact",
+            "type": "string"
+          },
+          "complete": {
+            "description": "Whether the chain reaches licensed roots with no gaps.",
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "corpusHashes": {
+            "description": "Every source and corpus hash in the chain.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Corpushashes",
+            "type": "array"
+          },
+          "gaps": {
+            "description": "Every gap, where there are any.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "licences": {
+            "description": "Every licence in the chain.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Licences",
+            "type": "array"
+          },
+          "nodes": {
+            "description": "The chain itself.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Nodes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "artefact",
+          "complete"
+        ],
+        "title": "LineageOut",
+        "type": "object"
+      },
+      "PluginList": {
+        "additionalProperties": false,
+        "description": "Every installed plug-in.",
+        "properties": {
+          "failures": {
+            "description": "Distributions the loader refused, and why.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Failures",
+            "type": "array"
+          },
+          "items": {
+            "description": "Installed plug-ins.",
+            "items": {
+              "$ref": "#/components/schemas/PluginOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "PluginList",
+        "type": "object"
+      },
+      "PluginOut": {
+        "additionalProperties": false,
+        "description": "One installed plug-in and its signature status. SAD 8.1.",
+        "properties": {
+          "capabilities": {
+            "description": "What the driver declares it can do.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "distribution": {
+            "description": "The installed distribution.",
+            "title": "Distribution",
+            "type": "string"
+          },
+          "group": {
+            "description": "Which extension point it implements.",
+            "title": "Group",
+            "type": "string"
+          },
+          "name": {
+            "description": "Versioned entry point name, e.g. `hamarr.llamafactory/v1`.",
+            "title": "Name",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why verification failed, where it did.",
+            "title": "Reason"
+          },
+          "signatureVerified": {
+            "description": "Whether its signature verified (AC-S7).",
+            "title": "Signatureverified",
+            "type": "boolean"
+          },
+          "signer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which key signed it.",
+            "title": "Signer"
+          },
+          "version": {
+            "description": "The distribution's version.",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "group",
+          "distribution",
+          "version",
+          "capabilities",
+          "signatureVerified"
+        ],
+        "title": "PluginOut",
         "type": "object"
       },
       "Problem": {
@@ -83,6 +672,51 @@
         "title": "Problem",
         "type": "object"
       },
+      "PublishOut": {
+        "additionalProperties": false,
+        "description": "What a publication produced.",
+        "properties": {
+          "artefactSha256": {
+            "description": "The bytes that were published.",
+            "title": "Artefactsha256",
+            "type": "string"
+          },
+          "formats": {
+            "description": "Which formats were published.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Formats",
+            "type": "array"
+          },
+          "manifest": {
+            "additionalProperties": true,
+            "description": "The SHA-256 manifest of the release package.",
+            "title": "Manifest",
+            "type": "object"
+          },
+          "model": {
+            "description": "The released model.",
+            "title": "Model",
+            "type": "string"
+          },
+          "releasedAt": {
+            "description": "When it was published.",
+            "format": "date-time",
+            "title": "Releasedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artefactSha256",
+          "model",
+          "releasedAt",
+          "formats",
+          "manifest"
+        ],
+        "title": "PublishOut",
+        "type": "object"
+      },
       "Readiness": {
         "description": "Readiness answer, one entry per dependency.",
         "properties": {
@@ -108,11 +742,347 @@
         ],
         "title": "Readiness",
         "type": "object"
+      },
+      "RunOut": {
+        "additionalProperties": false,
+        "description": "A run as the projection holds it.",
+        "properties": {
+          "createdAt": {
+            "description": "When the run was submitted.",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "id": {
+            "description": "UUIDv7 run identifier.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "jurisdiction": {
+            "description": "ISO 3166-1 alpha-3 code.",
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "name": {
+            "description": "The specification's metadata.name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "retryBudgetRemaining": {
+            "default": 0,
+            "description": "How many automatic retries remain.",
+            "title": "Retrybudgetremaining",
+            "type": "integer"
+          },
+          "siteId": {
+            "description": "The site this run belongs to.",
+            "title": "Siteid",
+            "type": "string"
+          },
+          "specHash": {
+            "description": "SHA-256 of the canonical specification.",
+            "title": "Spechash",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RunState",
+            "description": "Current state, per SAD 6.1."
+          },
+          "updatedAt": {
+            "description": "When the run last changed state.",
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "siteId",
+          "name",
+          "jurisdiction",
+          "state",
+          "specHash",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "RunOut",
+        "type": "object"
+      },
+      "RunPage": {
+        "additionalProperties": false,
+        "description": "A page of runs.",
+        "properties": {
+          "items": {
+            "description": "This page's runs.",
+            "items": {
+              "$ref": "#/components/schemas/RunOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "description": "Page size.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor for the next page.",
+            "title": "Nextcursor"
+          }
+        },
+        "required": [
+          "items",
+          "limit"
+        ],
+        "title": "RunPage",
+        "type": "object"
+      },
+      "RunState": {
+        "description": "States of the lifecycle in SAD 6.1.",
+        "enum": [
+          "DRAFT",
+          "CORPUS_REGISTERED",
+          "LICENCE_CLEARED",
+          "CURATED",
+          "QUEUED",
+          "TRAINING",
+          "TRAINED",
+          "FAILED",
+          "EVALUATING",
+          "MERGED",
+          "QUANTISED",
+          "AWAITING_APPROVAL",
+          "RELEASED",
+          "QUARANTINED"
+        ],
+        "title": "RunState",
+        "type": "string"
+      },
+      "RunSubmission": {
+        "additionalProperties": false,
+        "description": "A run specification being submitted. SAD 6.2.",
+        "properties": {
+          "specification": {
+            "additionalProperties": true,
+            "description": "The run specification, as SAD 6.2 defines it. Validated against the JSON Schema and hashed into the run identity.",
+            "title": "Specification",
+            "type": "object"
+          }
+        },
+        "required": [
+          "specification"
+        ],
+        "title": "RunSubmission",
+        "type": "object"
+      },
+      "SourceIn": {
+        "additionalProperties": false,
+        "description": "A corpus source being registered with its licence. SAD 8.1, curator.",
+        "properties": {
+          "attributionRequired": {
+            "description": "Whether the licence obliges attribution in derived releases.",
+            "title": "Attributionrequired",
+            "type": "boolean"
+          },
+          "dpiaRef": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DPIA reference. Required when personalData is true.",
+            "title": "Dpiaref"
+          },
+          "jurisdiction": {
+            "description": "ISO 3166-1 alpha-3 code of the jurisdiction this source serves.",
+            "maxLength": 3,
+            "minLength": 3,
+            "pattern": "^[A-Z]{3}$",
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "licenceSpdx": {
+            "description": "SPDX identifier as declared. Held as a fact, not as a permission.",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Licencespdx",
+            "type": "string"
+          },
+          "personalData": {
+            "description": "Whether the source contains personal data. Requires a DPIA reference.",
+            "title": "Personaldata",
+            "type": "boolean"
+          },
+          "residencyConstraint": {
+            "description": "Sites permitted to hold this corpus. Empty means unconstrained.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Residencyconstraint",
+            "type": "array"
+          },
+          "retrievedAt": {
+            "description": "When the source was retrieved. RFC 3339 with an explicit offset.",
+            "format": "date-time",
+            "title": "Retrievedat",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "Digest of the retrieved content.",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "url": {
+            "description": "Where the source was retrieved from.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "jurisdiction",
+          "url",
+          "licenceSpdx",
+          "attributionRequired",
+          "retrievedAt",
+          "sha256",
+          "personalData"
+        ],
+        "title": "SourceIn",
+        "type": "object"
+      },
+      "SourceOut": {
+        "additionalProperties": false,
+        "description": "A registered source.",
+        "properties": {
+          "attributionRequired": {
+            "description": "Whether attribution is obliged.",
+            "title": "Attributionrequired",
+            "type": "boolean"
+          },
+          "dpiaRef": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DPIA reference, where one applies.",
+            "title": "Dpiaref"
+          },
+          "id": {
+            "description": "UUIDv7. Sorts by creation time (AC-B8).",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "jurisdiction": {
+            "description": "ISO 3166-1 alpha-3 code.",
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "licenceSpdx": {
+            "description": "SPDX identifier as declared.",
+            "title": "Licencespdx",
+            "type": "string"
+          },
+          "personalData": {
+            "description": "Whether the source contains personal data.",
+            "title": "Personaldata",
+            "type": "boolean"
+          },
+          "retrievedAt": {
+            "description": "When the source was retrieved.",
+            "format": "date-time",
+            "title": "Retrievedat",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "Digest of the retrieved content.",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RunState",
+            "description": "Where the source has reached in its lifecycle."
+          },
+          "url": {
+            "description": "Where the source was retrieved from.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "jurisdiction",
+          "url",
+          "licenceSpdx",
+          "attributionRequired",
+          "personalData",
+          "retrievedAt",
+          "sha256",
+          "state"
+        ],
+        "title": "SourceOut",
+        "type": "object"
+      },
+      "SourcePage": {
+        "additionalProperties": false,
+        "description": "A page of sources.",
+        "properties": {
+          "items": {
+            "description": "This page's sources.",
+            "items": {
+              "$ref": "#/components/schemas/SourceOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "description": "Page size.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor for the next page.",
+            "title": "Nextcursor"
+          }
+        },
+        "required": [
+          "items",
+          "limit"
+        ],
+        "title": "SourcePage",
+        "type": "object"
       }
     }
   },
   "info": {
-    "description": "\nThe DRAUPNIR control plane API.\n\nErrors are RFC 9457 problem documents served as `application/problem+json`.\nMutating endpoints accept an `Idempotency-Key`. Collections are cursor\npaginated. Mutable resources carry an `ETag` and require `If-Match`.\n",
+    "description": "\nThe DRAUPNIR control plane API.\n\nErrors are RFC 9457 problem documents served as `application/problem+json`.\nMutating endpoints require an `Idempotency-Key`. Collections are cursor\npaginated. Mutable resources carry an `ETag` and require `If-Match`.\nLong operations return 202 with a run identifier; nothing blocks on training.\n",
     "summary": "CIM-56 model factory control plane",
     "title": "DRAUPNIR",
     "version": "0.1.0"
@@ -210,6 +1180,93 @@
         ]
       }
     },
+    "/metrics": {
+      "get": {
+        "description": "Return the Prometheus exposition.\n\nMetrics are counters and histograms. Nothing here carries a run\nspecification, a corpus path or an actor identity: a metric labelled by\nactor is a metric with an unbounded label set, and one labelled by artefact\nis a cardinality problem that also happens to leak what is being built.",
+        "operationId": "getMetrics",
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {}
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Prometheus metrics",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
     "/readyz": {
       "get": {
         "description": "Return readiness, having checked each dependency.\n\nSAD 11.2 requires degraded modes to be visible rather than fatal, so a\nfailed dependency reports `degraded` rather than raising.",
@@ -298,6 +1355,2333 @@
         "summary": "Readiness",
         "tags": [
           "operations"
+        ]
+      }
+    },
+    "/v1/corpora/{iso3}/curate": {
+      "post": {
+        "description": "Deduplicate, filter and decontaminate against the evaluation sets. 202.\n\nRequires: `curator`.",
+        "operationId": "curateCorpus",
+        "parameters": [
+          {
+            "description": "ISO 3166-1 alpha-3 code of the jurisdiction.",
+            "in": "path",
+            "name": "iso3",
+            "required": true,
+            "schema": {
+              "description": "ISO 3166-1 alpha-3 code of the jurisdiction.",
+              "maxLength": 3,
+              "minLength": 3,
+              "pattern": "^[A-Z]{3}$",
+              "title": "Iso3",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Replaying a request with the same key returns the original result.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replaying a request with the same key returns the original result.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Run the curation pipeline",
+        "tags": [
+          "corpora"
+        ]
+      }
+    },
+    "/v1/corpora/{iso3}/ingest": {
+      "post": {
+        "description": "Stage, hash, publish, seal and register. Returns 202.\n\n    Hashing a corpus is minutes to hours of work; AC-B9 requires that no\n    endpoint blocks an HTTP request on it.\n    \n\nRequires: `curator`.",
+        "operationId": "ingestCorpus",
+        "parameters": [
+          {
+            "description": "ISO 3166-1 alpha-3 code of the jurisdiction.",
+            "in": "path",
+            "name": "iso3",
+            "required": true,
+            "schema": {
+              "description": "ISO 3166-1 alpha-3 code of the jurisdiction.",
+              "maxLength": 3,
+              "minLength": 3,
+              "pattern": "^[A-Z]{3}$",
+              "title": "Iso3",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Replaying a request with the same key returns the original result.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replaying a request with the same key returns the original result.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Ingest and hash a jurisdiction's sources",
+        "tags": [
+          "corpora"
+        ]
+      }
+    },
+    "/v1/gates": {
+      "get": {
+        "description": "List artefacts awaiting a decision, with their gate results.\n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
+        "operationId": "listGates",
+        "parameters": [
+          {
+            "description": "Opaque cursor from a previous page's `nextCursor`.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous page's `nextCursor`.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Which part of the queue to return.",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "pending",
+              "description": "Which part of the queue to return.",
+              "enum": [
+                "pending",
+                "decided",
+                "all"
+              ],
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 200,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Page size.",
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "The approval queue",
+        "tags": [
+          "approvals"
+        ]
+      }
+    },
+    "/v1/gates/{gate_id}/decide": {
+      "post": {
+        "description": "Record a signed decision.\n\n    The sole approver exception is computed here from approver against\n    submitter and is never accepted from the request. Constraint C-11: there is\n    no argument that sets it, so suppressing it means editing GLEIPNIR, which\n    is a code review rather than a deployment.\n    \n\nRequires: `approver`.",
+        "operationId": "decideGate",
+        "parameters": [
+          {
+            "description": "The subject awaiting a decision.",
+            "in": "path",
+            "name": "gate_id",
+            "required": true,
+            "schema": {
+              "description": "The subject awaiting a decision.",
+              "format": "uuid",
+              "title": "Gate Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Entity tag the write is conditional on.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entity tag the write is conditional on.",
+              "title": "If-Match"
+            }
+          },
+          {
+            "description": "Replaying a request with the same key returns the original result.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replaying a request with the same key returns the original result.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Approve or reject",
+        "tags": [
+          "approvals"
+        ]
+      }
+    },
+    "/v1/ledger": {
+      "get": {
+        "description": "A slice of this site's ledger segment, verified end to end.\n\n    The verification travels with the slice. An auditor who has to recompute it\n    themselves will not, and an endpoint that returned entries without saying\n    whether they chain is an endpoint that makes tampering look like data.\n    \n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
+        "operationId": "getLedger",
+        "parameters": [
+          {
+            "description": "Opaque cursor from a previous page's `nextCursor`.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous page's `nextCursor`.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "First sequence to return.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First sequence to return.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Last sequence to return.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Last sequence to return.",
+              "title": "To"
+            }
+          },
+          {
+            "description": "Page size.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 200,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Page size.",
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerSlice"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Ledger slice with chain verification",
+        "tags": [
+          "audit"
+        ]
+      }
+    },
+    "/v1/lineage/{artefact}": {
+      "get": {
+        "description": "The complete chain to base model licences and corpus hashes. AC-F11.\n\n    `complete` and `gaps` are returned rather than an error on an incomplete\n    chain: an auditor asking about a broken lineage needs to see where it\n    breaks, and a 404 or a 500 tells them nothing. Producing a signed\n    *attestation* over a broken chain is what is refused, and that refusal is\n    in SKIDBLADNIR.\n    \n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
+        "operationId": "getLineage",
+        "parameters": [
+          {
+            "description": "The artefact's SHA-256.",
+            "in": "path",
+            "name": "artefact",
+            "required": true,
+            "schema": {
+              "description": "The artefact's SHA-256.",
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Artefact",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Full lineage attestation",
+        "tags": [
+          "audit"
+        ]
+      }
+    },
+    "/v1/plugins": {
+      "get": {
+        "description": "Every loaded plug-in, and every distribution the loader refused.\n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
+        "operationId": "listPlugins",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Installed plug-ins and signature status",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
+    "/v1/releases/{artefact}/publish": {
+      "post": {
+        "description": "Publish, having re-verified the artefact and its approval.\n\n    Every refusal in `skidbladnir.publish` applies: the bytes are re-hashed and\n    compared against the gate evidence (AC-S8), every built format must have\n    passing evidence (AC-F9), the approval must be present and signed, and the\n    federation must have countersigned an anchor at or beyond this release's\n    sequence (AC-S13).\n    \n\nRequires: `approver`.",
+        "operationId": "publishRelease",
+        "parameters": [
+          {
+            "description": "The artefact's SHA-256. Publication re-verifies it (AC-S8).",
+            "in": "path",
+            "name": "artefact",
+            "required": true,
+            "schema": {
+              "description": "The artefact's SHA-256. Publication re-verifies it (AC-S8).",
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Artefact",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Entity tag the write is conditional on.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entity tag the write is conditional on.",
+              "title": "If-Match"
+            }
+          },
+          {
+            "description": "Replaying a request with the same key returns the original result.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replaying a request with the same key returns the original result.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Publish a release",
+        "tags": [
+          "approvals"
+        ]
+      }
+    },
+    "/v1/runs": {
+      "get": {
+        "description": "List runs for the scoped site, cursor paginated. AC-B3, AC-N4.\n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
+        "operationId": "listRuns",
+        "parameters": [
+          {
+            "description": "Opaque cursor from a previous page's `nextCursor`.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous page's `nextCursor`.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Page size.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 200,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Page size.",
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "List runs",
+        "tags": [
+          "runs"
+        ]
+      },
+      "post": {
+        "description": "Validate, hash into a run identity, and queue. Returns 202. AC-B9.\n\n    Nothing here waits for an allocation, let alone for training. The\n    specification is validated and recorded, and the client watches the stream.\n    \n\nRequires: `operator`.",
+        "operationId": "submitRun",
+        "parameters": [
+          {
+            "description": "Replaying a request with the same key returns the original result.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replaying a request with the same key returns the original result.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Submit a run specification",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}": {
+      "get": {
+        "description": "Return one run, with an `ETag` for a later conditional write.\n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
+        "operationId": "getRun",
+        "parameters": [
+          {
+            "description": "UUIDv7 run identifier.",
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "description": "UUIDv7 run identifier.",
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Inspect a run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/cancel": {
+      "post": {
+        "description": "Stop the scheduler job and leave the artefact in a defined state. AC-F13.\n\n    Conditional: a stale `If-Match` returns 412 rather than cancelling a run\n    that has moved on since the operator read it.\n    \n\nRequires: `operator`.",
+        "operationId": "cancelRun",
+        "parameters": [
+          {
+            "description": "UUIDv7 run identifier.",
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "description": "UUIDv7 run identifier.",
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Entity tag the write is conditional on.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entity tag the write is conditional on.",
+              "title": "If-Match"
+            }
+          },
+          {
+            "description": "Replaying a request with the same key returns the original result.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replaying a request with the same key returns the original result.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Cancel a run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/events": {
+      "get": {
+        "description": "Server-sent events carrying state deltas, never list refreshes.\n\n    A reconnecting client sends `Last-Event-ID` and receives what it missed. A\n    client asking for a point the buffer has dropped is told to resynchronise\n    rather than served from the oldest event it happens to still hold, because\n    a silent gap leaves the client's state wrong with nothing to detect it.\n    \n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
+        "operationId": "streamRunEvents",
+        "parameters": [
+          {
+            "description": "UUIDv7 run identifier.",
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "description": "UUIDv7 run identifier.",
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Last-Event-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Watch a run's state deltas",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/retry": {
+      "post": {
+        "description": "Requeue a failed run within its retry budget. Conditional, and 202.\n\nRequires: `operator`.",
+        "operationId": "retryRun",
+        "parameters": [
+          {
+            "description": "UUIDv7 run identifier.",
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "description": "UUIDv7 run identifier.",
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Entity tag the write is conditional on.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entity tag the write is conditional on.",
+              "title": "If-Match"
+            }
+          },
+          {
+            "description": "Replaying a request with the same key returns the original result.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replaying a request with the same key returns the original result.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Retry a run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/sources": {
+      "get": {
+        "description": "List sources for the scoped site, cursor paginated.\n\n    Scoped by the row level security variable the site resolver sets, so a\n    request cannot read another forge's register even if it names one.\n    \n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
+        "operationId": "listSources",
+        "parameters": [
+          {
+            "description": "Opaque cursor from a previous page's `nextCursor`.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous page's `nextCursor`.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Page size.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 200,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Page size.",
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "List registered sources",
+        "tags": [
+          "corpora"
+        ]
+      },
+      "post": {
+        "description": "Register a source with its licence and personal data determination.\n\n    HODD records the facts and never interprets them (Decision S4). A licence\n    identifier arriving here is stored as a string; whether it permits anything\n    is GLEIPNIR's question, asked later against these recorded facts.\n    \n\nRequires: `curator`.",
+        "operationId": "registerSource",
+        "parameters": [
+          {
+            "description": "Replaying a request with the same key returns the original result.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replaying a request with the same key returns the original result.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Register a corpus source",
+        "tags": [
+          "corpora"
         ]
       }
     }

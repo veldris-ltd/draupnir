@@ -34,7 +34,7 @@ Windows, `.\make.ps1 dev`. See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
 
 ## Status
 
-Prompts 0 to 6 of SAD section 13 are complete: the repository, the toolchain
+Prompts 0 to 7 of SAD section 13 are complete: the repository, the toolchain
 and the delivery pipeline; the core foundation -- the hash-chained ledger, the
 state machine of SAD 6.1, the site registry and the run projection; the
 plug-in system -- the seven interfaces of SAD 8.2, the entry point loader and a
@@ -42,7 +42,8 @@ conformance suite published for third parties; HODD and GLEIPNIR -- the
 artefact store and the policy gate; MOTSOGNIR and HAMARR -- placement and array
 concurrency, and the training executors; BRISINGAMEN, RAUN and SKIDBLADNIR --
 reweighting, evaluation and release; and SVALINN, GULLINBURSTI and MEGINGJORD
--- the cross-cutting security layer and the federation.
+-- the cross-cutting security layer and the federation; and the HTTP surface
+of SAD 8.1, with the conventions of SAD 11E.2 wired to every route.
 
 The ledger is the source of truth. `run` is a projection of it, rebuilt from
 sequence 1 by a pure fold, and nothing else writes that table.
@@ -140,6 +141,23 @@ What the build enforces rather than asserts:
   built through a seal that walks the structure and refuses anything that is
   not a hash, a name, a timestamp or a number, and there is no path that
   serialises an unchecked one.
+- Every mutating endpoint requires an `Idempotency-Key`, and a key is reserved
+  before the work starts -- so a second click while the first request is still
+  running is refused rather than acting twice.
+- Pagination is cursor based everywhere. A cursor is a position in the
+  `(created_at, id)` order rather than a count of rows skipped, so a row
+  inserted mid-pagination changes what comes next and never removes something
+  that was going to come.
+- Conditional writes are required, not optional: a mutation with no `If-Match`
+  is 428 and a stale one is 412. Optional concurrency control is control the
+  one client that needed it did not use.
+- Server-sent events carry deltas. An event listing no changed fields is
+  refused, because an event that carries no delta is a refresh instruction.
+- Every log line carries run id, site id and actor, and the redaction is in the
+  emitter rather than in the caller -- so a rule that only applies to careful
+  callers is not the rule.
+- The OpenAPI document is the single source for both clients. The drift gate
+  regenerates and fails the build if either was edited by hand.
 - Playwright, axe and Storybook are wired and running against nothing yet.
 
 Verified: 100,000 ledger entries verify in about four seconds against the

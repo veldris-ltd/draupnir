@@ -24,6 +24,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Prometheus metrics
+         * @description Return the Prometheus exposition.
+         *
+         *     Metrics are counters and histograms. Nothing here carries a run
+         *     specification, a corpus path or an actor identity: a metric labelled by
+         *     actor is a metric with an unbounded label set, and one labelled by artefact
+         *     is a cardinality problem that also happens to leak what is being built.
+         */
+        get: operations["getMetrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/readyz": {
         parameters: {
             query?: never;
@@ -47,10 +72,589 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/corpora/{iso3}/curate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run the curation pipeline
+         * @description Deduplicate, filter and decontaminate against the evaluation sets. 202.
+         *
+         *     Requires: `curator`.
+         */
+        post: operations["curateCorpus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/corpora/{iso3}/ingest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest and hash a jurisdiction's sources
+         * @description Stage, hash, publish, seal and register. Returns 202.
+         *
+         *         Hashing a corpus is minutes to hours of work; AC-B9 requires that no
+         *         endpoint blocks an HTTP request on it.
+         *
+         *
+         *     Requires: `curator`.
+         */
+        post: operations["ingestCorpus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/gates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The approval queue
+         * @description List artefacts awaiting a decision, with their gate results.
+         *
+         *     Requires: `admin`, `approver`, `curator`, `operator`, `viewer`.
+         */
+        get: operations["listGates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/gates/{gate_id}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve or reject
+         * @description Record a signed decision.
+         *
+         *         The sole approver exception is computed here from approver against
+         *         submitter and is never accepted from the request. Constraint C-11: there is
+         *         no argument that sets it, so suppressing it means editing GLEIPNIR, which
+         *         is a code review rather than a deployment.
+         *
+         *
+         *     Requires: `approver`.
+         */
+        post: operations["decideGate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ledger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ledger slice with chain verification
+         * @description A slice of this site's ledger segment, verified end to end.
+         *
+         *         The verification travels with the slice. An auditor who has to recompute it
+         *         themselves will not, and an endpoint that returned entries without saying
+         *         whether they chain is an endpoint that makes tampering look like data.
+         *
+         *
+         *     Requires: `admin`, `approver`, `curator`, `operator`, `viewer`.
+         */
+        get: operations["getLedger"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lineage/{artefact}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Full lineage attestation
+         * @description The complete chain to base model licences and corpus hashes. AC-F11.
+         *
+         *         `complete` and `gaps` are returned rather than an error on an incomplete
+         *         chain: an auditor asking about a broken lineage needs to see where it
+         *         breaks, and a 404 or a 500 tells them nothing. Producing a signed
+         *         *attestation* over a broken chain is what is refused, and that refusal is
+         *         in SKIDBLADNIR.
+         *
+         *
+         *     Requires: `admin`, `approver`, `curator`, `operator`, `viewer`.
+         */
+        get: operations["getLineage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Installed plug-ins and signature status
+         * @description Every loaded plug-in, and every distribution the loader refused.
+         *
+         *     Requires: `admin`, `approver`, `curator`, `operator`, `viewer`.
+         */
+        get: operations["listPlugins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/releases/{artefact}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish a release
+         * @description Publish, having re-verified the artefact and its approval.
+         *
+         *         Every refusal in `skidbladnir.publish` applies: the bytes are re-hashed and
+         *         compared against the gate evidence (AC-S8), every built format must have
+         *         passing evidence (AC-F9), the approval must be present and signed, and the
+         *         federation must have countersigned an anchor at or beyond this release's
+         *         sequence (AC-S13).
+         *
+         *
+         *     Requires: `approver`.
+         */
+        post: operations["publishRelease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List runs
+         * @description List runs for the scoped site, cursor paginated. AC-B3, AC-N4.
+         *
+         *     Requires: `admin`, `approver`, `curator`, `operator`, `viewer`.
+         */
+        get: operations["listRuns"];
+        put?: never;
+        /**
+         * Submit a run specification
+         * @description Validate, hash into a run identity, and queue. Returns 202. AC-B9.
+         *
+         *         Nothing here waits for an allocation, let alone for training. The
+         *         specification is validated and recorded, and the client watches the stream.
+         *
+         *
+         *     Requires: `operator`.
+         */
+        post: operations["submitRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect a run
+         * @description Return one run, with an `ETag` for a later conditional write.
+         *
+         *     Requires: `admin`, `approver`, `curator`, `operator`, `viewer`.
+         */
+        get: operations["getRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a run
+         * @description Stop the scheduler job and leave the artefact in a defined state. AC-F13.
+         *
+         *         Conditional: a stale `If-Match` returns 412 rather than cancelling a run
+         *         that has moved on since the operator read it.
+         *
+         *
+         *     Requires: `operator`.
+         */
+        post: operations["cancelRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Watch a run's state deltas
+         * @description Server-sent events carrying state deltas, never list refreshes.
+         *
+         *         A reconnecting client sends `Last-Event-ID` and receives what it missed. A
+         *         client asking for a point the buffer has dropped is told to resynchronise
+         *         rather than served from the oldest event it happens to still hold, because
+         *         a silent gap leaves the client's state wrong with nothing to detect it.
+         *
+         *
+         *     Requires: `admin`, `approver`, `curator`, `operator`, `viewer`.
+         */
+        get: operations["streamRunEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry a run
+         * @description Requeue a failed run within its retry budget. Conditional, and 202.
+         *
+         *     Requires: `operator`.
+         */
+        post: operations["retryRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List registered sources
+         * @description List sources for the scoped site, cursor paginated.
+         *
+         *         Scoped by the row level security variable the site resolver sets, so a
+         *         request cannot read another forge's register even if it names one.
+         *
+         *
+         *     Requires: `admin`, `approver`, `curator`, `operator`, `viewer`.
+         */
+        get: operations["listSources"];
+        put?: never;
+        /**
+         * Register a corpus source
+         * @description Register a source with its licence and personal data determination.
+         *
+         *         HODD records the facts and never interprets them (Decision S4). A licence
+         *         identifier arriving here is stored as a string; whether it permits anything
+         *         is GLEIPNIR's question, asked later against these recorded facts.
+         *
+         *
+         *     Requires: `curator`.
+         */
+        post: operations["registerSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * Accepted
+         * @description A long operation that has been accepted but not completed. AC-B9.
+         */
+        Accepted: {
+            /**
+             * Detail
+             * @description What was accepted.
+             */
+            detail: string;
+            /**
+             * Events
+             * @description Where to watch this run's event stream.
+             */
+            events: string;
+            /**
+             * Runid
+             * Format: uuid
+             * @description The run this operation concerns.
+             */
+            runId: string;
+            /**
+             * Status
+             * @description Always `accepted`.
+             * @constant
+             */
+            status: "accepted";
+        };
+        /**
+         * ApprovalItem
+         * @description One artefact awaiting a decision.
+         */
+        ApprovalItem: {
+            /**
+             * Artefactsha256
+             * @description The bytes being decided on.
+             */
+            artefactSha256: string;
+            /**
+             * Awaitingsince
+             * Format: date-time
+             * @description When it entered the queue.
+             */
+            awaitingSince: string;
+            /**
+             * Gates
+             * @description The gate results.
+             */
+            gates?: components["schemas"]["GateOut"][];
+            /**
+             * Id
+             * Format: uuid
+             * @description The subject awaiting approval.
+             */
+            id: string;
+            /**
+             * Model
+             * @description What the artefact is.
+             */
+            model: string;
+            /**
+             * Runid
+             * Format: uuid
+             * @description The run that produced it.
+             */
+            runId: string;
+            /**
+             * Submittedby
+             * @description Who submitted the run.
+             */
+            submittedBy: string;
+        };
+        /**
+         * ApprovalPage
+         * @description A page of the approval queue.
+         */
+        ApprovalPage: {
+            /**
+             * Items
+             * @description This page's pending approvals.
+             */
+            items: components["schemas"]["ApprovalItem"][];
+            /**
+             * Limit
+             * @description Page size.
+             */
+            limit: number;
+            /**
+             * Nextcursor
+             * @description Cursor for the next page.
+             */
+            nextCursor?: string | null;
+        };
+        /**
+         * CancelIn
+         * @description Why a run is being cancelled.
+         */
+        CancelIn: {
+            /**
+             * Reason
+             * @description Recorded in the ledger against the transition.
+             */
+            reason: string;
+        };
+        /**
+         * DecisionIn
+         * @description An approver's signed decision. SAD 7.1 `approval`.
+         */
+        DecisionIn: {
+            /**
+             * Decision
+             * @description The decision taken.
+             * @enum {string}
+             */
+            decision: "approved" | "rejected";
+            /**
+             * Reason
+             * @description Why. Recorded on the approval and visible in lineage.
+             */
+            reason: string;
+            /**
+             * Signature
+             * @description Detached signature over the approval payload, from the approver's key. Whitespace is stripped and an empty result is refused: a blank signature is a row somebody could have written, and publication verifies it.
+             */
+            signature: string;
+        };
+        /**
+         * DecisionOut
+         * @description A recorded decision.
+         */
+        DecisionOut: {
+            /**
+             * Approver
+             * @description Who decided.
+             */
+            approver: string;
+            /**
+             * Decidedat
+             * Format: date-time
+             * @description When it was decided.
+             */
+            decidedAt: string;
+            /**
+             * Decision
+             * @description The decision taken.
+             * @enum {string}
+             */
+            decision: "approved" | "rejected";
+            /**
+             * Id
+             * Format: uuid
+             * @description The approval record.
+             */
+            id: string;
+            /**
+             * Reason
+             * @description Why.
+             */
+            reason: string;
+            /**
+             * Soleapproverexception
+             * @description True where the approver also submitted the run. Computed, never supplied. Constraint C-11; visible here, in the lineage and in the model card.
+             */
+            soleApproverException: boolean;
+            /**
+             * Subjectid
+             * Format: uuid
+             * @description What was decided on.
+             */
+            subjectId: string;
+        };
+        /**
+         * GateOut
+         * @description One gate result, with its baseline and margin. SAD 7.1.
+         */
+        GateOut: {
+            /**
+             * Baselinevalue
+             * @description What it was compared against.
+             */
+            baselineValue?: number | null;
+            /**
+             * Gate
+             * @description Gate identifier, E1 to E6.
+             */
+            gate: string;
+            /**
+             * Margin
+             * @description Measurement minus baseline.
+             */
+            margin?: number | null;
+            /**
+             * Passed
+             * @description Whether the gate was satisfied.
+             */
+            passed: boolean;
+            /**
+             * Suiteversion
+             * @description The suite version that produced it.
+             */
+            suiteVersion: string;
+            /**
+             * Value
+             * @description The measurement.
+             */
+            value: number;
+        };
         /**
          * Health
          * @description Liveness answer.
@@ -64,6 +668,203 @@ export interface components {
              */
             status: "ok";
             /** Version */
+            version: string;
+        };
+        /**
+         * LedgerEntryOut
+         * @description One hash-chained ledger entry. SAD 7.1.
+         */
+        LedgerEntryOut: {
+            /**
+             * Actor
+             * @description Who caused it.
+             */
+            actor: string;
+            /**
+             * Entryhash
+             * @description This entry's hash.
+             */
+            entryHash: string;
+            /**
+             * Id
+             * Format: uuid
+             * @description Entry identifier.
+             */
+            id: string;
+            /**
+             * Prevhash
+             * @description The previous entry's hash.
+             */
+            prevHash: string;
+            /**
+             * Seq
+             * @description Position in this site's chain.
+             */
+            seq: number;
+            /**
+             * Siteid
+             * @description The site whose segment this belongs to.
+             */
+            siteId: string;
+            /**
+             * Subjectid
+             * Format: uuid
+             * @description Which one.
+             */
+            subjectId: string;
+            /**
+             * Subjecttype
+             * @description What kind of thing it concerns.
+             */
+            subjectType: string;
+            /**
+             * Transition
+             * @description The state transition recorded.
+             */
+            transition: string;
+            /**
+             * Ts
+             * Format: date-time
+             * @description When it was recorded.
+             */
+            ts: string;
+        };
+        /**
+         * LedgerSlice
+         * @description A slice of the ledger, with its chain verification.
+         */
+        LedgerSlice: {
+            /**
+             * Divergence
+             * @description Where the chain first diverges, if it does.
+             */
+            divergence?: string | null;
+            /**
+             * Items
+             * @description The entries in the slice.
+             */
+            items: components["schemas"]["LedgerEntryOut"][];
+            /**
+             * Limit
+             * @description Page size.
+             */
+            limit: number;
+            /**
+             * Nextcursor
+             * @description Cursor for the next page.
+             */
+            nextCursor?: string | null;
+            /**
+             * Verified
+             * @description Whether the returned slice's hash chain verifies end to end.
+             */
+            verified: boolean;
+        };
+        /**
+         * LineageOut
+         * @description A lineage attestation. AC-F11.
+         */
+        LineageOut: {
+            /**
+             * Approval
+             * @description The approval, carrying the sole approver exception (SAD 9.4).
+             */
+            approval?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Artefact
+             * @description The artefact this chain describes.
+             */
+            artefact: string;
+            /**
+             * Complete
+             * @description Whether the chain reaches licensed roots with no gaps.
+             */
+            complete: boolean;
+            /**
+             * Corpushashes
+             * @description Every source and corpus hash in the chain.
+             */
+            corpusHashes?: string[];
+            /**
+             * Gaps
+             * @description Every gap, where there are any.
+             */
+            gaps?: string[];
+            /**
+             * Licences
+             * @description Every licence in the chain.
+             */
+            licences?: string[];
+            /**
+             * Nodes
+             * @description The chain itself.
+             */
+            nodes?: {
+                [key: string]: unknown;
+            }[];
+        };
+        /**
+         * PluginList
+         * @description Every installed plug-in.
+         */
+        PluginList: {
+            /**
+             * Failures
+             * @description Distributions the loader refused, and why.
+             */
+            failures?: string[];
+            /**
+             * Items
+             * @description Installed plug-ins.
+             */
+            items: components["schemas"]["PluginOut"][];
+        };
+        /**
+         * PluginOut
+         * @description One installed plug-in and its signature status. SAD 8.1.
+         */
+        PluginOut: {
+            /**
+             * Capabilities
+             * @description What the driver declares it can do.
+             */
+            capabilities: string[];
+            /**
+             * Distribution
+             * @description The installed distribution.
+             */
+            distribution: string;
+            /**
+             * Group
+             * @description Which extension point it implements.
+             */
+            group: string;
+            /**
+             * Name
+             * @description Versioned entry point name, e.g. `hamarr.llamafactory/v1`.
+             */
+            name: string;
+            /**
+             * Reason
+             * @description Why verification failed, where it did.
+             */
+            reason?: string | null;
+            /**
+             * Signatureverified
+             * @description Whether its signature verified (AC-S7).
+             */
+            signatureVerified: boolean;
+            /**
+             * Signer
+             * @description Which key signed it.
+             */
+            signer?: string | null;
+            /**
+             * Version
+             * @description The distribution's version.
+             */
             version: string;
         };
         /**
@@ -103,6 +904,40 @@ export interface components {
             type: string;
         };
         /**
+         * PublishOut
+         * @description What a publication produced.
+         */
+        PublishOut: {
+            /**
+             * Artefactsha256
+             * @description The bytes that were published.
+             */
+            artefactSha256: string;
+            /**
+             * Formats
+             * @description Which formats were published.
+             */
+            formats: string[];
+            /**
+             * Manifest
+             * @description The SHA-256 manifest of the release package.
+             */
+            manifest: {
+                [key: string]: unknown;
+            };
+            /**
+             * Model
+             * @description The released model.
+             */
+            model: string;
+            /**
+             * Releasedat
+             * Format: date-time
+             * @description When it was published.
+             */
+            releasedAt: string;
+        };
+        /**
          * Readiness
          * @description Readiness answer, one entry per dependency.
          */
@@ -116,6 +951,226 @@ export interface components {
              * @enum {string}
              */
             status: "ready" | "degraded";
+        };
+        /**
+         * RunOut
+         * @description A run as the projection holds it.
+         */
+        RunOut: {
+            /**
+             * Createdat
+             * Format: date-time
+             * @description When the run was submitted.
+             */
+            createdAt: string;
+            /**
+             * Id
+             * Format: uuid
+             * @description UUIDv7 run identifier.
+             */
+            id: string;
+            /**
+             * Jurisdiction
+             * @description ISO 3166-1 alpha-3 code.
+             */
+            jurisdiction: string;
+            /**
+             * Name
+             * @description The specification's metadata.name.
+             */
+            name: string;
+            /**
+             * Retrybudgetremaining
+             * @description How many automatic retries remain.
+             * @default 0
+             */
+            retryBudgetRemaining: number;
+            /**
+             * Siteid
+             * @description The site this run belongs to.
+             */
+            siteId: string;
+            /**
+             * Spechash
+             * @description SHA-256 of the canonical specification.
+             */
+            specHash: string;
+            /** @description Current state, per SAD 6.1. */
+            state: components["schemas"]["RunState"];
+            /**
+             * Updatedat
+             * Format: date-time
+             * @description When the run last changed state.
+             */
+            updatedAt: string;
+        };
+        /**
+         * RunPage
+         * @description A page of runs.
+         */
+        RunPage: {
+            /**
+             * Items
+             * @description This page's runs.
+             */
+            items: components["schemas"]["RunOut"][];
+            /**
+             * Limit
+             * @description Page size.
+             */
+            limit: number;
+            /**
+             * Nextcursor
+             * @description Cursor for the next page.
+             */
+            nextCursor?: string | null;
+        };
+        /**
+         * RunState
+         * @description States of the lifecycle in SAD 6.1.
+         * @enum {string}
+         */
+        RunState: "DRAFT" | "CORPUS_REGISTERED" | "LICENCE_CLEARED" | "CURATED" | "QUEUED" | "TRAINING" | "TRAINED" | "FAILED" | "EVALUATING" | "MERGED" | "QUANTISED" | "AWAITING_APPROVAL" | "RELEASED" | "QUARANTINED";
+        /**
+         * RunSubmission
+         * @description A run specification being submitted. SAD 6.2.
+         */
+        RunSubmission: {
+            /**
+             * Specification
+             * @description The run specification, as SAD 6.2 defines it. Validated against the JSON Schema and hashed into the run identity.
+             */
+            specification: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * SourceIn
+         * @description A corpus source being registered with its licence. SAD 8.1, curator.
+         */
+        SourceIn: {
+            /**
+             * Attributionrequired
+             * @description Whether the licence obliges attribution in derived releases.
+             */
+            attributionRequired: boolean;
+            /**
+             * Dpiaref
+             * @description DPIA reference. Required when personalData is true.
+             */
+            dpiaRef?: string | null;
+            /**
+             * Jurisdiction
+             * @description ISO 3166-1 alpha-3 code of the jurisdiction this source serves.
+             */
+            jurisdiction: string;
+            /**
+             * Licencespdx
+             * @description SPDX identifier as declared. Held as a fact, not as a permission.
+             */
+            licenceSpdx: string;
+            /**
+             * Personaldata
+             * @description Whether the source contains personal data. Requires a DPIA reference.
+             */
+            personalData: boolean;
+            /**
+             * Residencyconstraint
+             * @description Sites permitted to hold this corpus. Empty means unconstrained.
+             */
+            residencyConstraint?: string[];
+            /**
+             * Retrievedat
+             * Format: date-time
+             * @description When the source was retrieved. RFC 3339 with an explicit offset.
+             */
+            retrievedAt: string;
+            /**
+             * Sha256
+             * @description Digest of the retrieved content.
+             */
+            sha256: string;
+            /**
+             * Url
+             * @description Where the source was retrieved from.
+             */
+            url: string;
+        };
+        /**
+         * SourceOut
+         * @description A registered source.
+         */
+        SourceOut: {
+            /**
+             * Attributionrequired
+             * @description Whether attribution is obliged.
+             */
+            attributionRequired: boolean;
+            /**
+             * Dpiaref
+             * @description DPIA reference, where one applies.
+             */
+            dpiaRef?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             * @description UUIDv7. Sorts by creation time (AC-B8).
+             */
+            id: string;
+            /**
+             * Jurisdiction
+             * @description ISO 3166-1 alpha-3 code.
+             */
+            jurisdiction: string;
+            /**
+             * Licencespdx
+             * @description SPDX identifier as declared.
+             */
+            licenceSpdx: string;
+            /**
+             * Personaldata
+             * @description Whether the source contains personal data.
+             */
+            personalData: boolean;
+            /**
+             * Retrievedat
+             * Format: date-time
+             * @description When the source was retrieved.
+             */
+            retrievedAt: string;
+            /**
+             * Sha256
+             * @description Digest of the retrieved content.
+             */
+            sha256: string;
+            /** @description Where the source has reached in its lifecycle. */
+            state: components["schemas"]["RunState"];
+            /**
+             * Url
+             * @description Where the source was retrieved from.
+             */
+            url: string;
+        };
+        /**
+         * SourcePage
+         * @description A page of sources.
+         */
+        SourcePage: {
+            /**
+             * Items
+             * @description This page's sources.
+             */
+            items: components["schemas"]["SourceOut"][];
+            /**
+             * Limit
+             * @description Page size.
+             */
+            limit: number;
+            /**
+             * Nextcursor
+             * @description Cursor for the next page.
+             */
+            nextCursor?: string | null;
         };
     };
     responses: never;
@@ -187,6 +1242,67 @@ export interface operations {
             };
         };
     };
+    getMetrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": unknown;
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
     getReadiness: {
         parameters: {
             query?: never;
@@ -203,6 +1319,1108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Readiness"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    curateCorpus: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Replaying a request with the same key returns the original result. */
+                "Idempotency-Key"?: string | null;
+                "X-Correlation-Id"?: string | null;
+            };
+            path: {
+                /** @description ISO 3166-1 alpha-3 code of the jurisdiction. */
+                iso3: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Accepted"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    ingestCorpus: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Replaying a request with the same key returns the original result. */
+                "Idempotency-Key"?: string | null;
+                "X-Correlation-Id"?: string | null;
+            };
+            path: {
+                /** @description ISO 3166-1 alpha-3 code of the jurisdiction. */
+                iso3: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Accepted"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    listGates: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from a previous page's `nextCursor`. */
+                cursor?: string | null;
+                /** @description Which part of the queue to return. */
+                state?: "pending" | "decided" | "all";
+                /** @description Page size. */
+                limit?: number | null;
+            };
+            header?: {
+                "X-Correlation-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalPage"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    decideGate: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Entity tag the write is conditional on. */
+                "If-Match"?: string | null;
+                /** @description Replaying a request with the same key returns the original result. */
+                "Idempotency-Key"?: string | null;
+                "X-Correlation-Id"?: string | null;
+            };
+            path: {
+                /** @description The subject awaiting a decision. */
+                gate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionOut"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    getLedger: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from a previous page's `nextCursor`. */
+                cursor?: string | null;
+                /** @description First sequence to return. */
+                from?: number | null;
+                /** @description Last sequence to return. */
+                to?: number | null;
+                /** @description Page size. */
+                limit?: number | null;
+            };
+            header?: {
+                "X-Correlation-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LedgerSlice"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    getLineage: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Correlation-Id"?: string | null;
+            };
+            path: {
+                /** @description The artefact's SHA-256. */
+                artefact: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineageOut"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    listPlugins: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Correlation-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginList"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    publishRelease: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Entity tag the write is conditional on. */
+                "If-Match"?: string | null;
+                /** @description Replaying a request with the same key returns the original result. */
+                "Idempotency-Key"?: string | null;
+                "X-Correlation-Id"?: string | null;
+            };
+            path: {
+                /** @description The artefact's SHA-256. Publication re-verifies it (AC-S8). */
+                artefact: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishOut"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    listRuns: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from a previous page's `nextCursor`. */
+                cursor?: string | null;
+                /** @description Page size. */
+                limit?: number | null;
+            };
+            header?: {
+                "X-Correlation-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunPage"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    submitRun: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Replaying a request with the same key returns the original result. */
+                "Idempotency-Key"?: string | null;
+                "X-Correlation-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Accepted"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    getRun: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Correlation-Id"?: string | null;
+            };
+            path: {
+                /** @description UUIDv7 run identifier. */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunOut"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    cancelRun: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Entity tag the write is conditional on. */
+                "If-Match"?: string | null;
+                /** @description Replaying a request with the same key returns the original result. */
+                "Idempotency-Key"?: string | null;
+                "X-Correlation-Id"?: string | null;
+            };
+            path: {
+                /** @description UUIDv7 run identifier. */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Accepted"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    streamRunEvents: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Last-Event-ID"?: string | null;
+                "X-Correlation-Id"?: string | null;
+            };
+            path: {
+                /** @description UUIDv7 run identifier. */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    retryRun: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Entity tag the write is conditional on. */
+                "If-Match"?: string | null;
+                /** @description Replaying a request with the same key returns the original result. */
+                "Idempotency-Key"?: string | null;
+                "X-Correlation-Id"?: string | null;
+            };
+            path: {
+                /** @description UUIDv7 run identifier. */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Accepted"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    listSources: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from a previous page's `nextCursor`. */
+                cursor?: string | null;
+                /** @description Page size. */
+                limit?: number | null;
+            };
+            header?: {
+                "X-Correlation-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourcePage"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    registerSource: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Replaying a request with the same key returns the original result. */
+                "Idempotency-Key"?: string | null;
+                "X-Correlation-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceOut"];
                 };
             };
             /** @description An RFC 9457 problem document */

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -74,3 +74,29 @@ async def readyz() -> Readiness:
 
     status: Literal["ready", "degraded"] = "ready" if all(checks.values()) else "degraded"
     return Readiness(status=status, checks=checks)
+
+
+@router.get(
+    "/metrics",
+    summary="Prometheus metrics",
+    operation_id="getMetrics",
+    response_class=Response,
+    responses={200: {"content": {"text/plain": {}}}},
+)
+@unauthenticated(
+    "SAD 8.1 lists /metrics with /healthz and /readyz as unauthenticated on loopback "
+    "only. The binding is the control: the scrape endpoint is not published beyond "
+    "the host, so it needs no credential and carrying one would put a credential in "
+    "a scrape configuration."
+)
+async def metrics() -> Response:
+    """Return the Prometheus exposition.
+
+    Metrics are counters and histograms. Nothing here carries a run
+    specification, a corpus path or an actor identity: a metric labelled by
+    actor is a metric with an unbounded label set, and one labelled by artefact
+    is a cardinality problem that also happens to leak what is being built.
+    """
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)

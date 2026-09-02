@@ -349,7 +349,13 @@ def test_the_sweep_actually_finds_the_applications_routes() -> None:
 
     found = {path for path, _ in iter_api_routes(create_app().routes)}
 
-    assert found == {"/healthz", "/readyz"}
+    # Asserted as a lower bound rather than an exact set, so adding a route
+    # does not fail this test -- but an empty or top-level-only sweep does. It
+    # must reach both the unversioned probes and inside the `/v1` router,
+    # which is the nesting that broke the first implementation.
+    assert {"/healthz", "/readyz"} <= found
+    assert any(path.startswith("/v1/") for path in found)
+    assert len(found) > 2
 
 
 def test_the_real_application_starts_because_every_route_is_declared() -> None:

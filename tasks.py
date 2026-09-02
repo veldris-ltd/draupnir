@@ -534,7 +534,9 @@ def test_unit() -> int:
     # a ring run may be placed, how much work may be unwritten, which merge
     # point was chosen, whether an artefact may be published, who may call a
     # route, whether a forge may release. The drivers are plug-ins and are
-    # measured by the contract level.
+    # measured by the contract level, and so is the API edge: a router is
+    # exercised by a request, and measuring it here would report the routers
+    # as uncovered while the contract level exercises every one of them.
     uv_run(
         "pytest",
         "tests/unit",
@@ -547,6 +549,17 @@ def test_unit() -> int:
         "--cov=draupnir/svalinn",
         "--cov=draupnir/gullinbursti",
         "--cov=draupnir/megingjord",
+        # The edge's pure mechanisms -- idempotency, cursors, entity tags,
+        # event deltas, redaction -- are unit testable and are tested here.
+        # The routers that use them are exercised by the contract level, which
+        # is where a request exists.
+        "--cov=draupnir/api/concurrency.py",
+        "--cov=draupnir/api/context.py",
+        "--cov=draupnir/api/events.py",
+        "--cov=draupnir/api/guards.py",
+        "--cov=draupnir/api/idempotency.py",
+        "--cov=draupnir/api/pagination.py",
+        "--cov=draupnir/api/telemetry.py",
         "--cov-fail-under=90",
         "--cov-report=term-missing",
         "--cov-report=xml",
@@ -564,9 +577,24 @@ def test_property() -> int:
     return 0
 
 
-@task("test-contract", "Driver conformance harness")
+@task("test-contract", "Driver conformance harness and the API surface")
 def test_contract() -> int:
-    uv_run("pytest", "tests/contract")
+    # The API edge is measured here rather than at the unit level. A router is
+    # exercised by a request: the conventions of SAD 11E.2 have unit tests over
+    # their mechanisms, and this level is where those mechanisms are shown to be
+    # attached to a route, which is the half that actually breaks.
+    uv_run(
+        "pytest",
+        "tests/contract",
+        "--cov=draupnir/api/app.py",
+        "--cov=draupnir/api/deps.py",
+        "--cov=draupnir/api/problems.py",
+        "--cov=draupnir/api/routers",
+        "--cov=draupnir/api/schemas.py",
+        "--cov-fail-under=85",
+        "--cov-report=term-missing",
+        env={"COVERAGE_FILE": str(ROOT / ".coverage.contract")},
+    )
     return 0
 
 

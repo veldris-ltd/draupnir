@@ -611,6 +611,123 @@ timestamp, signature — and delegates `signing_payload()` straight through.
 This was two classes briefly, and that is precisely how a signature ends up
 covering different bytes at each end.
 
+### The edge: what each convention costs and why it is not optional
+
+`draupnir/api/`. SAD 11E.2's table is short and every row is load bearing.
+
+**Idempotency is required, not accepted.** A key is *reserved* before the work
+starts, which is what lets a replay arriving while the first request is still
+running return 409 rather than acting twice — a store that only recorded
+completed responses could not answer that case at all. The same key with a
+different body is 422 rather than a replay of the first response: replaying
+would tell the caller a request they did not make had succeeded. Keys are
+scoped per site and per actor, because two operators both using `retry-1` is
+not a collision anybody should have to think about.
+
+**Cursors, never offsets.** A cursor is a position in the `(created_at, id)`
+order. UUIDv7 makes that a total order, so a cursor names exactly one row;
+ordering by a timestamp alone leaves ties, and a tie straddling a page boundary
+is a row returned twice or not at all. A cursor we did not issue is refused
+rather than silently resetting to page one, which would loop a paginating
+client forever.
+
+**`If-Match` is required on a mutating request.** Missing is 428, stale is 412.
+Two operators on one run board, one cancelling and one retrying, is the
+ordinary case, and the retry must not silently undo the cancellation. The ETag
+is derived from the state rather than stored beside it: a version column has to
+be incremented by every writer, and the one that forgets produces a tag that
+says nothing changed when something did.
+
+**202, always, for anything long.** Nothing blocks an HTTP request on training
+or on hashing a corpus. The response carries the run identifier and the URL of
+its event stream.
+
+### Server-sent events carry deltas
+
+An event says what changed about one subject; a client merges it into what it
+holds. `Delta` refuses to be constructed with no changed fields, because an
+event carrying no delta is a refresh instruction and this stream carries
+deltas.
+
+Every event has a monotonic sequence, so a reconnecting client sends
+`Last-Event-ID` and receives what it missed. A client asking for a point the
+buffer has dropped is told to **resynchronise** rather than served from the
+oldest event still held: a silent gap leaves the client's state wrong for as
+long as the page is open, with nothing to detect it.
+
+### The guard is a dependency, not middleware
+
+`declare` records what a route requires; `deps.guard` enforces the same
+declaration at request time. Both read one attribute on the endpoint function,
+so the enforced rule, the startup check and the published permissions table
+cannot disagree.
+
+It is a dependency because a dependency runs *after* path resolution and
+therefore knows which route matched. Middleware runs before and would have to
+re-derive the route from the path — a second router that disagrees with the
+first one the day somebody adds a path parameter.
+
+A matched route with no declaration is a 500, not a permit. It should be
+unreachable, and if it is reached the startup check has a hole, which is not a
+thing to serve a request through.
+
+### The request context binds in a `yield` dependency
+
+A context variable must be reset in the task that set it, and Starlette runs
+middleware in a different task from the endpoint. Taking the token in a
+dependency and resetting it in middleware raises — and because the raise
+happens in the response path, *every* status the API meant to return becomes a
+500. That is how it was written the first time, and every contract test failed
+with the same wrong number.
+
+So `deps.context` is a `yield` dependency: it binds, yields, and unbinds in one
+task. The middleware only reads what the dependency recorded, to echo the
+request and correlation identifiers.
+
+### Redaction is in the emitter
+
+"No secret, token or corpus excerpt in any log line" is a claim about lines
+this code does not write, and a rule that only applies to careful callers is
+not a rule. So everything goes through `telemetry.log`, which merges the
+request context and scrubs the fields; a caller cannot emit a line that skips
+either step without reaching past the module.
+
+Scrubbing is by name *and* by shape. By name catches the field somebody added
+called `access_token`; by shape catches the token that arrived inside a message
+somebody was helpfully including. Long free text is truncated, because a corpus
+excerpt is a long string in a field called `text` and it looks exactly like a
+useful diagnostic.
+
+Context is merged *after* the caller's fields, so a field named `actor` cannot
+forge one.
+
+### Two hazards worth knowing about
+
+**A module-level singleton imported by name.** The routers did
+`from deps import STORE`, which captures the object. Replacing `deps.STORE` — a
+test does, and a deployment could — then left reservations landing in one store
+and completions in another, which surfaces as "the key was never reserved" and
+a 500. Store access now goes through `deps.store()`, `deps.complete()` and
+`deps.release()`, which resolve at call time.
+
+**`get_settings` is `lru_cache`d process-wide.** One request to `/healthz`
+populates it. A test that makes an HTTP request before the integration
+conftest exports the container's database URL pins the default
+`localhost:5432` for the whole session, and every later fixture times out —
+looking exactly like a broken container. `migrate_and_grant` now clears the
+cache after exporting the URL, and the latency test that triggered this lives
+at the contract level, where it belongs: it measures the edge and touches no
+database, so it has no business sharing a session with the suite that owns the
+containers.
+
+### Coverage is measured where the code is exercised
+
+The edge's pure mechanisms — idempotency, cursors, entity tags, event deltas,
+redaction — are unit tested. The routers are exercised by requests and are
+measured at the contract level. Measuring the routers at the unit level would
+report them as uncovered while the contract level exercises every one of them,
+and the number would be describing the test layout rather than the code.
+
 ### `hodd://` URIs, and why nothing records a path
 
 A run specification records `hodd://sindri/corpora/GBR/curated`. Moving the
