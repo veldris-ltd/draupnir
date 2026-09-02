@@ -34,14 +34,15 @@ Windows, `.\make.ps1 dev`. See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
 
 ## Status
 
-Prompts 0 to 5 of SAD section 13 are complete: the repository, the toolchain
+Prompts 0 to 6 of SAD section 13 are complete: the repository, the toolchain
 and the delivery pipeline; the core foundation -- the hash-chained ledger, the
 state machine of SAD 6.1, the site registry and the run projection; the
 plug-in system -- the seven interfaces of SAD 8.2, the entry point loader and a
 conformance suite published for third parties; HODD and GLEIPNIR -- the
 artefact store and the policy gate; MOTSOGNIR and HAMARR -- placement and array
-concurrency, and the training executors; and BRISINGAMEN, RAUN and SKIDBLADNIR
--- reweighting, evaluation and release.
+concurrency, and the training executors; BRISINGAMEN, RAUN and SKIDBLADNIR --
+reweighting, evaluation and release; and SVALINN, GULLINBURSTI and MEGINGJORD
+-- the cross-cutting security layer and the federation.
 
 The ledger is the source of truth. `run` is a projection of it, rebuilt from
 sequence 1 by a pure fold, and nothing else writes that table.
@@ -116,6 +117,29 @@ What the build enforces rather than asserts:
 - The MLX build is compared against the NVFP4 build and raises beyond a
   threshold tighter than any gate margin. A quantisation defect looks like a
   healthy model; what catches it is two builds of the same weights disagreeing.
+- A route without an explicit role declaration prevents the application from
+  starting. Not refused at runtime -- the process does not come up, so it is a
+  CI failure rather than a log line somebody reads after the first call.
+- Secrets are leases. The value has one way out, named `reveal`; the repr and
+  str are redacted; and the job environment carries lease references, so there
+  is no point at which the control plane could write a secret into a job
+  environment file.
+- Every outbound call declares a destination, a purpose, a run and an approving
+  policy, and an undeclared destination fails. The teacher-model destination is
+  absent, and a test fails if anybody adds it.
+- Executors run rootless with no network namespace and read-only artefact
+  mounts, and every weakening is an absence rather than a defaulted field: the
+  profile has no `allow_network` to set.
+- The signature envelope carries a list of signatures from version one, and
+  verification succeeds against any accepted algorithm -- which is what lets a
+  post-quantum migration be incremental rather than a re-signing of history.
+- The cryptographic inventory is a build artefact generated from the constants
+  the system uses. Adding an algorithm to the envelope and forgetting the
+  inventory fails the build.
+- MEGINGJORD cannot hold a corpus or a weight. Every federation payload is
+  built through a seal that walks the structure and refuses anything that is
+  not a hash, a name, a timestamp or a number, and there is no path that
+  serialises an unchecked one.
 - Playwright, axe and Storybook are wired and running against nothing yet.
 
 Verified: 100,000 ledger entries verify in about four seconds against the

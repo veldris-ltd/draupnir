@@ -383,6 +383,30 @@ def sbom() -> int:
 # ---------------------------------------------------------------------------
 
 
+@task("crypto-inventory", "Cryptographic inventory, a build artefact (AC-S16)")
+def crypto_inventory() -> int:
+    # AC-S16: "The cryptographic inventory lists every algorithm, key length and
+    # module in use, and each entry maps to NCSC guidance or an ISO/IEC
+    # standard." Generated from the constants the system actually uses, because
+    # an inventory maintained by hand describes what somebody believed the
+    # system did when they last looked.
+    say("cryptographic inventory")
+    target = ROOT / "sbom"
+    target.mkdir(parents=True, exist_ok=True)
+    uv_run(
+        "python",
+        "-c",
+        "import datetime, pathlib;"
+        "from draupnir.svalinn import inventory;"
+        "i = inventory.build(datetime.datetime.now(datetime.UTC));"
+        "root = pathlib.Path('sbom');"
+        "root.joinpath('crypto-inventory.json').write_text(i.to_json(), encoding='utf-8');"
+        "root.joinpath('crypto-inventory.md').write_text(i.to_markdown(), encoding='utf-8');"
+        "print(f'{len(i.rows)} entries, {len(i.in_use)} in use')",
+    )
+    return 0
+
+
 @task("openapi", "Export the OpenAPI document from the application")
 def openapi() -> int:
     uv_run("python", "scripts/openapi_export.py")
@@ -504,12 +528,12 @@ def test_unit() -> int:
     # the core is measured by the integration stage, which is the only level
     # that can honestly exercise a repository.
     #
-    # The MOTSOGNIR, HAMARR, BRISINGAMEN, RAUN and SKIDBLADNIR modules are
-    # measured here too. They are pure domain logic by the same test -- no I/O,
-    # no framework, no clock -- and they decide things that must not go
-    # unmeasured because of where they sit in the tree: where a ring run may be
-    # placed, how much work may be unwritten, which merge point was chosen,
-    # whether an artefact may be published. The drivers are plug-ins and are
+    # The feature modules are measured here too. They are pure domain logic by
+    # the same test -- no I/O, no framework, no clock -- and they decide things
+    # that must not go unmeasured because of where they sit in the tree: where
+    # a ring run may be placed, how much work may be unwritten, which merge
+    # point was chosen, whether an artefact may be published, who may call a
+    # route, whether a forge may release. The drivers are plug-ins and are
     # measured by the contract level.
     uv_run(
         "pytest",
@@ -520,6 +544,9 @@ def test_unit() -> int:
         "--cov=draupnir/brisingamen",
         "--cov=draupnir/raun",
         "--cov=draupnir/skidbladnir",
+        "--cov=draupnir/svalinn",
+        "--cov=draupnir/gullinbursti",
+        "--cov=draupnir/megingjord",
         "--cov-fail-under=90",
         "--cov-report=term-missing",
         "--cov-report=xml",
@@ -797,6 +824,7 @@ def static() -> int:
     secrets()
     audit()
     sbom()
+    crypto_inventory()
     return 0
 
 

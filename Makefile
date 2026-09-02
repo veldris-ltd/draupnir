@@ -7,7 +7,7 @@
 PYTHON ?= python3
 
 .DEFAULT_GOAL := help
-.PHONY: help bootstrap hooks format lint typecheck lint-web imports secrets audit sbom openapi clients clients-check openapi-diff migrate-dry migrate reset-db seed test-unit test-property test-contract test-integration test-frontend test-e2e test-a11y test-visual test images build-web up down logs api web dev smoke static ci clean
+.PHONY: help bootstrap hooks format lint typecheck lint-web imports secrets audit sbom crypto-inventory openapi clients clients-check openapi-diff migrate-dry migrate reset-db seed test-unit test-property test-contract test-integration test-frontend test-e2e test-a11y test-visual test images build-web up down logs api web dev smoke static ci clean
 
 help:
 	@$(PYTHON) tasks.py --list
@@ -41,6 +41,9 @@ audit:
 
 sbom:
 	@$(PYTHON) tasks.py sbom
+
+crypto-inventory:
+	@$(PYTHON) tasks.py crypto-inventory
 
 openapi:
 	@$(PYTHON) tasks.py openapi

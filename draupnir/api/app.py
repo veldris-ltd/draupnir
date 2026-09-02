@@ -13,6 +13,7 @@ from __future__ import annotations
 from fastapi import APIRouter, FastAPI
 
 from draupnir import __version__
+from draupnir.api.guards import enforce_declarations
 from draupnir.api.problems import CONTENT_TYPE, EXCEPTION_HANDLERS, Problem
 from draupnir.api.routers import health
 
@@ -62,6 +63,12 @@ def create_app() -> FastAPI:
     # and the OpenAPI diff gate fails a build on a breaking change.
     v1 = APIRouter(prefix=f"/{API_VERSION}")
     app.include_router(v1)
+
+    # AC-B6, and the prompt's sharper form of it: a route without an explicit
+    # role declaration must fail to register at startup, not fail open at
+    # runtime. Checked here, over the routes that were actually registered,
+    # so a missing declaration stops the application before it opens a socket.
+    enforce_declarations(app)
 
     return app
 

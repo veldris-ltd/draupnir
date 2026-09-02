@@ -5,6 +5,12 @@ SAD 11A.3: GULLINBURSTI submits the head -- the sequence number and entry hash
 accompanies the submission, so that the receiving tier can establish the head
 came from the forge that claims it before it countersigns anything.
 
+The head signed here is `ledger.ChainHead`, and it is the same object
+`federation.AnchorSubmission` wraps for transmission: the submission adds the
+previous hash, a timestamp and this signature, and delegates
+`signing_payload()` straight through. One definition of what is signed, so the
+bytes cannot differ between the two ends.
+
 Signing lives in SVALINN because SAD 5.2 gives it artefact signing and the
 plug-in signature trust root, and because the core must not know what a key
 is. The core produces the bytes (`ChainHead.signing_payload`); this decides

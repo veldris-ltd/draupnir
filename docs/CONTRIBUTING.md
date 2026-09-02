@@ -456,6 +456,161 @@ because an adapter's capability is a claim about base plus adapter. What differs
 is which artefact reaches the customer. If the programme means something else,
 the change is one table and two functions.
 
+### A route with no role declaration prevents startup (AC-B6)
+
+`draupnir/api/guards.py`. `create_app` sweeps the routes it actually registered
+and raises before returning, so a missing declaration is a startup failure and
+therefore a CI failure.
+
+Not a runtime check, because a runtime check on an undeclared route has to
+decide something and every answer is wrong: allow, and the route is open; deny,
+and a route that should be public breaks in production rather than in CI.
+
+The declaration lives on the endpoint function, not in a registry keyed by
+path. A registry drifts — somebody renames a path and you have a route with no
+declaration and a declaration for no route.
+
+**Two lessons from getting this wrong.** The first version walked `app.routes`
+looking for `APIRoute`, and FastAPI does not flatten included routers into it:
+it wraps each `include_router`. The sweep found nothing and reported that every
+route was declared. A check that passes because it examined nothing is worse
+than no check.
+
+So there are now two tests rather than one.
+`test_the_sweep_actually_finds_the_applications_routes` asserts the sweep finds
+something, and `test_an_unrecognised_route_object_prevents_startup` asserts it
+refuses rather than passes when it cannot read the structure. If a FastAPI
+upgrade changes the shape again, the second one fails loudly instead of the
+control quietly evaporating.
+
+### Everything in SVALINN fails closed
+
+The pattern is uniform and deliberate. No principal is a refusal, not an
+anonymous read. No role is a refusal, not a viewer. No declared requirement is
+a programming error that raises, not an open route. An unknown plug-in signer
+is a refusal, not a warning. A specification with no expected hash is a
+refusal, not a verified load.
+
+In each case the alternative is a safe default, and a default that is safe is
+still a default: it means a decision was skipped, and the skipped decision is
+the one the control exists to record.
+
+### Secrets are leases, and the value has one way out
+
+Secrets do not leak from a vault being broken into. They leak from being
+*placed somewhere durable* on the way to being used: an environment file, a
+rendered YAML in a working directory, a `JobPlan.environment` that gets logged
+when a submission fails.
+
+So a `Lease` has no payload carrying its value, its `__repr__` and `__str__`
+are redacted, and the value comes out through `reveal(now)` — named so that a
+reviewer stops at the call site. `brokered_environment` puts lease *references*
+in the job environment, so the control plane never holds the values in a form
+it could write.
+
+`assert_no_secrets` checks the serialised form of a rendered plan rather than
+its values, because a secret interpolated into a command string is the case a
+values-only check misses and the one that actually happens.
+
+### The egress broker, and the destination that is not on it
+
+Every outbound call declares four things: destination, purpose, run id, and the
+approving policy. A firewall answers "may this host reach that host"; the
+question that matters is "why is this run reaching that host, and who said it
+could", and a dependency that starts phoning home in a minor version bump
+satisfies the first and fails the second.
+
+**The teacher-model destination is deliberately absent from `ALLOW_LIST`, and
+`test_the_teacher_destination_is_not_allow_listed` fails if it is added.**
+Distillation is out of scope for Release 1 (SAD Q3, threat T3). Adding that
+host is a decision with a threat model attached, not a configuration change.
+
+Executors have no outbound network namespace at all, so the broker governs the
+control plane and the sandbox governs the executor. Two layers, because the
+sandbox is the one an escaping dependency cannot argue with and the broker is
+the one that produces a record.
+
+### The sandbox has no argument that weakens it
+
+`SandboxProfile` has no `network`, no `privileged`, no `user`, no
+`capabilities` field. Those are properties computed from constants. A profile
+with an `allow_network` argument is a profile that gets relaxed for one job
+that needed it, and the relaxation outlives the job.
+
+`violations()` exists so a profile arriving from elsewhere — a runbook, a
+future site with its own runtime — can be held to the same statement rather
+than trusted.
+
+### The signature envelope is a list from version one (Decision S10)
+
+Not an optional second field. One list, which happens to have one element today
+and two during a migration; a format that special-cases the single-signature
+shape is a format that changes when the second algorithm arrives.
+
+Verification succeeds on **any one accepted** signature. Requiring all of them
+would make an envelope unverifiable by a party holding only the older
+algorithm, which is exactly what stops a migration being incremental. Not *any*
+signature though: the caller states which algorithms it accepts, so an envelope
+signed only under a withdrawn algorithm does not verify.
+
+One digest, hashed once, signed by every algorithm — so two signatures cannot
+be over subtly different serialisations of one object. That is why the ECDSA
+P-384 signer prehashes with SHA-256 rather than SHA-384, and why the inventory
+records that the effective security level is 128-bit rather than 192. Stated
+rather than hidden: it matches Ed25519, so the envelope has one security level
+rather than two.
+
+### The cryptographic inventory is generated (AC-S16)
+
+`make crypto-inventory`, and it runs in the static stage. Generated from the
+constants the system uses, because an inventory maintained by hand describes
+what somebody believed the system did when they last looked.
+
+`validate()` checks both directions: every row cites NCSC guidance or an
+ISO/IEC standard, and every algorithm the envelope knows has a row. Adding an
+algorithm and forgetting the inventory fails the build. It caught a real
+mismatch on the first run.
+
+SAD 9.5's framing is restated in the artefact itself, because it is the thing
+an auditor most needs to see stated plainly: NCSC operates guidance, not a
+validation scheme comparable to CMVP, and the claim is weaker than "FIPS
+validated" and is presented as what it is.
+
+**The template versions and algorithm recommendations must be re-checked at
+implementation and at each release.** The SAD says so, and it is true.
+
+### Anchoring, partitions and what the federation may hold
+
+The forge keeps working through a partition and release does not (Decision S8).
+GULLINBURSTI therefore has no notion of failing: a submission that cannot reach
+MEGINGJORD is queued in order, a policy pull returns what was last pulled, and
+`may_release` says no with a reason that distinguishes a partition (wait) from
+a divergence (escalate).
+
+Capacity reports are dropped rather than queued. A queue of stale reports
+delivered on reconnect describes a forge as it was three days ago, which is
+worse than a gap.
+
+MEGINGJORD verifies narrowly and deliberately. It holds no entries, so it
+cannot check that entry 1,000 follows from entry 999; it checks that a site is
+not contradicting itself, which is detectable from hashes alone. That
+narrowness is what lets the federation hold hashes alone.
+
+An identical head already anchored is a **duplicate**, accepted wherever it
+sits in the chain. A retry is idempotent, and rejecting it as "behind the head"
+would turn a network hiccup into an operator incident. A *different* hash at an
+anchored sequence is a divergence, which raises, puts the forge read-only, and
+is not retried.
+
+### `ChainHead` is the ledger's, and there is only one
+
+`core/domain/federation.py` reuses `ledger.ChainHead` rather than defining its
+own. `AnchorSubmission` wraps it with the anchoring envelope — previous hash,
+timestamp, signature — and delegates `signing_payload()` straight through.
+
+This was two classes briefly, and that is precisely how a signature ends up
+covering different bytes at each end.
+
 ### `hodd://` URIs, and why nothing records a path
 
 A run specification records `hodd://sindri/corpora/GBR/curated`. Moving the
@@ -653,6 +808,30 @@ Conventions worth knowing before the first review comment:
 
 `make hooks` installs the pre-commit hooks, including the gitleaks scan
 required on every commit by AC-Q3. Install them once, on first clone.
+
+**The one allowlist entry that is not a fixture.** `.gitleaks.toml` excuses
+Python type annotations for cryptographic key objects. The `generic-api-key`
+rule matches any identifier ending in `key` followed by a value, so
+`signing_key: ed25519.Ed25519PrivateKey` reads to it as a credential being
+assigned — and it is a type, with no value in the file at all.
+
+Renaming was tried first and does not work: the rule keys on the suffix, so
+every accurate name for a signing key trips it. The entry is therefore as
+narrow as the tool allows — it matches only a dotted identifier from the
+`cryptography` asymmetric modules, and a real credential is not
+`ed25519.Ed25519PrivateKey`. The alternative was allowlisting the whole of
+`svalinn/pki.py`, which would suppress the detector in the one file most
+likely to acquire a real secret.
+
+It is verified rather than assumed. Planting a real-shaped GitHub token in
+that same file and re-running the scan still produces a finding; without the
+allowlist the scan produces one finding, and with it and no planted token,
+none. If you widen this entry, do that check again.
+
+`regexTarget = "match"` on the allowlist is what makes that possible: it
+excuses a rule for the *shape of the line* it matched rather than for a value,
+which is the distinction between "this is not a secret" and "this secret is
+fine".
 
 ---
 

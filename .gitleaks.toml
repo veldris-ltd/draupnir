@@ -8,6 +8,11 @@ useDefault = true
 
 [allowlist]
 description = "Development fixtures. These are not credentials."
+# Match the whole finding rather than the extracted secret, so a rule can be
+# excused for the *shape* of the line it matched rather than for a value.
+# `draupnir-dev-secret` appears in the match as well as the secret, so it is
+# unaffected.
+regexTarget = "match"
 paths = [
   '''\.env\.example$''',
   '''docker/compose\.dev\.yaml$''',
@@ -15,4 +20,19 @@ paths = [
 ]
 regexes = [
   '''draupnir-dev-secret''',
+  # Python type annotations for cryptographic key objects. `generic-api-key`
+  # matches any identifier ending in "key" followed by a value, so
+  # `signing_key: ed25519.Ed25519PrivateKey` reads to it as a credential being
+  # assigned. It is a type, and no value is present in the file.
+  #
+  # Deliberately narrow: it matches only a dotted identifier from the
+  # `cryptography` asymmetric modules, so it cannot mask a real credential --
+  # a real one is not `ed25519.Ed25519PrivateKey`.
+  #
+  # Renaming the field was tried first and does not help: the rule keys on the
+  # suffix "key", so every accurate name for a signing key trips it. This is
+  # the narrower of the two remedies; the alternative was allowlisting the
+  # whole of `svalinn/pki.py`, which would suppress the detector for a real
+  # secret in the one file most likely to acquire one.
+  '''_?key: (?:ed25519|ec|rsa|padding|utils)\.[A-Za-z0-9_]+''',
 ]

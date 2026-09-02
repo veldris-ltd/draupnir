@@ -13,6 +13,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from draupnir.api.guards import unauthenticated
 from draupnir.core.infrastructure.config import get_settings
 from draupnir.core.infrastructure.database import create_engine
 
@@ -35,6 +36,11 @@ class Readiness(BaseModel):
 
 
 @router.get("/healthz", summary="Liveness", operation_id="getHealth")
+@unauthenticated(
+    "An orchestrator probes liveness before a token can be obtained, and a probe "
+    "that needs credentials is a probe that reports a dead service when the "
+    "identity provider is down."
+)
 async def healthz() -> Health:
     """Return liveness. This touches no dependency by design."""
     from draupnir import __version__
@@ -44,6 +50,10 @@ async def healthz() -> Health:
 
 
 @router.get("/readyz", summary="Readiness", operation_id="getReadiness")
+@unauthenticated(
+    "Same as liveness. Readiness reports which dependencies answered and carries "
+    "no run, artefact or ledger content, so there is nothing here to protect."
+)
 async def readyz() -> Readiness:
     """Return readiness, having checked each dependency.
 

@@ -1,7 +1,21 @@
-"""GULLINBURSTI, the boar that ran over sky and sea: the per forge site agent.
+"""GULLINBURSTI, the boar that runs through air and water: the site agent.
 
-Anchors the local ledger head, pulls policy, pushes release metadata, reports capacity. SAD 5.2.
+Anchors the local chain head, pulls policy, pushes release metadata, reports
+capacity and health. SAD 11A.1.
 
-Owns: Local ledger head anchoring, policy pull, release metadata push, capacity reporting.
-Must not: Hold authority over another site.
+Owns: Chain-head anchoring, policy pull, release metadata push, capacity
+reporting, for exactly one site.
+Must not: Anchor another site's chain, or decide whether a release is good.
+
+Shaped entirely by SAD 11A.4 and Decision S8: the forge keeps working through a
+partition and release does not. So the agent has no notion of failing. A
+submission that cannot reach MEGINGJORD is queued in order; a policy pull that
+cannot reach it returns what was last pulled. The one thing that changes is
+that `may_release` says no, with a reason an operator can act on -- and the
+reason distinguishes a partition, where the answer is to wait, from a
+divergence, where it is to escalate.
+
+The dependency on MEGINGJORD is three protocols rather than an import. The two
+are independent siblings, and the real thing between them is mTLS over
+WireGuard rather than a method call.
 """
