@@ -16,7 +16,10 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 2 : undefined,
+  // Two workers in CI; locally Playwright's own default, which is a
+  // fraction of the core count. Spelled as a spread because
+  // `exactOptionalPropertyTypes` will not accept `undefined` for "unset".
+  ...(process.env.CI ? { workers: 2 } : {}),
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : [['list']],
 
   // Never rewrite a baseline implicitly: a diff is the gate. A baseline that
@@ -52,20 +55,29 @@ export default defineConfig({
     },
   ],
 
-  webServer: process.env.DRAUPNIR_NO_WEBSERVER
-    ? undefined
-    : [
-        {
-          command: 'pnpm run dev',
-          url: CONSOLE_URL,
-          reuseExistingServer: !process.env.CI,
-          timeout: 120_000,
-        },
-        {
-          command: 'pnpm run storybook',
-          url: STORYBOOK_URL,
-          reuseExistingServer: !process.env.CI,
-          timeout: 180_000,
-        },
-      ],
+  // Omitted rather than set to undefined: `exactOptionalPropertyTypes` makes
+  // the difference real, and Playwright's own type does not admit undefined.
+  ...(process.env.DRAUPNIR_NO_WEBSERVER
+    ? {}
+    : {
+        webServer: [
+          {
+            command: 'pnpm run dev',
+            url: CONSOLE_URL,
+            reuseExistingServer: !process.env.CI,
+            timeout: 120_000,
+          },
+          {
+            // Built, then served statically. The dev server compiles on
+            // demand, and parallel shards navigating every story through it
+            // contend badly enough to look like a broken component rather
+            // than a busy bundler. The static build is also the artefact the
+            // snapshots should be taken against.
+            command: 'pnpm run build-storybook && pnpm run storybook:serve',
+            url: STORYBOOK_URL,
+            reuseExistingServer: !process.env.CI,
+            timeout: 300_000,
+          },
+        ],
+      }),
 });

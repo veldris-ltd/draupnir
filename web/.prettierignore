@@ -1,6 +1,12 @@
 dist
+dist-types
 storybook-static
 playwright-report
 test-results
 packages/api-client/src/generated
 pnpm-lock.yaml
+
+# The token linter's fixtures. Their formatting is the fixture: the
+# violations are written one rule per line on purpose, because that is the
+# shape that fooled the first version of the linter's parser.
+tests/__fixtures__

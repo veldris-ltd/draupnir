@@ -1,0 +1,352 @@
+/*
+ * JARNGREIPR tokens. The only source of visual values in the system.
+ *
+ * AC-U3: no component contains a hard coded colour, spacing or radius value,
+ * and a token linter enforces it. This file is the exception it is enforced
+ * against -- literals live here and nowhere else.
+ *
+ * The colour ramps are authored so that every foreground/background pair the
+ * components actually use clears WCAG 2.2 AA (AC-U7): 4.5:1 for body text,
+ * 3:1 for large text and interface components. `contrast.test.ts` computes
+ * every pair rather than trusting this comment, because a ramp adjusted by eye
+ * is a ramp that drifts one shade at a time.
+ *
+ * Two ramps, light and dark, expressed as the same semantic names. A component
+ * never names a ramp: it names a role -- surface, text, border, accent -- and
+ * the theme decides what that is. That is what makes a component theme-blind,
+ * and it is why there is no `--jg-grey-400` in the semantic layer.
+ */
+
+:root {
+  /* ---------------------------------------------------------------------
+   * Typography. A scale rather than free values, so that two headings
+   * chosen independently are the same size.
+   * ------------------------------------------------------------------ */
+  --jg-font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --jg-font-mono:
+    ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+
+  --jg-text-2xs: 0.6875rem;
+  --jg-text-xs: 0.75rem;
+  --jg-text-sm: 0.8125rem;
+  --jg-text-md: 0.875rem;
+  --jg-text-lg: 1rem;
+  --jg-text-xl: 1.25rem;
+  --jg-text-2xl: 1.5rem;
+  --jg-text-3xl: 2rem;
+
+  --jg-leading-tight: 1.25;
+  --jg-leading-normal: 1.5;
+  --jg-leading-loose: 1.75;
+
+  --jg-weight-regular: 400;
+  --jg-weight-medium: 500;
+  --jg-weight-semibold: 600;
+
+  /* ---------------------------------------------------------------------
+   * Spacing. A 4px base, because a dense operational console needs steps
+   * smaller than 8 and an 8px base produces half-step exceptions.
+   * ------------------------------------------------------------------ */
+  --jg-space-0: 0;
+  --jg-space-1: 0.25rem;
+  --jg-space-2: 0.5rem;
+  --jg-space-3: 0.75rem;
+  --jg-space-4: 1rem;
+  --jg-space-5: 1.25rem;
+  --jg-space-6: 1.5rem;
+  --jg-space-8: 2rem;
+  --jg-space-10: 2.5rem;
+  --jg-space-12: 3rem;
+  --jg-space-16: 4rem;
+
+  /* ---------------------------------------------------------------------
+   * Radius and border width.
+   * ------------------------------------------------------------------ */
+  --jg-radius-none: 0;
+  --jg-radius-sm: 0.125rem;
+  --jg-radius-md: 0.25rem;
+  --jg-radius-lg: 0.5rem;
+  --jg-radius-xl: 0.75rem;
+  --jg-radius-full: 9999px;
+
+  --jg-border-width: 1px;
+  --jg-border-width-thick: 2px;
+
+  /* ---------------------------------------------------------------------
+   * Motion. Every duration is behind a token so that
+   * `prefers-reduced-motion` can zero all of them in one place (AC-U9).
+   * ------------------------------------------------------------------ */
+  --jg-duration-instant: 0ms;
+  --jg-duration-fast: 120ms;
+  --jg-duration-normal: 200ms;
+  --jg-duration-slow: 320ms;
+
+  --jg-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --jg-ease-enter: cubic-bezier(0, 0, 0, 1);
+  --jg-ease-exit: cubic-bezier(0.3, 0, 1, 1);
+
+  /* ---------------------------------------------------------------------
+   * Focus. One ring, everywhere, at a width and offset that stays visible
+   * against every surface in both themes (SAD 11F.4).
+   * ------------------------------------------------------------------ */
+  --jg-focus-width: 2px;
+  --jg-focus-offset: 2px;
+
+  /* ---------------------------------------------------------------------
+   * Layering.
+   * ------------------------------------------------------------------ */
+  --jg-z-base: 0;
+  --jg-z-sticky: 100;
+  --jg-z-drawer: 200;
+  --jg-z-dialog: 300;
+  --jg-z-toast: 400;
+  --jg-z-tooltip: 500;
+
+  /* ---------------------------------------------------------------------
+   * Light ramp. The default.
+   *
+   * Contrast against `--jg-surface` (#ffffff):
+   *   text          #16191d  16.9:1
+   *   text-muted    #4b5563   8.0:1
+   *   text-subtle   #5f6b7a   5.6:1
+   *   accent        #0b5cad   6.5:1
+   *   danger        #a01722   7.1:1
+   *   success       #0f6b3f   5.4:1
+   *   warning-text  #6b4708   6.4:1
+   * ------------------------------------------------------------------ */
+  --jg-surface: #ffffff;
+  --jg-surface-raised: #f7f8fa;
+  --jg-surface-sunken: #eef0f4;
+  --jg-surface-overlay: #ffffff;
+  --jg-surface-inverse: #16191d;
+  --jg-scrim: rgb(22 25 29 / 55%);
+
+  --jg-text: #16191d;
+  --jg-text-muted: #4b5563;
+  --jg-text-subtle: #5f6b7a;
+  --jg-text-inverse: #ffffff;
+  --jg-text-on-accent: #ffffff;
+
+  /*
+   * `--jg-border` draws the edge of every input, select, table and card, so
+   * WCAG 1.4.11 applies to it: 3:1 against the surface behind it, or a
+   * low-vision user cannot see where the control is. It was #cbd2dc, which is
+   * 1.5:1 and fails; the contrast test in tokens.test.ts is what found it.
+   * `--jg-border-subtle` divides content that is legible without the divider
+   * and is deliberately below the threshold.
+   */
+  --jg-border: #848b96;
+  --jg-border-strong: #6f7681;
+  --jg-border-subtle: #d5dae2;
+
+  --jg-accent: #0b5cad;
+  --jg-accent-hover: #094a8c;
+  --jg-accent-active: #073a6e;
+  --jg-accent-subtle: #e8f1fb;
+  --jg-accent-border: #7aa9dc;
+
+  --jg-danger: #a01722;
+  --jg-danger-hover: #85131c;
+  --jg-danger-subtle: #fdecee;
+  --jg-danger-border: #e2a3a9;
+
+  --jg-warning: #6b4708;
+  --jg-warning-subtle: #fdf3e0;
+  --jg-warning-border: #dcb96a;
+
+  --jg-success: #0f6b3f;
+  --jg-success-subtle: #e7f5ee;
+  --jg-success-border: #7bbd9a;
+
+  --jg-info: #0b5cad;
+  --jg-info-subtle: #e8f1fb;
+  --jg-info-border: #7aa9dc;
+
+  --jg-focus-ring: #0b5cad;
+
+  --jg-elevation-1: 0 1px 2px rgb(22 25 29 / 8%);
+  --jg-elevation-2: 0 2px 8px rgb(22 25 29 / 12%);
+  --jg-elevation-3: 0 8px 24px rgb(22 25 29 / 16%);
+}
+
+/*
+ * Dark ramp.
+ *
+ * Applied by an explicit `data-jg-theme="dark"`, and by the media query when
+ * nothing explicit is set. The explicit attribute wins in both directions so
+ * that a user choosing light on a dark system gets light -- a theme toggle
+ * that only works one way is a toggle that half the users find broken.
+ *
+ * Contrast against `--jg-surface` (#14171b):
+ *   text          #e8eaee  14.5:1
+ *   text-muted    #a8b1bd   7.4:1
+ *   text-subtle   #929cab   5.7:1
+ *   accent        #6fb2f5   7.4:1
+ *   danger        #f3969e   7.2:1
+ *   success       #6dcb9b   8.5:1
+ *   warning       #e0b566   8.5:1
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-jg-theme='light']) {
+    --jg-surface: #14171b;
+    --jg-surface-raised: #1c2026;
+    --jg-surface-sunken: #0f1114;
+    --jg-surface-overlay: #1c2026;
+    --jg-surface-inverse: #e8eaee;
+    --jg-scrim: rgb(0 0 0 / 65%);
+
+    --jg-text: #e8eaee;
+    --jg-text-muted: #a8b1bd;
+    --jg-text-subtle: #929cab;
+    --jg-text-inverse: #14171b;
+    --jg-text-on-accent: #08121d;
+
+    --jg-border: #646b76;
+    --jg-border-strong: #7d848f;
+    --jg-border-subtle: #2f353d;
+
+    --jg-accent: #6fb2f5;
+    --jg-accent-hover: #8cc3f8;
+    --jg-accent-active: #a5d0fa;
+    --jg-accent-subtle: #16283c;
+    --jg-accent-border: #35648f;
+
+    --jg-danger: #f3969e;
+    --jg-danger-hover: #f7b0b6;
+    --jg-danger-subtle: #35191c;
+    --jg-danger-border: #7d3b42;
+
+    --jg-warning: #e0b566;
+    --jg-warning-subtle: #2e2413;
+    --jg-warning-border: #6f5828;
+
+    --jg-success: #6dcb9b;
+    --jg-success-subtle: #12281e;
+    --jg-success-border: #2f6247;
+
+    --jg-info: #6fb2f5;
+    --jg-info-subtle: #16283c;
+    --jg-info-border: #35648f;
+
+    --jg-focus-ring: #8cc3f8;
+
+    --jg-elevation-1: 0 1px 2px rgb(0 0 0 / 40%);
+    --jg-elevation-2: 0 2px 8px rgb(0 0 0 / 48%);
+    --jg-elevation-3: 0 8px 24px rgb(0 0 0 / 56%);
+  }
+}
+
+:root[data-jg-theme='dark'] {
+  --jg-surface: #14171b;
+  --jg-surface-raised: #1c2026;
+  --jg-surface-sunken: #0f1114;
+  --jg-surface-overlay: #1c2026;
+  --jg-surface-inverse: #e8eaee;
+  --jg-scrim: rgb(0 0 0 / 65%);
+
+  --jg-text: #e8eaee;
+  --jg-text-muted: #a8b1bd;
+  --jg-text-subtle: #929cab;
+  --jg-text-inverse: #14171b;
+  --jg-text-on-accent: #08121d;
+
+  --jg-border: #646b76;
+  --jg-border-strong: #7d848f;
+  --jg-border-subtle: #2f353d;
+
+  --jg-accent: #6fb2f5;
+  --jg-accent-hover: #8cc3f8;
+  --jg-accent-active: #a5d0fa;
+  --jg-accent-subtle: #16283c;
+  --jg-accent-border: #35648f;
+
+  --jg-danger: #f3969e;
+  --jg-danger-hover: #f7b0b6;
+  --jg-danger-subtle: #35191c;
+  --jg-danger-border: #7d3b42;
+
+  --jg-warning: #e0b566;
+  --jg-warning-subtle: #2e2413;
+  --jg-warning-border: #6f5828;
+
+  --jg-success: #6dcb9b;
+  --jg-success-subtle: #12281e;
+  --jg-success-border: #2f6247;
+
+  --jg-info: #6fb2f5;
+  --jg-info-subtle: #16283c;
+  --jg-info-border: #35648f;
+
+  --jg-focus-ring: #8cc3f8;
+
+  --jg-elevation-1: 0 1px 2px rgb(0 0 0 / 40%);
+  --jg-elevation-2: 0 2px 8px rgb(0 0 0 / 48%);
+  --jg-elevation-3: 0 8px 24px rgb(0 0 0 / 56%);
+}
+
+/*
+ * AC-U9. Every duration token collapses to zero in one place, so a component
+ * that uses a duration token respects the preference without knowing it
+ * exists. A component that hard-coded `200ms` would not, which is the other
+ * reason durations are tokens.
+ *
+ * `!important` because a component may legitimately set a longer duration
+ * inline for a specific interaction, and the preference must still win.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --jg-duration-instant: 0ms;
+    --jg-duration-fast: 0ms;
+    --jg-duration-normal: 0ms;
+    --jg-duration-slow: 0ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * The base. Applied by the console and by Storybook so that a component is
+ * always rendered on a surface it was designed against.
+ */
+.jg-root {
+  background: var(--jg-surface);
+  color: var(--jg-text);
+  font-family: var(--jg-font-sans);
+  font-size: var(--jg-text-md);
+  line-height: var(--jg-leading-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * One focus ring for the whole system. `:focus-visible` rather than `:focus`
+ * so a mouse click does not leave a ring behind, and never `outline: none`
+ * without a replacement -- removing the indicator is the single most common
+ * way a component library fails WCAG 2.4.7.
+ */
+.jg-root :focus-visible {
+  outline: var(--jg-focus-width) solid var(--jg-focus-ring);
+  outline-offset: var(--jg-focus-offset);
+  border-radius: var(--jg-radius-sm);
+}
+
+/* Visually hidden, still announced. For labels a sighted user gets from
+ * context and a screen reader user does not. */
+.jg-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

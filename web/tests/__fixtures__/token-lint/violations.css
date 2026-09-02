@@ -1,0 +1,14 @@
+/*
+ * Fixtures for the token linter. Every rule below is a violation the linter
+ * must report, and the file is deliberately NOT prettier-formatted: each rule
+ * is on one line, because a line-based parser reads `.probe-a { color` as the
+ * property and waves the colour through. The first version of the linter did
+ * exactly that. See .prettierignore.
+ */
+.probe-a { color: #2d6cdf; }
+.probe-b { padding: 12px; }
+.probe-c { border-radius: 6px; }
+.probe-d { background: rgba(0, 0, 0, 0.4); }
+.probe-e { border: 1px solid crimson; }
+.probe-f { --probe-blue: #123456; }
+.probe-ok { color: var(--jg-text); padding: var(--jg-space-3); border-radius: var(--jg-radius-md); border: var(--jg-border-width) solid transparent; margin: 0; }

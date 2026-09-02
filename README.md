@@ -158,7 +158,24 @@ What the build enforces rather than asserts:
   callers is not the rule.
 - The OpenAPI document is the single source for both clients. The drift gate
   regenerates and fails the build if either was edited by hand.
-- Playwright, axe and Storybook are wired and running against nothing yet.
+- JARNGREIPR, the design system, ships sixteen primitives and eight composites,
+  and every one of them ships six states beyond the happy path: loading, empty,
+  error, denied, read only and partitioned. That is one shared contract rather
+  than a convention, because a convention followed component by component is a
+  convention the twentieth component skips. 168 Storybook stories, 24
+  components at seven states each, and a test that fails the build if a
+  component ships fewer.
+- Tokens are the only source of visual values, enforced by a linter rather than
+  a guideline: a hard-coded colour, spacing or radius fails the build. The
+  linter's own fixtures prove it fails, because a gate nobody has watched fail
+  is a gate nobody knows works.
+- Both colour ramps are measured rather than asserted. The contrast test
+  recomputes every declared pairing from the stylesheet and found the control
+  border at 1.5:1 against a 3:1 requirement; the ramp changed, not the
+  threshold.
+- axe runs over every route and over all 168 stories, so the denied and
+  partitioned states -- the ones nobody looks at while building -- are checked
+  as hard as the happy path.
 
 Verified: 100,000 ledger entries verify in about four seconds against the
 sixty second budget of AC-N5, and a rebuild of the run projection is

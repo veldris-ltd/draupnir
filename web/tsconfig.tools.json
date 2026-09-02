@@ -16,8 +16,12 @@
     "e2e/**/*.ts",
     "tests/**/*.ts",
     ".storybook/**/*.ts",
+    ".storybook/**/*.tsx",
     "packages/*/*.config.ts",
     "apps/*/*.config.ts",
-    "packages/*/src/**/*.stories.tsx"
+    "packages/*/src/**/*.stories.tsx",
+    "packages/*/src/**/*.test.tsx",
+    "packages/*/src/**/*.test.ts",
+    "scripts/**/*.ts"
   ]
 }

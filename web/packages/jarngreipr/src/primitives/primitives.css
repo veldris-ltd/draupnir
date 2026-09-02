@@ -1,0 +1,605 @@
+/*
+ * The primitives. Every value is a token (AC-U3).
+ *
+ * Interface components clear 3:1 against their surface and body text clears
+ * 4.5:1 (AC-U7), which is why disabled controls keep `--jg-text-subtle` rather
+ * than fading toward the background: a disabled control still has to be
+ * readable, and "greyed out" is the most common way a component library fails
+ * that criterion.
+ */
+
+/* --------------------------------------------------------------------------
+ * Button
+ * ----------------------------------------------------------------------- */
+
+.jg-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--jg-space-2);
+  padding: var(--jg-space-2) var(--jg-space-4);
+  font-family: inherit;
+  font-size: var(--jg-text-md);
+  font-weight: var(--jg-weight-medium);
+  line-height: var(--jg-leading-tight);
+  border: var(--jg-border-width) solid transparent;
+  border-radius: var(--jg-radius-md);
+  cursor: pointer;
+  transition:
+    background-color var(--jg-duration-fast) var(--jg-ease-standard),
+    border-color var(--jg-duration-fast) var(--jg-ease-standard);
+}
+
+.jg-button[data-jg-variant='primary'] {
+  background: var(--jg-accent);
+  color: var(--jg-text-on-accent);
+}
+
+.jg-button[data-jg-variant='primary']:hover:not(:disabled) {
+  background: var(--jg-accent-hover);
+}
+
+.jg-button[data-jg-variant='secondary'] {
+  background: var(--jg-surface);
+  color: var(--jg-text);
+  border-color: var(--jg-border-strong);
+}
+
+.jg-button[data-jg-variant='secondary']:hover:not(:disabled) {
+  background: var(--jg-surface-raised);
+}
+
+.jg-button[data-jg-variant='danger'] {
+  background: var(--jg-danger);
+  color: var(--jg-text-on-accent);
+}
+
+.jg-button[data-jg-variant='danger']:hover:not(:disabled) {
+  background: var(--jg-danger-hover);
+}
+
+.jg-button[data-jg-variant='ghost'] {
+  background: transparent;
+  color: var(--jg-accent);
+}
+
+.jg-button[data-jg-variant='ghost']:hover:not(:disabled) {
+  background: var(--jg-accent-subtle);
+}
+
+.jg-button:disabled {
+  cursor: not-allowed;
+  background: var(--jg-surface-sunken);
+  color: var(--jg-text-subtle);
+  border-color: var(--jg-border);
+}
+
+.jg-button[data-jg-size='sm'] {
+  padding: var(--jg-space-1) var(--jg-space-3);
+  font-size: var(--jg-text-sm);
+}
+
+.jg-button__spinner {
+  width: var(--jg-space-4);
+  height: var(--jg-space-4);
+  border: var(--jg-border-width-thick) solid currentcolor;
+  border-top-color: transparent;
+  border-radius: var(--jg-radius-full);
+  animation: jg-spin 700ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jg-button__spinner {
+    animation: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+ * Field shell: label, control, hint, error. Shared by input and select.
+ * ----------------------------------------------------------------------- */
+
+.jg-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jg-space-1);
+}
+
+.jg-field__label {
+  font-size: var(--jg-text-sm);
+  font-weight: var(--jg-weight-medium);
+  color: var(--jg-text);
+}
+
+.jg-field__required {
+  color: var(--jg-danger);
+}
+
+.jg-field__hint {
+  font-size: var(--jg-text-xs);
+  color: var(--jg-text-muted);
+}
+
+.jg-field__error {
+  font-size: var(--jg-text-xs);
+  color: var(--jg-danger);
+}
+
+.jg-input,
+.jg-select {
+  padding: var(--jg-space-2) var(--jg-space-3);
+  font-family: inherit;
+  font-size: var(--jg-text-md);
+  color: var(--jg-text);
+  background: var(--jg-surface);
+  border: var(--jg-border-width) solid var(--jg-border-strong);
+  border-radius: var(--jg-radius-md);
+  transition: border-color var(--jg-duration-fast) var(--jg-ease-standard);
+}
+
+.jg-input::placeholder {
+  color: var(--jg-text-subtle);
+}
+
+.jg-input:disabled,
+.jg-select:disabled {
+  background: var(--jg-surface-sunken);
+  color: var(--jg-text-subtle);
+  cursor: not-allowed;
+}
+
+.jg-input[aria-invalid='true'],
+.jg-select[aria-invalid='true'] {
+  border-color: var(--jg-danger);
+}
+
+/* --------------------------------------------------------------------------
+ * Checkbox, radio, toggle
+ * ----------------------------------------------------------------------- */
+
+.jg-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--jg-space-2);
+  font-size: var(--jg-text-md);
+  color: var(--jg-text);
+}
+
+.jg-choice input {
+  width: var(--jg-space-4);
+  height: var(--jg-space-4);
+  margin: 0;
+  accent-color: var(--jg-accent);
+  flex-shrink: 0;
+}
+
+.jg-choice input:disabled + span {
+  color: var(--jg-text-subtle);
+}
+
+.jg-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--jg-space-2);
+  font-size: var(--jg-text-md);
+  color: var(--jg-text);
+}
+
+.jg-toggle__track {
+  position: relative;
+  width: var(--jg-space-10);
+  height: var(--jg-space-5);
+  background: var(--jg-border-strong);
+  border-radius: var(--jg-radius-full);
+  transition: background-color var(--jg-duration-normal) var(--jg-ease-standard);
+  flex-shrink: 0;
+}
+
+.jg-toggle__thumb {
+  position: absolute;
+  top: var(--jg-space-1);
+  left: var(--jg-space-1);
+  width: var(--jg-space-3);
+  height: var(--jg-space-3);
+  background: var(--jg-surface);
+  border-radius: var(--jg-radius-full);
+  transition: transform var(--jg-duration-normal) var(--jg-ease-standard);
+}
+
+.jg-toggle[aria-checked='true'] .jg-toggle__track {
+  background: var(--jg-accent);
+}
+
+.jg-toggle[aria-checked='true'] .jg-toggle__thumb {
+  transform: translateX(var(--jg-space-5));
+}
+
+.jg-toggle:disabled {
+  cursor: not-allowed;
+}
+
+.jg-toggle:disabled .jg-toggle__track {
+  background: var(--jg-border);
+}
+
+/* --------------------------------------------------------------------------
+ * Table
+ * ----------------------------------------------------------------------- */
+
+.jg-table-wrap {
+  overflow-x: auto;
+  border: var(--jg-border-width) solid var(--jg-border);
+  border-radius: var(--jg-radius-lg);
+}
+
+.jg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--jg-text-sm);
+}
+
+.jg-table caption {
+  padding: var(--jg-space-3);
+  font-size: var(--jg-text-sm);
+  font-weight: var(--jg-weight-semibold);
+  color: var(--jg-text);
+  text-align: left;
+}
+
+.jg-table th,
+.jg-table td {
+  padding: var(--jg-space-2) var(--jg-space-3);
+  text-align: left;
+  border-bottom: var(--jg-border-width) solid var(--jg-border-subtle);
+}
+
+.jg-table thead th {
+  background: var(--jg-surface-raised);
+  color: var(--jg-text);
+  font-weight: var(--jg-weight-semibold);
+  white-space: nowrap;
+}
+
+.jg-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.jg-table td[data-jg-numeric='true'],
+.jg-table th[data-jg-numeric='true'] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------------
+ * Badge and tag
+ * ----------------------------------------------------------------------- */
+
+.jg-badge,
+.jg-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--jg-space-1);
+  padding: var(--jg-space-1) var(--jg-space-2);
+  font-size: var(--jg-text-xs);
+  font-weight: var(--jg-weight-medium);
+  line-height: var(--jg-leading-tight);
+  border-radius: var(--jg-radius-md);
+  border: var(--jg-border-width) solid transparent;
+  white-space: nowrap;
+}
+
+.jg-badge[data-jg-tone='neutral'] {
+  background: var(--jg-surface-sunken);
+  color: var(--jg-text-muted);
+  border-color: var(--jg-border);
+}
+
+.jg-badge[data-jg-tone='info'] {
+  background: var(--jg-info-subtle);
+  color: var(--jg-info);
+  border-color: var(--jg-info-border);
+}
+
+.jg-badge[data-jg-tone='success'] {
+  background: var(--jg-success-subtle);
+  color: var(--jg-success);
+  border-color: var(--jg-success-border);
+}
+
+.jg-badge[data-jg-tone='warning'] {
+  background: var(--jg-warning-subtle);
+  color: var(--jg-warning);
+  border-color: var(--jg-warning-border);
+}
+
+.jg-badge[data-jg-tone='danger'] {
+  background: var(--jg-danger-subtle);
+  color: var(--jg-danger);
+  border-color: var(--jg-danger-border);
+}
+
+.jg-tag {
+  background: var(--jg-surface-raised);
+  color: var(--jg-text-muted);
+  border-color: var(--jg-border);
+  border-radius: var(--jg-radius-full);
+  padding-inline: var(--jg-space-3);
+}
+
+.jg-tag__remove {
+  display: inline-flex;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--jg-text-muted);
+  cursor: pointer;
+  font-size: var(--jg-text-sm);
+  line-height: 1;
+}
+
+.jg-tag__remove:disabled {
+  cursor: not-allowed;
+  color: var(--jg-text-subtle);
+}
+
+/* --------------------------------------------------------------------------
+ * Tooltip
+ * ----------------------------------------------------------------------- */
+
+.jg-tooltip {
+  position: relative;
+  display: inline-flex;
+}
+
+.jg-tooltip__bubble {
+  position: absolute;
+  bottom: calc(100% + var(--jg-space-2));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--jg-z-tooltip);
+  padding: var(--jg-space-2) var(--jg-space-3);
+  font-size: var(--jg-text-xs);
+  line-height: var(--jg-leading-normal);
+  color: var(--jg-text-inverse);
+  background: var(--jg-surface-inverse);
+  border-radius: var(--jg-radius-md);
+  box-shadow: var(--jg-elevation-2);
+  white-space: normal;
+  width: max-content;
+  max-width: 28ch;
+}
+
+/* --------------------------------------------------------------------------
+ * Dialog and drawer
+ * ----------------------------------------------------------------------- */
+
+.jg-scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--jg-scrim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--jg-space-4);
+  z-index: var(--jg-z-dialog);
+}
+
+.jg-dialog {
+  width: 100%;
+  max-width: 34rem;
+  background: var(--jg-surface-overlay);
+  color: var(--jg-text);
+  border: var(--jg-border-width) solid var(--jg-border);
+  border-radius: var(--jg-radius-xl);
+  box-shadow: var(--jg-elevation-3);
+  padding: var(--jg-space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--jg-space-4);
+}
+
+.jg-dialog__title {
+  margin: 0;
+  font-size: var(--jg-text-xl);
+  font-weight: var(--jg-weight-semibold);
+}
+
+.jg-dialog__body {
+  margin: 0;
+  font-size: var(--jg-text-md);
+  color: var(--jg-text-muted);
+}
+
+.jg-dialog__actions {
+  display: flex;
+  gap: var(--jg-space-2);
+  justify-content: flex-end;
+}
+
+.jg-dialog__consequence {
+  margin: 0;
+  padding: var(--jg-space-3);
+  font-size: var(--jg-text-sm);
+  color: var(--jg-text);
+  background: var(--jg-danger-subtle);
+  border: var(--jg-border-width) solid var(--jg-danger-border);
+  border-radius: var(--jg-radius-md);
+}
+
+.jg-drawer {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: min(28rem, 100%);
+  background: var(--jg-surface-overlay);
+  border-inline-start: var(--jg-border-width) solid var(--jg-border);
+  box-shadow: var(--jg-elevation-3);
+  z-index: var(--jg-z-drawer);
+  display: flex;
+  flex-direction: column;
+  transition: transform var(--jg-duration-normal) var(--jg-ease-enter);
+}
+
+.jg-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--jg-space-3);
+  padding: var(--jg-space-4);
+  border-bottom: var(--jg-border-width) solid var(--jg-border-subtle);
+}
+
+.jg-drawer__title {
+  margin: 0;
+  font-size: var(--jg-text-lg);
+  font-weight: var(--jg-weight-semibold);
+}
+
+.jg-drawer__body {
+  padding: var(--jg-space-4);
+  overflow-y: auto;
+}
+
+/* --------------------------------------------------------------------------
+ * Toast
+ * ----------------------------------------------------------------------- */
+
+.jg-toasts {
+  position: fixed;
+  inset-block-end: var(--jg-space-4);
+  inset-inline-end: var(--jg-space-4);
+  z-index: var(--jg-z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--jg-space-2);
+}
+
+.jg-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--jg-space-3);
+  min-width: 18rem;
+  max-width: 26rem;
+  padding: var(--jg-space-3) var(--jg-space-4);
+  background: var(--jg-surface-overlay);
+  color: var(--jg-text);
+  border: var(--jg-border-width) solid var(--jg-border);
+  border-inline-start-width: var(--jg-border-width-thick);
+  border-radius: var(--jg-radius-md);
+  box-shadow: var(--jg-elevation-2);
+  font-size: var(--jg-text-sm);
+}
+
+.jg-toast[data-jg-tone='success'] {
+  border-inline-start-color: var(--jg-success);
+}
+
+.jg-toast[data-jg-tone='danger'] {
+  border-inline-start-color: var(--jg-danger);
+}
+
+.jg-toast[data-jg-tone='warning'] {
+  border-inline-start-color: var(--jg-warning);
+}
+
+.jg-toast[data-jg-tone='info'] {
+  border-inline-start-color: var(--jg-info);
+}
+
+.jg-toast__body {
+  flex: 1;
+}
+
+.jg-toast__title {
+  margin: 0;
+  font-weight: var(--jg-weight-semibold);
+}
+
+.jg-toast__detail {
+  margin: var(--jg-space-1) 0 0;
+  color: var(--jg-text-muted);
+}
+
+/* --------------------------------------------------------------------------
+ * Tabs
+ * ----------------------------------------------------------------------- */
+
+.jg-tabs__list {
+  display: flex;
+  gap: var(--jg-space-1);
+  border-bottom: var(--jg-border-width) solid var(--jg-border);
+}
+
+.jg-tabs__tab {
+  padding: var(--jg-space-2) var(--jg-space-4);
+  font-family: inherit;
+  font-size: var(--jg-text-md);
+  font-weight: var(--jg-weight-medium);
+  color: var(--jg-text-muted);
+  background: none;
+  border: none;
+  border-bottom: var(--jg-border-width-thick) solid transparent;
+  cursor: pointer;
+}
+
+.jg-tabs__tab[aria-selected='true'] {
+  color: var(--jg-accent);
+  border-bottom-color: var(--jg-accent);
+}
+
+.jg-tabs__tab:disabled {
+  color: var(--jg-text-subtle);
+  cursor: not-allowed;
+}
+
+.jg-tabs__panel {
+  padding: var(--jg-space-4) var(--jg-space-1);
+}
+
+/* --------------------------------------------------------------------------
+ * Breadcrumb
+ * ----------------------------------------------------------------------- */
+
+.jg-breadcrumb__list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jg-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--jg-text-sm);
+}
+
+.jg-breadcrumb__separator {
+  color: var(--jg-text-subtle);
+}
+
+.jg-breadcrumb a {
+  color: var(--jg-accent);
+}
+
+.jg-breadcrumb__current {
+  color: var(--jg-text);
+  font-weight: var(--jg-weight-medium);
+}
+
+/* --------------------------------------------------------------------------
+ * Pagination. Cursor based, so previous/next rather than page numbers
+ * (SAD 11E.2: offset pagination over a growing ledger silently skips rows,
+ * and a numbered pager is an offset pager wearing a hat).
+ * ----------------------------------------------------------------------- */
+
+.jg-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--jg-space-3);
+  padding: var(--jg-space-2) 0;
+  font-size: var(--jg-text-sm);
+  color: var(--jg-text-muted);
+}
+
+.jg-pagination__controls {
+  display: flex;
+  gap: var(--jg-space-2);
+}

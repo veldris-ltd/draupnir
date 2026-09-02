@@ -84,10 +84,37 @@ def test_a_plan_carrying_a_timestamp_is_caught(tmp_path: Path) -> None:
     findings = check_render_is_deterministic(Timestamped(), SPEC, tmp_path)
     assert [finding.check for finding in findings] == ["render.deterministic"]
     assert "cannot be reproduced" in findings[0].message
-    # Caught by the third render rather than the second: this machine's clock
-    # returns the same value to two consecutive calls, which is exactly the
-    # case a two-call check misses.
+    # Deliberately not asserting which pair of renders caught it. Whether two
+    # back-to-back calls to the wall clock return the same value depends on the
+    # clock's resolution and on what else the machine is doing, so an assertion
+    # about that is an assertion about the machine. The branch it was meant to
+    # cover is exercised deterministically by the test below instead.
+
+
+def test_a_plan_that_only_changes_after_a_pause_is_caught(tmp_path: Path) -> None:
+    """The third render is what catches a coarse clock.
+
+    A driver reading a low resolution clock returns the same plan to two
+    back-to-back calls and a different one a tick later, so a two call check
+    passes it. Modelled with a counter rather than a real clock: the point is
+    the shape of the failure, and using the clock to test the clock check is
+    how the assertion becomes machine dependent.
+    """
+
+    class Coarse(Conforming):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def render(self, spec: RunSpec, workdir: Path) -> JobPlan:
+            del spec, workdir
+            self.calls += 1
+            tick = 0 if self.calls <= 2 else 1
+            return JobPlan(command=("train", f"--run-id={tick}"))
+
+    findings = check_render_is_deterministic(Coarse(), SPEC, tmp_path, settle=0.01)
+    assert [finding.check for finding in findings] == ["render.deterministic"]
     assert "apart" in findings[0].message
+    assert "reading the wall clock" in findings[0].message
 
 
 def test_a_plan_carrying_a_random_identifier_is_caught(tmp_path: Path) -> None:

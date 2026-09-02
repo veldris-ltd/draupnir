@@ -836,11 +836,39 @@ changes are additive only.
 | Integration | `make test-integration` | Ephemeral PostgreSQL and MinIO, real migrations |
 | Frontend | `make test-frontend` | Vitest and Testing Library |
 | End to end | `make test-e2e` | Playwright, the four journeys |
-| Accessibility | `make test-a11y` | axe on every route, zero serious or critical |
+| Accessibility | `make test-a11y` | axe on every route and every Storybook story, zero serious or critical |
 | Visual | `make test-visual` | Storybook snapshots, diff gate |
 
 Only the integration level needs Docker. Everything else runs on a machine with
 nothing but Python and Node.
+
+The accessibility level runs axe twice over: once on the console's routes, and
+once on every Storybook story. The second sweep is the one that matters for the
+design system, because a component that only ever appears on a route in its
+happy path is a component whose denied and partitioned states nothing has run
+axe over -- and those are the states most likely to be wrong, since they are the
+ones nobody looks at while building.
+
+### The design system's own gates
+
+JARNGREIPR carries three checks beyond the levels above. They live with the
+package and are documented in `web/packages/jarngreipr/README.md`.
+
+| Check | Where | What it refuses |
+|---|---|---|
+| Token linter | `web/scripts/token-lint.mjs`, run by `make lint-web` | A hard-coded colour, spacing or radius anywhere in `web/`, and a `--jg-*` token declared outside the ramp |
+| State coverage | `packages/jarngreipr/src/state/stories.test.ts` | A component without a story for each of the seven states, a story file that bypasses the shared factory, and a story file with no component |
+| Contrast | `packages/jarngreipr/src/tokens/tokens.test.ts` | A declared colour pairing below 4.5:1 for text or 3:1 for a control boundary, in either ramp, and the two copies of the dark ramp drifting apart |
+
+The token linter is itself tested. `web/tests/token-lint.test.ts` runs it
+against fixtures that state a hex colour, a pixel padding, a pixel radius, an
+`rgba()` background, a named colour in a border shorthand and a custom property
+minted outside the ramp, and requires it to report all six. The first version
+of the linter passed the whole workspace and also passed
+`.probe { color: #2d6cdf; }`, because its parser read one declaration per line
+and the fixture wrote the rule on one. The fixtures exist so that cannot happen
+again quietly -- the same reason the gitleaks allowlist is proved with a planted
+token rather than trusted.
 
 The unit gate measures `draupnir/core/domain`, which is what SAD 11E.3 scopes
 the unit level to ("pure domain logic") and what AC-N8 names ("the core state

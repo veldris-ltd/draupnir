@@ -6,22 +6,27 @@
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "types": "./dist-types/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./dist-types/index.d.ts",
+      "development": "./src/index.ts",
+      "default": "./dist/index.js"
     },
-    "./styles.css": "./dist/jarngreipr.css"
+    "./styles.css": {
+      "development": "./src/styles.css",
+      "default": "./dist/jarngreipr.css"
+    }
   },
   "files": [
-    "dist"
+    "dist",
+    "dist-types"
   ],
   "sideEffects": [
     "*.css"
   ],
   "scripts": {
-    "build": "vite build && tsc --build --emitDeclarationOnly --force",
+    "build": "vite build && tsc --build --force",
     "typecheck": "tsc --build --force"
   },
   "peerDependencies": {

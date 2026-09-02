@@ -1,0 +1,12 @@
+/* Every value a token. This file must pass. */
+.jg-fixture {
+  color: var(--jg-text);
+  background: var(--jg-surface-raised);
+  padding: var(--jg-space-3) var(--jg-space-4);
+  margin: 0;
+  gap: var(--jg-space-2);
+  border: var(--jg-border-width) solid transparent;
+  border-radius: var(--jg-radius-md);
+  height: 1.25rem;
+  max-width: 46ch;
+}

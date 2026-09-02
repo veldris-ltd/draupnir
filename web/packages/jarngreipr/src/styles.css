@@ -1,0 +1,12 @@
+/*
+ * The whole design system as one stylesheet.
+ *
+ * The library build concatenates the component stylesheets into
+ * `dist/jarngreipr.css`; this is the same set for a consumer resolving the
+ * package from source, so `@draupnir/jarngreipr/styles.css` means the same
+ * thing in the dev server as it does in a build.
+ */
+@import './tokens/tokens.css';
+@import './state/states.css';
+@import './primitives/primitives.css';
+@import './composites/composites.css';

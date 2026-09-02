@@ -1,10 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "./dist",
+    "outDir": "./dist-types",
     "rootDir": "./src",
-    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+    "tsBuildInfoFile": "./dist-types/.tsbuildinfo"
   },
   "include": ["src/**/*"],
-  "exclude": ["src/**/*.stories.tsx", "src/**/*.test.tsx"]
+  "exclude": ["src/**/*.stories.tsx", "src/**/*.test.ts", "src/**/*.test.tsx"]
 }

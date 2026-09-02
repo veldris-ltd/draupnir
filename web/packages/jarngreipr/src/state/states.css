@@ -1,0 +1,147 @@
+/*
+ * The six states, styled once.
+ *
+ * Every value here is a token (AC-U3). The state colours are deliberately
+ * subtle rather than alarming: a partitioned site is a normal operating
+ * condition, and a red panel would make an operator investigate a network
+ * fault they already know about and cannot fix.
+ */
+
+.jg-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--jg-space-2);
+  padding: var(--jg-space-8) var(--jg-space-6);
+  text-align: center;
+  background: var(--jg-surface-raised);
+  border: var(--jg-border-width) dashed var(--jg-border);
+  border-radius: var(--jg-radius-lg);
+  color: var(--jg-text-muted);
+}
+
+.jg-state__title {
+  margin: 0;
+  font-size: var(--jg-text-md);
+  font-weight: var(--jg-weight-semibold);
+  color: var(--jg-text);
+}
+
+.jg-state__detail {
+  margin: 0;
+  max-width: 46ch;
+  font-size: var(--jg-text-sm);
+  color: var(--jg-text-muted);
+}
+
+.jg-state__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--jg-space-8);
+  height: var(--jg-space-8);
+  font-size: var(--jg-text-lg);
+  border-radius: var(--jg-radius-full);
+  background: var(--jg-surface-sunken);
+  color: var(--jg-text-subtle);
+}
+
+.jg-state__correlation {
+  margin: 0;
+  font-family: var(--jg-font-mono);
+  font-size: var(--jg-text-xs);
+  color: var(--jg-text-subtle);
+}
+
+.jg-state__correlation code {
+  padding: var(--jg-space-1) var(--jg-space-2);
+  background: var(--jg-surface-sunken);
+  border-radius: var(--jg-radius-sm);
+  user-select: all;
+}
+
+/* Per-state accents. */
+.jg-state[data-jg-state='error'] {
+  background: var(--jg-danger-subtle);
+  border-color: var(--jg-danger-border);
+  border-style: solid;
+}
+
+.jg-state[data-jg-state='error'] .jg-state__glyph {
+  background: var(--jg-danger);
+  color: var(--jg-text-on-accent);
+}
+
+.jg-state[data-jg-state='denied'] {
+  background: var(--jg-warning-subtle);
+  border-color: var(--jg-warning-border);
+  border-style: solid;
+}
+
+.jg-state[data-jg-state='denied'] .jg-state__glyph {
+  color: var(--jg-warning);
+}
+
+.jg-state[data-jg-state='partitioned'] {
+  background: var(--jg-info-subtle);
+  border-color: var(--jg-info-border);
+  border-style: solid;
+}
+
+.jg-state[data-jg-state='partitioned'] .jg-state__glyph {
+  color: var(--jg-info);
+}
+
+/*
+ * The loading spinner.
+ *
+ * The rotation is a keyframe animation with its own duration rather than a
+ * transition, so the token layer cannot reach it: the global
+ * `animation-duration: 0.01ms !important` would freeze it mid-rotation rather
+ * than stop it. It carries its own `prefers-reduced-motion` rule instead, and
+ * `motion.test.ts` is what makes that obligatory rather than remembered.
+ *
+ * Under the preference the ring stops rotating and remains visible rather than
+ * disappearing -- the affordance is the ring, not the spin, and a user who
+ * prefers no motion still needs to know something is happening.
+ */
+.jg-state__spinner {
+  width: var(--jg-space-6);
+  height: var(--jg-space-6);
+  border: var(--jg-border-width-thick) solid var(--jg-border);
+  border-top-color: var(--jg-accent);
+  border-radius: var(--jg-radius-full);
+  animation: jg-spin 900ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jg-state__spinner {
+    animation: none;
+    border-top-color: var(--jg-accent);
+  }
+}
+
+@keyframes jg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/*
+ * The read-only banner. Sits above the component's own content rather than
+ * replacing it, because "you may look and not touch" needs the thing you are
+ * looking at to still be there.
+ */
+.jg-state__banner {
+  display: flex;
+  align-items: center;
+  gap: var(--jg-space-2);
+  margin: 0 0 var(--jg-space-3);
+  padding: var(--jg-space-2) var(--jg-space-3);
+  font-size: var(--jg-text-sm);
+  color: var(--jg-text-muted);
+  background: var(--jg-surface-sunken);
+  border: var(--jg-border-width) solid var(--jg-border-subtle);
+  border-radius: var(--jg-radius-md);
+}

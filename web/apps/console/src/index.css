@@ -1,25 +1,26 @@
 /*
- * The console's only stylesheet until JARNGREIPR ships its tokens in Prompt
- * UX-1. Deliberately minimal: anything written here would have to be unwritten
- * once the token layer exists.
+ * The console's page-level stylesheet.
+ *
+ * JARNGREIPR now owns every visual value (AC-U3), so this file states none:
+ * it imports the ramp and spends it. The token linter checks that, here as
+ * much as inside the design system -- the rule that matters is the one that
+ * holds in the application, since that is where the temptation to reach for
+ * a quick #2d6cdf actually arises.
  */
-:root {
-  color-scheme: light dark;
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    sans-serif;
-  line-height: 1.5;
-}
+@import '@draupnir/jarngreipr/styles.css';
 
 body {
   margin: 0;
   min-height: 100vh;
+  font-family: var(--jg-font-sans);
+  font-size: var(--jg-text-sm);
+  line-height: var(--jg-leading-normal);
+  color: var(--jg-text);
+  background: var(--jg-surface);
 }
 
 main {
-  padding: 2rem;
+  padding: var(--jg-space-8);
   max-width: 60rem;
   margin: 0 auto;
 }

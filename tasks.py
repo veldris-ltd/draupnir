@@ -286,10 +286,14 @@ def typecheck() -> int:
     return 0
 
 
-@task("lint-web", "eslint and tsc --noEmit")
+@task("lint-web", "eslint, the token linter and tsc --noEmit")
 def lint_web() -> int:
     say("eslint")
     pnpm("run", "lint")
+    # AC-U3. Tokens are the only source of visual values, and a design system
+    # whose only defence is a contribution guideline drifts within a release.
+    say("token-lint")
+    pnpm("run", "lint:tokens")
     say("tsc --noEmit")
     pnpm("run", "typecheck")
     return 0
@@ -623,7 +627,7 @@ def test_e2e() -> int:
     return 0
 
 
-@task("test-a11y", "axe scan over every route")
+@task("test-a11y", "axe over every route and every Storybook story")
 def test_a11y() -> int:
     pnpm("run", "test:a11y")
     return 0
