@@ -19,6 +19,8 @@ make test-contract
 - `draupnir/api/routers/approvals.py`
 - `draupnir/gleipnir/approvals.py`
 - `draupnir/skidbladnir/publish.py`
+- `tests/contract/test_api_write_path.py`
+- `tests/integration/test_api_transitions.py`
 - `tests/unit/test_gleipnir_approvals.py`
 
 ---

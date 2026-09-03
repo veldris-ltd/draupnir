@@ -20,6 +20,8 @@ make test-contract
 - `draupnir/api/deps.py`
 - `draupnir/api/routers/runs.py`
 - `tests/contract/test_api_surface.py`
+- `tests/contract/test_api_write_path.py`
+- `tests/integration/test_api_transitions.py`
 - `tests/unit/test_api_conventions.py`
 
 ---

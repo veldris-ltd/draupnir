@@ -107,9 +107,27 @@ def test_the_reconciliation_marks_every_item_in_the_vocabulary_ac_d4_asks_for() 
     for section in ("5.1", "5.2", "6.1", "6.2", "8.1", "8.2", "9A", "11A", "11G", "11H"):
         assert re.search(rf"\b{re.escape(section)}\b", text), f"section {section} is unreconciled"
 
-    # Every NOT BUILT says what is missing rather than only that something is.
-    assert "NOT BUILT 1" in text
-    assert "NOT BUILT 4" in text
+    # Every NOT BUILT says what is missing rather than only that something is,
+    # and the summary agrees with how many there are. The count is read from the
+    # document rather than pinned here: pinning it makes closing one of them a
+    # test failure, which is the wrong incentive.
+    headings = re.findall(r"^### NOT BUILT (\d+) — (.+)$", text, re.MULTILINE)
+    assert headings, "the reconciliation names nothing as NOT BUILT and nothing as complete"
+    assert [number for number, _ in headings] == [
+        str(index) for index in range(1, len(headings) + 1)
+    ], "the NOT BUILT items are misnumbered"
+    # Each has a body. A heading alone names something and explains nothing,
+    # and "what is missing is stated" is what the vocabulary promises.
+    sections = re.split(r"^### NOT BUILT \d+ — .+$", text, flags=re.MULTILINE)[1:]
+    for (number, title), body in zip(headings, sections, strict=True):
+        assert len(body.split()) > 30, f"NOT BUILT {number} ({title}) says too little"
+
+    stated = re.search(r"(\w+) items are \*\*NOT BUILT\*\*", text)
+    assert stated is not None, "the summary does not say how many items are not built"
+    words = {"One": 1, "Two": 2, "Three": 3, "Four": 4, "Five": 5, "Six": 6}
+    assert words[stated.group(1)] == len(headings), (
+        f"the summary says {stated.group(1)} and there are {len(headings)}"
+    )
 
 
 def test_the_keyboard_pass_records_its_method_and_its_limits() -> None:

@@ -62,8 +62,12 @@ class LedgerPort(Protocol):
         """Insert one entry. Raises on a sequence number already taken."""
         ...
 
-    def entries_with_identity(self, identity: str) -> tuple[LedgerEntry, ...]:
-        """Every registration entry recording this run identity, oldest first."""
+    def entries_matching(self, probe: Mapping[str, Any]) -> tuple[LedgerEntry, ...]:
+        """Every entry whose payload contains `probe`, oldest first."""
+        ...
+
+    def entries_for_subject(self, subject_id: str) -> tuple[LedgerEntry, ...]:
+        """Every entry about one subject, oldest first."""
         ...
 
     def serialise(self) -> None:
@@ -118,13 +122,13 @@ class ConcurrentTransitionError(OrchestrationError):
     re-reads and decides again.
     """
 
-    def __init__(self, run_id: UUID, seq: int) -> None:
-        """Name the run and the contested sequence number."""
-        self.run_id = run_id
+    def __init__(self, subject_id: str, seq: int) -> None:
+        """Name the subject and the contested sequence number."""
+        self.subject_id = subject_id
         self.seq = seq
         super().__init__(
-            f"another writer appended seq {seq} while this transition of run {run_id} "
-            "was being prepared. Re-read the run and decide again."
+            f"another writer appended seq {seq} while this entry about {subject_id} "
+            "was being prepared. Re-read the subject and decide again."
         )
 
 
@@ -154,6 +158,32 @@ class DuplicateRunError(OrchestrationError):
             "re-run work that has already been done. Read the existing run, or change "
             "the specification -- a different result needs a different input."
         )
+
+
+@dataclass(frozen=True, slots=True)
+class RunFacts:
+    """What the chain knows about a run, for a caller about to act on it."""
+
+    run_id: UUID
+    name: str
+    state: RunState
+    #: Who registered it. Read from the registration entry, never supplied.
+    submitter: str
+    spec_hash: str
+    #: How many times it has been requeued. From the projection, which counts
+    #: the one transition that spends budget.
+    retry_count: int = 0
+    #: What the specification allowed, recorded at registration. A budget the
+    #: caller supplied would be a budget the caller could raise.
+    retry_budget: int = 0
+    #: The gates the last evaluation recorded as failing, if any. A requeue is
+    #: for a run that failed one; a run that failed none has nothing to retry.
+    failing_gates: tuple[str, ...] = ()
+
+    @property
+    def budget_remaining(self) -> int:
+        """How many requeues are left. Never negative."""
+        return max(0, self.retry_budget - self.retry_count)
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,8 +278,77 @@ class Orchestrator:
         """
         if not identity:
             return None
-        for entry in self._ledger.entries_with_identity(identity):
+        for entry in self._ledger.entries_matching({"run_identity": identity}):
             return UUID(entry.subject_id)
+        return None
+
+    def facts_of(self, run_id: UUID) -> RunFacts:
+        """What a decision needs to know about a run before it decides.
+
+        One read rather than three, because each would be its own transaction
+        and the three answers have to describe the same moment.
+        """
+        run = self.run(run_id)
+        history = self._ledger.entries_for_subject(str(run_id))
+        submitter = ""
+        budget = 0
+        failing: tuple[str, ...] = ()
+
+        for entry in history:
+            payload = entry.payload if isinstance(entry.payload, dict) else {}
+            if entry.transition == REGISTRATION:
+                submitter = entry.actor
+                budget = int(payload.get("retry_budget", 0) or 0)
+            # The most recent evaluation wins: a run requeued twice has two
+            # entries, and what matters is what the last one found.
+            recorded = payload.get("failing_gates") or payload.get("failing_gate")
+            if recorded:
+                failing = (
+                    tuple(str(item) for item in recorded)
+                    if isinstance(recorded, list)
+                    else (str(recorded),)
+                )
+
+        if not submitter:
+            raise UnknownRunError(run_id, self.site_id)
+
+        return RunFacts(
+            run_id=run_id,
+            name=run.name,
+            state=run.state,
+            submitter=submitter,
+            spec_hash=run.spec_hash,
+            retry_count=run.retry_count,
+            retry_budget=budget,
+            failing_gates=failing,
+        )
+
+    def submitter_of(self, run_id: UUID) -> str:
+        """Who registered this run.
+
+        Read from the registration entry rather than taken from a request. The
+        sole approver exception of Decision S6 is `approver == submitter`, and
+        a submitter the approver could supply is an exception the approver could
+        suppress -- which is exactly what constraint C-11 forbids.
+        """
+        for entry in self._ledger.entries_for_subject(str(run_id)):
+            if entry.transition == REGISTRATION:
+                return entry.actor
+        raise UnknownRunError(run_id, self.site_id)
+
+    def released_entry_for(self, artefact_sha256: str) -> LedgerEntry | None:
+        """The approval that released these bytes, if one exists.
+
+        Publication names an artefact and the chain records runs, so this is
+        the join between them. Matched on the payload rather than on a table,
+        because the approval that permits a publication *is* a ledger entry and
+        the question is whether one exists -- which is also why the entry comes
+        back rather than the run identifier: what it recorded is what the
+        publication is permitted to say.
+        """
+        for entry in self._ledger.entries_matching({"artefact_sha256": artefact_sha256}):
+            if entry.transition == f"{RunState.AWAITING_APPROVAL}->{RunState.RELEASED}":
+                return entry
         return None
 
     def register(
@@ -335,6 +434,45 @@ class Orchestrator:
             transition=transition,
         )
 
+    def record(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+        transition: str,
+        payload: Mapping[str, Any],
+    ) -> LedgerEntry:
+        """Append an entry about something that is not a run.
+
+        SAD 7.1 has entities other than `run` -- a source, a corpus, a release,
+        an artefact -- and things happen to them that belong in the audit record
+        even though they are not lifecycle transitions. The projector skips
+        them; the chain keeps them.
+
+        A run subject is refused. The projector reads every `run` entry and
+        raises on a transition string it does not recognise, so one free-form
+        entry about a run would stop the registry rebuilding -- and it would
+        stop it for everyone, because the fold is over the whole chain.
+        """
+        if subject_type == RUN_SUBJECT:
+            msg = (
+                "a run's entries are written by `register` and `transition`, which check "
+                "the transition against SAD 6.1. A free-form entry about a run is one the "
+                "projector cannot fold, and it would stop the registry rebuilding for "
+                "every run at this site, not only this one."
+            )
+            raise OrchestrationError(msg)
+        if not subject_id or not transition:
+            msg = "an entry records what it is about and what happened; neither can be empty"
+            raise OrchestrationError(msg)
+
+        return self._append(
+            subject_type=subject_type,
+            subject_id=subject_id,
+            transition=transition,
+            payload=dict(payload),
+        )
+
     # -- the one write path -------------------------------------------------
 
     def _write(
@@ -345,7 +483,24 @@ class Orchestrator:
         payload: Mapping[str, Any],
         transition: Transition | None,
     ) -> Applied:
-        """Append the entry and advance the projection, together."""
+        """Append a run's entry and advance the projection, together."""
+        entry = self._append(
+            subject_type=RUN_SUBJECT,
+            subject_id=str(run_id),
+            transition=transition_name,
+            payload=payload,
+        )
+        return Applied(entry=entry, run=self.run(run_id), transition=transition)
+
+    def _append(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+        transition: str,
+        payload: Mapping[str, Any],
+    ) -> LedgerEntry:
+        """The one place anything is appended. Serialised, then projected."""
         # Queue behind any other writer to this site, for the rest of this
         # transaction. The head is read *after* the lock is granted: one read
         # before it is a head that may have moved by the time it is.
@@ -356,9 +511,9 @@ class Orchestrator:
             site_id=self.site_id,
             ts=self._clock(),
             actor=self._actor,
-            subject_type=RUN_SUBJECT,
-            subject_id=str(run_id),
-            transition=transition_name,
+            subject_type=subject_type,
+            subject_id=subject_id,
+            transition=transition,
             payload=dict(payload),
         )
 
@@ -370,12 +525,15 @@ class Orchestrator:
             # that library in the application layer, which is the thing the
             # ports exist to prevent.
             if _is_conflict(error):
-                raise ConcurrentTransitionError(run_id, entry.seq) from error
+                raise ConcurrentTransitionError(subject_id, entry.seq) from error
             raise
 
+        # Every append advances the projection, including one about a corpus.
+        # The fold skips non-run subjects, so this costs a checkpoint write and
+        # buys one rule instead of two: an entry is appended and projected, or
+        # neither happened.
         self._projection.catch_up()
-
-        return Applied(entry=entry, run=self.run(run_id), transition=transition)
+        return entry
 
 
 def _is_conflict(error: Exception) -> bool:
@@ -396,5 +554,6 @@ __all__ = [
     "DuplicateRunError",
     "OrchestrationError",
     "Orchestrator",
+    "RunFacts",
     "UnknownRunError",
 ]

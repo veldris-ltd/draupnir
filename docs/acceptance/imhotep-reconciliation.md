@@ -62,8 +62,8 @@ ought to work.
 | 15 Decisions | 14 | 13 | 1 | 0 |
 | 16A Custody | 1 | 1 | 0 | 0 |
 
-Three items are **NOT BUILT** and one **DEVIATED** in a way that limits use;
-all four are named in the sections below and repeated at the end.
+Three items are **NOT BUILT**; all three are named in the sections below and
+repeated at the end.
 
 ---
 
@@ -72,7 +72,7 @@ all four are named in the sections below and repeated at the end.
 | Unit | Mark | Where |
 |---|---|---|
 | Control plane API | IMPLEMENTED | `draupnir/api/`, `make api` |
-| Worker / orchestrator | DEVIATED | `draupnir/core/application/orchestrator.py` and `draupnir/procedures/`. The state machine, the ledger write and the projection are one transaction, and the M1–M10 procedure drives them. There is **no long-running worker process** polling the scheduler and advancing runs on its own: dispatch and collection are driven by the procedure runner, not by a daemon. See NOT BUILT 2 below. |
+| Worker / orchestrator | DEVIATED | `draupnir/core/application/orchestrator.py` and `draupnir/procedures/`. The state machine, the ledger write and the projection are one transaction; the API and the M1–M10 procedure both drive them. There is **no long-running worker process** polling the scheduler and advancing runs on its own: dispatch and collection are driven by the procedure runner, not by a daemon. See NOT BUILT 1 below. |
 | Web console | IMPLEMENTED | `web/apps/console/`, 31 screens |
 | CLI | IMPLEMENTED | `draupnirctl/`, generated from the OpenAPI document |
 | Executor shims on the appliances | IMPLEMENTED | `plugins/hamarr_llamafactory/`, `plugins/motsognir_slurm/` — the drivers that render and submit. They run where the tools are. |
@@ -134,7 +134,7 @@ Two things are stronger than the specification asked for, and one weaker:
   append-only trigger, a foreign key and NOT NULL on `release.approval_id`, and
   row level security with `FORCE` on every scoped table.
 - Retention runs when it is asked to. There is no scheduler firing it at
-  24 months; see NOT BUILT 3.
+  24 months; see NOT BUILT 1.
 
 ## 8.1 API surface
 
@@ -144,18 +144,49 @@ from the exported document. The nine conventions of SAD 11E.2 are attached to
 routes rather than described, and `tests/contract/test_api_surface.py` checks
 each against a real request.
 
-**One change in this prompt.** `POST /v1/runs` now writes: it registers the run
-in the ledger through the orchestrator, in one transaction, and refuses a
-duplicate identity with 409. Before, it computed the identity, published an
-event and recorded nothing, so the console showed runs the ledger had never
-heard of.
+**Every mutating endpoint writes.** Each records through the orchestrator, in
+one transaction, or refuses and says why. The two shapes differ, and the
+difference is the design rather than an implementation detail:
 
-**The remaining mutating endpoints still record only their idempotency entry
-and their event.** `POST /v1/corpora/{iso3}/ingest`, `/curate`,
-`/gates/{id}/decide`, `/releases/{artefact}/publish`, `/runs/{id}/cancel` and
-`/retry` do not append to the chain. That is DEVIATED, and it is named as
-NOT BUILT 1 because it is the same gap: the write path exists and one endpoint
-uses it.
+| Endpoint | Records | Shape |
+|---|---|---|
+| `POST /v1/runs` | a run at DRAFT, with its identity | transition (registration) |
+| `POST /v1/sources` | the facts HODD holds, with the DPIA determination | `source` entry |
+| `POST /v1/corpora/{iso3}/ingest` | the ingest | `corpus` entry |
+| `POST /v1/corpora/{iso3}/curate` | the curation | `corpus` entry |
+| `POST /v1/gates/{id}/decide` | AWAITING_APPROVAL → RELEASED or QUARANTINED | transition |
+| `POST /v1/runs/{id}/cancel` | TRAINING → FAILED | transition |
+| `POST /v1/runs/{id}/retry` | EVALUATING → QUEUED | transition |
+| `POST /v1/releases/{artefact}/publish` | the publication, under its approval | `release` entry |
+
+A source, a corpus and a release are not runs — SAD 7.1 gives each its own
+entity — so those entries are folded by nothing and passed through by the
+projector. A decision, a cancellation and a requeue are lifecycle transitions,
+so they go through the state machine, which checks them against SAD 6.1.
+
+`Orchestrator.record` refuses a `run` subject outright. The projector folds
+every run entry and raises on a transition string it cannot parse, so one
+free-form entry about a run would stop the registry rebuilding — and stop it
+for every run at the site, not only that one.
+
+**Three refusals came out of this rather than three features.** Cancelling a
+run that is not `TRAINING` is refused 409, because cancelling stops a scheduler
+job and a queued run holds no allocation — and SAD 6.1 has no transition out of
+`QUEUED` except to `TRAINING`, so there is nowhere to put a withdrawn one.
+Requeueing a run with no recorded gate failure is refused, because the requeue
+of SAD 6.1 is for a run that failed one within its budget. Deciding a run that
+is not `AWAITING_APPROVAL` is refused, naming the state it is in. Each refusal
+names the row of the table it could not find, so an operator is not left
+guessing whether the handler or the lifecycle said no.
+
+**One defect fixed on the way.** `decideGate` hard-coded
+`sole_approver_exception=False`. AC-S15 requires every release where the
+approver also submitted to carry the exception, and constraint C-11 requires it
+to be computed rather than supplied. It is now read from the run's registration
+entry — the submitter is whoever appended it — so an approver cannot suppress
+it by describing themselves differently. `publishRelease` was likewise
+unconditional: it refused every publication with "no signed approval". It now
+looks for the approval in the chain and refuses only when there is none.
 
 ## 8.2 Plug-in interfaces
 
@@ -225,7 +256,7 @@ parsed by one module the loader, the drivers and the harness all share.
 |---|---|---|
 | 11.1 Deployment | IMPLEMENTED | Compose for development, distroless aarch64 images, migrate-dry then migrate, smoke test, rollback |
 | 11.2 Degraded modes | IMPLEMENTED | All nine rows, each with the fault injected for real. `docs/runbook.md` and `tests/integration/test_degraded_modes.py` |
-| 11.3 Observability | DEVIATED | Every signal has a source and a surface. The **fabric bandwidth probe** — an hourly `nccl-tests` job dispatched by MOTSOGNIR — is not dispatched by anything: there is no scheduler loop and no fabric. See NOT BUILT 2. |
+| 11.3 Observability | DEVIATED | Every signal has a source and a surface. The **fabric bandwidth probe** — an hourly `nccl-tests` job dispatched by MOTSOGNIR — is not dispatched by anything: there is no scheduler loop and no fabric. See NOT BUILT 1. |
 | 11.4 Technology selection | IMPLEMENTED | Every selected technology is the one in use |
 
 The uninterruptible supply is worth its own line. SAD 11.3 lists the mains and
@@ -305,20 +336,7 @@ concentration is auditable even though it is not reduced.
 
 ## The four that are not built
 
-### NOT BUILT 1 — Most mutating endpoints do not write to the ledger
-
-`POST /v1/runs` does, as of this prompt. Ingest, curate, decide, publish, cancel
-and retry record their idempotency entry and publish their event, and append
-nothing. The write path exists (`draupnir/api/writing.py`), one endpoint uses
-it, and wiring the rest is mechanical.
-
-**Consequence.** A corpus ingested through the console is not in the chain, and
-a gate decided through the console is recorded by GLEIPNIR's signed approval but
-not by a `AWAITING_APPROVAL->RELEASED` entry. The M1–M10 procedure writes all
-of them, so the chain is complete for a run driven that way and incomplete for
-one driven by hand through the console.
-
-### NOT BUILT 2 — There is no worker process
+### NOT BUILT 1 — There is no worker process
 
 SAD 5.1 lists a worker as a deployable unit. Nothing polls the scheduler,
 advances a run from `TRAINING` to `TRAINED`, dispatches the hourly fabric probe
@@ -327,16 +345,19 @@ all of that inline, in one call, which is what makes it a demonstration rather
 than an operating system.
 
 **Consequence.** A run submitted through the console reaches `DRAFT` and stays
-there. Everything downstream of submission is driven by `make procedure`.
+there: the endpoints that would move it exist and are wired, but nothing calls
+them on the run's behalf. An operator can drive every transition by hand
+through the API, and `make procedure` drives them all in one call. What is
+missing is the thing that does it without being asked.
 
-### NOT BUILT 3 — Vault reconciliation
+### NOT BUILT 2 — Vault reconciliation
 
 SAD 11.2 row 4's recovery is "restore NFS, run reconciliation". There is no
 reconciliation command: after a vault outage, staging what running jobs wrote
 to local scratch is manual. The runbook says so where an operator will read it
 rather than leaving them to discover it.
 
-### NOT BUILT 4 — Three non-functional targets are unmeasured
+### NOT BUILT 3 — Three non-functional targets are unmeasured
 
 AC-N1 (control plane overhead on ALVISS), AC-N2 (step time within one per cent)
 and AC-N11 (anchor round trip over WireGuard) are measurements on hardware that
@@ -348,17 +369,22 @@ measurement.
 
 ## What this reconciliation changed
 
-Four items moved from NOT BUILT to IMPLEMENTED while it was being written,
+Five items moved from NOT BUILT to IMPLEMENTED while it was being written,
 because reading the specification against the code is what found them:
 
-1. **AC-F2, duplicate detection.** Nothing detected a resubmitted
+1. **The mutating endpoints did not write.** Recorded here as a NOT BUILT and
+   then built: every one now records through the orchestrator or refuses and
+   names the row of SAD 6.1 it could not find. Two defects came with it — the
+   sole approver exception was hard-coded to false, and publication refused
+   every artefact unconditionally.
+2. **AC-F2, duplicate detection.** Nothing detected a resubmitted
    specification. `Orchestrator.register` now looks the identity up in the
    chain, and the API returns 409 naming the run that already carries it.
-2. **AC-D2, the last two extension points.** `draupnir.store` and
+3. **AC-D2, the last two extension points.** `draupnir.store` and
    `draupnir.policy` had no reference implementation.
-3. **AC-B7, the import contract.** The contract existed and nothing had ever
+4. **AC-B7, the import contract.** The contract existed and nothing had ever
    watched it fail. A test now plants a violation.
-4. **AC-D1, module READMEs.** None existed. They are generated from the package
+5. **AC-D1, module READMEs.** None existed. They are generated from the package
    docstrings, so they cannot drift from the responsibilities they state.
 
 And one defect was found by injecting a failure rather than by reading:

@@ -1,19 +1,19 @@
 {
   "artefacts": {
-    "adapter": "507bdc3c3f7f2b5485d76dad8be94ba854ba9b3f3b56e21c47c01ac3002215d8",
-    "approval": "RQUjNZEb2uhH2+ZWuhdK1kO4ZgQLQziCxWbcVxfhe6E=",
+    "adapter": "c6e57f0e9da03527d87a7b1e01e2f67a21e147d408262aa664529249c024e2d1",
+    "approval": "F/mQI6lIgrqk58QqlW9X4Vx0BddV/QOXfQrPO+oVLRA=",
     "base_model": "6b2c31cfaa84bdf4a99e3a80206aca618ac7d4ed0f1bfaf0bbeeb0a27d2dfd00",
-    "baseline": "507bdc3c3f7f2b5485d76dad8be94ba854ba9b3f3b56e21c47c01ac3002215d8",
+    "baseline": "c6e57f0e9da03527d87a7b1e01e2f67a21e147d408262aa664529249c024e2d1",
     "baseline_suite": "general-core",
-    "corpus_curated": "eddb09751b7712c48e50ebf1ad75c8eae1e8432cc14cfd2afc64c641a4acd6d6",
-    "corpus_raw": "b618a3627d25a30dbe368a32fd39e480780861f85ca2398cb5b09edd4b492071",
-    "gguf-q4km": "e960a3daefc2fdb775b82e109460196fe531d9fe1faa19d19cdd10d424a82bc0",
-    "merged": "9bb9ac54945e38cda6302915a2a43604b50cd1e46c7477b8ce9f3ec60ba9b476",
-    "mlx4": "e960a3daefc2fdb775b82e109460196fe531d9fe1faa19d19cdd10d424a82bc0",
-    "nvfp4": "e960a3daefc2fdb775b82e109460196fe531d9fe1faa19d19cdd10d424a82bc0"
+    "corpus_curated": "30f6aa370e9ca097abd01fbd1d919aa16b52d97bf0b6d6fa726754bf72ccd6a4",
+    "corpus_raw": "cbdad3513d887354b94ff792615ca6921570b33d7fcdc61dd518d805f2eab2fe",
+    "gguf-q4km": "e848e2515dcb15660cbdc05b8bf910f49dccb9dea61d898e693e1787d7a28824",
+    "merged": "6bb8e38b778fa38c4839763fedbcae644317d668cce27e2bbbad62e07d4f8174",
+    "mlx4": "e848e2515dcb15660cbdc05b8bf910f49dccb9dea61d898e693e1787d7a28824",
+    "nvfp4": "e848e2515dcb15660cbdc05b8bf910f49dccb9dea61d898e693e1787d7a28824"
   },
   "criterion": "AC-F12",
-  "endedAt": "2026-09-03T20:28:20.589020+00:00",
+  "endedAt": "2026-09-03T21:59:04.799878+00:00",
   "executor": "stand-in",
   "jurisdiction": "GBR",
   "model": "cim-gbr-v1.0",
@@ -44,33 +44,33 @@
       "workdir": "D:\\repos\\veldris\\draupnir\\build\\procedure\\GBR"
     }
   },
-  "runId": "01a068f5-4403-7417-bd95-c3e88f86918e",
+  "runId": "01a06948-560b-7ff4-99e2-27ba43cbfd70",
   "site": "sindri",
-  "startedAt": "2026-09-03T20:28:19.288283+00:00",
+  "startedAt": "2026-09-03T21:59:03.386858+00:00",
   "steps": [
     {
       "automates": "manual licence spreadsheet",
       "entries": [
-        254
+        292
       ],
       "evidence": {
-        "corpus_raw": "b618a3627d25a30dbe368a32fd39e480780861f85ca2398cb5b09edd4b492071",
-        "entry_hash": "6d379d09ffe308ebafec5469ebacedbd95947765c7a225c4218aec7fc48326a2",
+        "corpus_raw": "cbdad3513d887354b94ff792615ca6921570b33d7fcdc61dd518d805f2eab2fe",
+        "entry_hash": "5a66ea817ddea7cd65e2bd1e263d54dc5ea1182470158decc08418134814c747",
         "sources": 2
       },
       "id": "M1",
-      "seconds": 0.016,
+      "seconds": 0.047,
       "state": "CORPUS_REGISTERED",
       "title": "Register sources and licences"
     },
     {
       "automates": "manual legal sign-off email",
       "entries": [
-        255
+        293
       ],
       "evidence": {
         "assessed": 2,
-        "entry_hash": "982572a47cb16cc474ca6a83f244b46e245985e4f387be3107d11a6c5c8338e8",
+        "entry_hash": "4ce1f0a9228631c27e65a50132850eeb789cd28a4b844509cd075093e52993cd",
         "licences": [
           "CC-BY-4.0",
           "OGL-UK-3.0"
@@ -85,48 +85,48 @@
     {
       "automates": "hand-run dedupe and filter scripts",
       "entries": [
-        256
+        294
       ],
       "evidence": {
-        "curated_sha256": "eddb09751b7712c48e50ebf1ad75c8eae1e8432cc14cfd2afc64c641a4acd6d6",
-        "entry_hash": "0e813dd27458f38723dbd5e64762cd94c30b983b75a8da29fb41879ab386aaed",
+        "curated_sha256": "30f6aa370e9ca097abd01fbd1d919aa16b52d97bf0b6d6fa726754bf72ccd6a4",
+        "entry_hash": "dac7c4e223cf386597a4765412a82e063c90ae044cf2c36752b86defb214ec99",
         "exit_code": 0,
         "raw_read_only": true,
-        "scheduler_job_id": "86bea95a456a4e16"
+        "scheduler_job_id": "28c8c1b648bf47d0"
       },
       "id": "M3",
-      "seconds": 0.203,
+      "seconds": 0.141,
       "state": "CURATED",
       "title": "Curate the corpus"
     },
     {
       "automates": "hand-edited trainer config",
       "entries": [
-        257
+        295
       ],
       "evidence": {
-        "entry_hash": "db80b6660fc917a7501e8cc6dd36fa2efad0495c948c8785961cd0169eae103e",
+        "entry_hash": "89a108dcd5f118b1e559cf635c5afe113e237f1391e751b947b83a36208c6736",
         "inputs": [
-          "6b2c31cfaa84bdf4a99e3a80206aca618ac7d4ed0f1bfaf0bbeeb0a27d2dfd00",
-          "eddb09751b7712c48e50ebf1ad75c8eae1e8432cc14cfd2afc64c641a4acd6d6"
+          "30f6aa370e9ca097abd01fbd1d919aa16b52d97bf0b6d6fa726754bf72ccd6a4",
+          "6b2c31cfaa84bdf4a99e3a80206aca618ac7d4ed0f1bfaf0bbeeb0a27d2dfd00"
         ],
-        "run_identity": "ba6e57d15b01b5de23ffddb485fc65a1e8f5fa97687322fc8ad2417b9c888e21",
-        "spec_hash": "ee4ad57ac5f1b0cbf990390fbb820952b0491e24c47f5b4296b4ab13b13c70fe"
+        "run_identity": "07f58931bb5efaaa66b586971c06bb070e06fb4ddf6fbbc5d8ad43c5d8bee55a",
+        "spec_hash": "06b358994108551b2459c5671f15e389e07e57d6522bf8af2f05d583396fa647"
       },
       "id": "M4",
-      "seconds": 0.015,
+      "seconds": 0.031,
       "state": "QUEUED",
       "title": "Compile and submit the specification"
     },
     {
       "automates": "sbatch by hand, checkpoint copied by hand",
       "entries": [
-        258,
-        259
+        296,
+        297
       ],
       "evidence": {
-        "adapter_sha256": "507bdc3c3f7f2b5485d76dad8be94ba854ba9b3f3b56e21c47c01ac3002215d8",
-        "entry_hash": "99c3e331655bd5c6cfa76c1d4f1ca84cdf594c5f0d12e6eed9f819253413b5e2",
+        "adapter_sha256": "c6e57f0e9da03527d87a7b1e01e2f67a21e147d408262aa664529249c024e2d1",
+        "entry_hash": "101b8b292665a803fab25c8c6d24a4a2920833c41284b13699d2a144bf5b714a",
         "executor": "stand-in",
         "rendered_plan": {
           "command": [
@@ -153,7 +153,7 @@
           },
           "workdir": "D:\\repos\\veldris\\draupnir\\build\\procedure\\GBR"
         },
-        "scheduler_job_id": "510e36b38c184b0e"
+        "scheduler_job_id": "faffd7ea51e64a1e"
       },
       "id": "M5",
       "seconds": 0.297,
@@ -163,11 +163,11 @@
     {
       "automates": "eval run and a judgement call",
       "entries": [
-        260,
-        261
+        298,
+        299
       ],
       "evidence": {
-        "entry_hash": "cd7362a22963c2fd0ff38adf4180998a580dfe0e167518026dfb2d35a7d84c39",
+        "entry_hash": "d47af0a09eb82f8f0adcfb76fa5a1959e686e46c8204e825d70e9296af4c083c",
         "gates": [
           "E1",
           "E2",
@@ -177,96 +177,96 @@
           "E6"
         ],
         "margins": {
-          "E1": 0.035745,
-          "E2": 0.040238,
-          "E3": 0.043855,
-          "E4": 0.03509,
-          "E5": 0.040511
+          "E1": 0.04155,
+          "E2": 0.045085,
+          "E3": 0.044083,
+          "E4": 0.044445,
+          "E5": 0.038714
         },
         "measurements": {
-          "E1": 0.714909,
-          "E2": 0.804757,
-          "E3": 0.877095,
-          "E4": 0.701806,
-          "E5": 0.81022,
-          "E6": 2.6e-05
+          "E1": 0.831006,
+          "E2": 0.901698,
+          "E3": 0.881664,
+          "E4": 0.888891,
+          "E5": 0.774278,
+          "E6": 1e-06
         },
         "suite": "general-core/2026.01"
       },
       "id": "M6",
-      "seconds": 0.032,
+      "seconds": 0.047,
       "state": "MERGED",
       "title": "Evaluate against gates E1 to E6"
     },
     {
       "automates": "mergekit and quantise by hand",
       "entries": [
-        262
+        300
       ],
       "evidence": {
-        "entry_hash": "837504bf0900ee72c710652fc23966aade7be7eefbb2eba9be6aaacf4a7de306",
+        "entry_hash": "fe357eb87f331deb4197ae81460ec4c49da796b1f04f45a982e0e17c11cc5109",
         "formats": {
-          "gguf-q4km": "e960a3daefc2fdb775b82e109460196fe531d9fe1faa19d19cdd10d424a82bc0",
-          "mlx4": "e960a3daefc2fdb775b82e109460196fe531d9fe1faa19d19cdd10d424a82bc0",
-          "nvfp4": "e960a3daefc2fdb775b82e109460196fe531d9fe1faa19d19cdd10d424a82bc0"
+          "gguf-q4km": "e848e2515dcb15660cbdc05b8bf910f49dccb9dea61d898e693e1787d7a28824",
+          "mlx4": "e848e2515dcb15660cbdc05b8bf910f49dccb9dea61d898e693e1787d7a28824",
+          "nvfp4": "e848e2515dcb15660cbdc05b8bf910f49dccb9dea61d898e693e1787d7a28824"
         },
         "merge_gate_results": {
           "failing": [],
           "gates": {
             "E1": {
-              "baseline": 0.840389,
-              "margin": 0.044231,
+              "baseline": 0.704796,
+              "margin": 0.037095,
               "passed": true,
-              "value": 0.88462
+              "value": 0.741891
             },
             "E2": {
-              "baseline": 0.73176,
-              "margin": 0.038514,
+              "baseline": 0.669531,
+              "margin": 0.035238,
               "passed": true,
-              "value": 0.770274
+              "value": 0.704769
             },
             "E3": {
-              "baseline": 0.701649,
-              "margin": 0.036929,
+              "baseline": 0.854595,
+              "margin": 0.044979,
               "passed": true,
-              "value": 0.738578
+              "value": 0.899574
             },
             "E4": {
-              "baseline": 0.845285,
-              "margin": 0.044489,
+              "baseline": 0.722324,
+              "margin": 0.038017,
               "passed": true,
-              "value": 0.889774
+              "value": 0.760341
             },
             "E5": {
-              "baseline": 0.712091,
-              "margin": 0.037478,
+              "baseline": 0.888587,
+              "margin": 0.046768,
               "passed": true,
-              "value": 0.749569
+              "value": 0.935355
             },
             "E6": {
               "baseline": null,
               "margin": null,
               "passed": true,
-              "value": 9e-06
+              "value": 8.2e-05
             }
           },
           "suiteVersion": "2026.01"
         },
-        "merged_sha256": "9bb9ac54945e38cda6302915a2a43604b50cd1e46c7477b8ce9f3ec60ba9b476",
+        "merged_sha256": "6bb8e38b778fa38c4839763fedbcae644317d668cce27e2bbbad62e07d4f8174",
         "sweep_points": 5
       },
       "id": "M7",
-      "seconds": 0.625,
+      "seconds": 0.671,
       "state": "QUANTISED",
       "title": "Merge, sweep and quantise"
     },
     {
       "automates": "skipped, in practice",
       "entries": [
-        263
+        301
       ],
       "evidence": {
-        "entry_hash": "262a57ba19d5d731f0c65614edb2e73288efba3bca149b5b5e0d2581e817c56e",
+        "entry_hash": "f6d80197df3da7e87a7a2e22aa20a2581f7ee3c8571af0b11d9d94132091eef4",
         "failing": [],
         "formats_regated": [
           "nvfp4",
@@ -275,7 +275,7 @@
         ]
       },
       "id": "M8",
-      "seconds": 0.015,
+      "seconds": 0.032,
       "state": "AWAITING_APPROVAL",
       "title": "Re-gate every quantised build"
     },
@@ -283,7 +283,7 @@
       "automates": "an email saying yes",
       "entries": [],
       "evidence": {
-        "approval_id": "01a068f5-48d6-774b-a611-87c43f1953d7",
+        "approval_id": "01a06948-5b37-7f3b-99f9-07123f837541",
         "approver": "approver@veldris.internal",
         "signed": true,
         "sole_approver_exception": false,
@@ -297,20 +297,20 @@
     {
       "automates": "a manual copy into the release share",
       "entries": [
-        264
+        302
       ],
       "evidence": {
-        "entry_hash": "e65000f7d7bcf0d08f2ec19015eb29a2f20205e1d3d301e4f641fdf9a1c8776c",
+        "entry_hash": "b257498c05224eefe8e830402e088cc13cd5d772cb972bd27d099b2414e544cb",
         "formats": [
           "nvfp4",
           "gguf-q4km",
           "mlx4"
         ],
         "model": "cim-gbr-v1.0",
-        "released": "e960a3daefc2fdb775b82e109460196fe531d9fe1faa19d19cdd10d424a82bc0"
+        "released": "e848e2515dcb15660cbdc05b8bf910f49dccb9dea61d898e693e1787d7a28824"
       },
       "id": "M10",
-      "seconds": 0.016,
+      "seconds": 0.031,
       "state": "RELEASED",
       "title": "Release"
     }

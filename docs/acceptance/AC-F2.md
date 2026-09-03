@@ -17,9 +17,7 @@ make test-integration
 ## Evidence
 
 - `draupnir/api/routers/runs.py`
-- `draupnir/api/writing.py`
 - `draupnir/core/application/orchestrator.py`
-- `draupnir/core/infrastructure/repositories.py`
 - `draupnir/procedures/sindri.py`
 - `scripts/procedure.py`
 - `tests/integration/test_api_writes.py`

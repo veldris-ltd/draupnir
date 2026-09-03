@@ -25,6 +25,7 @@ from draupnir.api import events as event_stream
 from draupnir.api import telemetry, writing
 from draupnir.api.concurrency import ConcurrencyError, require
 from draupnir.api.concurrency import etag as concurrency_etag
+from draupnir.api.context import RequestContext
 from draupnir.api.deps import (
     Cursor,
     Guarded,
@@ -50,14 +51,30 @@ from draupnir.api.schemas import (
     RunPage,
     RunSubmission,
 )
-from draupnir.core.application.orchestrator import DuplicateRunError, OrchestrationError
+from draupnir.core.application.orchestrator import (
+    DuplicateRunError,
+    OrchestrationError,
+    RunFacts,
+    UnknownRunError,
+)
 from draupnir.core.domain.identifiers import new_id
 from draupnir.core.domain.identity import InputHashError, RunIdentity, run_identity
+from draupnir.core.domain.states import (
+    GuardRefusedError,
+    IllegalTransitionError,
+    RunState,
+)
 from draupnir.core.plugins import PluginError
 from draupnir.interfaces.types import RunSpec
 from draupnir.svalinn.roles import Permission
 
 router = APIRouter(tags=["runs"])
+
+#: What a cancelled scheduler job exits with. 143 is SIGTERM, which is what
+#: `scancel` sends and what the executor sees. Naming it means the ledger entry
+#: for a cancellation is indistinguishable from the truth rather than from a
+#: placeholder.
+CANCELLED_EXIT_CODE = 143
 
 RunId = Annotated[UUID, Path(description="UUIDv7 run identifier.")]
 
@@ -117,7 +134,13 @@ async def submit(
                 spec_hash=identity.spec_hash,
                 kind=_spec_kind(body),
                 identity=identity.digest,
-                payload={"input_artefact_sha256": list(identity.input_artefact_sha256)},
+                payload={
+                    "input_artefact_sha256": list(identity.input_artefact_sha256),
+                    # Recorded at registration, so a later requeue reads the
+                    # budget the specification allowed rather than one supplied
+                    # by whoever is asking for the requeue.
+                    "retry_budget": _retry_budget(body),
+                },
             )
         except DuplicateRunError as duplicate:
             # AC-F2. Reported rather than silently re-run, and 409 rather than
@@ -165,6 +188,18 @@ async def submit(
         key, ctx, status=status.HTTP_202_ACCEPTED, body=body_out, location=f"/v1/runs/{run_id}"
     )
     return Accepted.model_validate(body_out)
+
+
+def _retry_budget(body: RunSubmission) -> int:
+    """The specification's `placement.retryBudget`, or none."""
+    spec = body.specification.get("spec")
+    placement = spec.get("placement") if isinstance(spec, dict) else None
+    if not isinstance(placement, dict):
+        return 0
+    try:
+        return max(0, int(placement.get("retryBudget", 0)))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _spec_kind(body: RunSubmission) -> str:
@@ -311,8 +346,42 @@ async def cancel(
         release(key, ctx)
         raise as_problem(error) from error
 
+    recorder = writing.writer()
+    facts = await _facts(recorder, ctx, run_id, on_error=lambda: release(key, ctx))
+
     with telemetry.span("runs.cancel", telemetry.EDGE, runId=str(run_id)):
-        telemetry.log("run.cancel.accepted", runId=str(run_id), reason=body.reason)
+        try:
+            applied = await recorder.transition_run(
+                site_id=ctx.site_id,
+                actor=ctx.actor,
+                run_id=run_id,
+                target=RunState.FAILED,
+                # A cancelled scheduler job exits non-zero, which is exactly the
+                # guard SAD 6.1 puts on TRAINING -> FAILED. Nothing here invents
+                # a state: the run reaches the one the table already has for an
+                # executor that stopped without finishing (AC-F13).
+                facts={"exit_code": CANCELLED_EXIT_CODE, "watchdog_fired": False},
+                payload={
+                    "exit_code": CANCELLED_EXIT_CODE,
+                    "last_log_lines": [f"cancelled by {ctx.actor}: {body.reason}"],
+                    "resource_state": {"allocation": "released"},
+                    "cancelled_by": ctx.actor,
+                    "reason": body.reason,
+                },
+            )
+        except (IllegalTransitionError, GuardRefusedError) as refusal:
+            release(key, ctx)
+            raise _not_cancellable(run_id, facts, refusal) from refusal
+        except UnknownRunError as unknown:
+            release(key, ctx)
+            raise _no_such_run(run_id, ctx.site_id, unknown) from unknown
+
+        telemetry.log(
+            "run.cancel.accepted",
+            runId=str(run_id),
+            reason=body.reason,
+            recorded=applied is not None,
+        )
 
     out = accepted(run_id, detail="cancellation requested")
     complete(key, ctx, status=status.HTTP_202_ACCEPTED, body=out)
@@ -345,8 +414,55 @@ async def retry(
         release(key, ctx)
         raise as_problem(error) from error
 
+    recorder = writing.writer()
+    facts = await _facts(recorder, ctx, run_id, on_error=lambda: release(key, ctx))
+
     with telemetry.span("runs.retry", telemetry.EDGE, runId=str(run_id)):
-        telemetry.log("run.retry.accepted", runId=str(run_id))
+        failing = facts.failing_gates if facts else ()
+        remaining = facts.budget_remaining if facts else 0
+        if recorder.records and not failing:
+            release(key, ctx)
+            raise ProblemError(
+                status=409,
+                code="nothing-to-retry",
+                title="This run has no recorded gate failure",
+                detail=(
+                    f"run {run_id} has no failing gate in its chain. The requeue of "
+                    "SAD 6.1 is for a run that failed one within its retry budget "
+                    "(AC-F7); a run that failed none has nothing to try again, and "
+                    "resubmitting an unchanged specification is a duplicate (AC-F2)."
+                ),
+            )
+
+        try:
+            applied = await recorder.transition_run(
+                site_id=ctx.site_id,
+                actor=ctx.actor,
+                run_id=run_id,
+                target=RunState.QUEUED,
+                # The budget is read from the registration entry, not from the
+                # request: a budget the caller supplied is a budget the caller
+                # could raise, one requeue at a time.
+                facts={
+                    "failing_gates": list(failing),
+                    "retry_budget_remaining": remaining,
+                },
+                payload={
+                    "failing_gate": failing[0] if failing else "",
+                    "requeue_reason": (
+                        f"requeued by {ctx.actor}; {remaining} of "
+                        f"{facts.retry_budget if facts else 0} retries remaining"
+                    ),
+                },
+            )
+        except (IllegalTransitionError, GuardRefusedError) as refusal:
+            release(key, ctx)
+            raise _not_retryable(run_id, facts, refusal) from refusal
+        except UnknownRunError as unknown:
+            release(key, ctx)
+            raise _no_such_run(run_id, ctx.site_id, unknown) from unknown
+
+        telemetry.log("run.retry.accepted", runId=str(run_id), recorded=applied is not None)
 
     out = accepted(run_id, detail="run requeued")
     complete(key, ctx, status=status.HTTP_202_ACCEPTED, body=out)
@@ -532,4 +648,76 @@ async def site_events(
         event_stream.live_frames(stream, since=since, disconnected=request.is_disconnected),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+
+async def _facts(
+    recorder: writing.Writer,
+    ctx: RequestContext,
+    run_id: UUID,
+    *,
+    on_error: Callable[[], None],
+) -> RunFacts | None:
+    """What the chain knows about a run, or None when nothing is recorded.
+
+    None has two causes and they are different: a writer that records nothing,
+    which is the contract-test configuration, and a run this site has never
+    heard of. The first is answered by carrying on; the second is a 404, and
+    the caller distinguishes them by asking the writer whether it records.
+    """
+    try:
+        found: RunFacts | None = await recorder.read(
+            site_id=ctx.site_id, actor=ctx.actor, question=writing.facts_of(run_id)
+        )
+    except UnknownRunError as unknown:
+        on_error()
+        raise _no_such_run(run_id, ctx.site_id, unknown) from unknown
+    return found
+
+
+def _no_such_run(run_id: UUID, site_id: str, cause: Exception) -> ProblemError:
+    """404 rather than 500. A run at another site is not visible here."""
+    return ProblemError(
+        status=404,
+        code="run-not-found",
+        title="No such run at this site",
+        detail=f"{cause} (site {site_id}, run {run_id})",
+    )
+
+
+def _not_cancellable(run_id: UUID, facts: RunFacts | None, refusal: Exception) -> ProblemError:
+    """409, naming the state and the gap it falls into.
+
+    Cancelling stops a scheduler job. A run that is not TRAINING holds no
+    allocation, so there is nothing to stop -- and SAD 6.1 has no row for
+    withdrawing a queued run, which is a gap in the table rather than in this
+    handler. It is recorded in `docs/acceptance/imhotep-reconciliation.md`; the
+    refusal names it so an operator is not left guessing.
+    """
+    where = f" It is in {facts.state}." if facts else ""
+    return ProblemError(
+        status=409,
+        code="run-not-cancellable",
+        title="This run has no scheduler job to stop",
+        detail=(
+            f"run {run_id} cannot be cancelled.{where} Cancelling stops a scheduler "
+            f"job, so it applies to a run in {RunState.TRAINING}; SAD 6.1's table has "
+            f"no transition out of any other state that a cancellation fits. {refusal}"
+        ),
+    )
+
+
+def _not_retryable(run_id: UUID, facts: RunFacts | None, refusal: Exception) -> ProblemError:
+    """409, naming the state and whether the budget is what refused it."""
+    where = f" It is in {facts.state}." if facts else ""
+    budget = f" {facts.budget_remaining} of {facts.retry_budget} retries remain." if facts else ""
+    return ProblemError(
+        status=409,
+        code="run-not-retryable",
+        title="This run cannot be requeued",
+        detail=(
+            f"run {run_id} cannot be requeued.{where}{budget} The requeue of SAD 6.1 "
+            f"moves a run from {RunState.EVALUATING} back to {RunState.QUEUED} when a "
+            f"gate failed and the budget is not exhausted. {refusal}"
+        ),
     )

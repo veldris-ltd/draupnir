@@ -14,7 +14,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Path, Response, status
 
-from draupnir.api import telemetry
+from draupnir.api import telemetry, writing
 from draupnir.api.deps import (
     Cursor,
     Guarded,
@@ -42,6 +42,12 @@ from draupnir.core.domain.states import RunState
 from draupnir.svalinn.roles import Permission
 
 router = APIRouter(tags=["corpora"])
+
+#: What these entries are about. Neither is a run: a source is a fact HODD
+#: recorded and a corpus is an input to many runs, and SAD 7.1 gives each its
+#: own entity. The projector folds `run` entries and passes these through.
+SOURCE_SUBJECT = "source"
+CORPUS_SUBJECT = "corpus"
 
 Iso3 = Annotated[
     str,
@@ -107,7 +113,33 @@ async def register_source(
             sha256=body.sha256,
             state=RunState.DRAFT,
         )
-        telemetry.log("source.registered", sourceId=str(record.id), sha256=record.sha256)
+        # HODD records; GLEIPNIR judges. What goes in the chain is the facts,
+        # including the personal data determination and its DPIA reference,
+        # because a licence decision taken later has to be explicable against
+        # the facts that were recorded at the time and not against today's.
+        entry = await writing.writer().record(
+            site_id=ctx.site_id,
+            actor=ctx.actor,
+            subject_type=SOURCE_SUBJECT,
+            subject_id=str(record.id),
+            transition="registered",
+            payload={
+                "jurisdiction": record.jurisdiction,
+                "url": record.url,
+                "licence_spdx": record.licence_spdx,
+                "attribution_required": record.attribution_required,
+                "personal_data": record.personal_data,
+                "dpia_ref": record.dpia_ref,
+                "sha256": record.sha256,
+                "retrieved_at": record.retrieved_at.isoformat(),
+            },
+        )
+        telemetry.log(
+            "source.registered",
+            sourceId=str(record.id),
+            sha256=record.sha256,
+            recorded=entry is not None,
+        )
 
     complete(
         key,
@@ -161,7 +193,23 @@ async def ingest(iso3: Iso3, ctx: Guarded, idempotency_key: IdempotencyKey = Non
 
     run_id = new_id()
     with telemetry.span("corpora.ingest", telemetry.EDGE, jurisdiction=iso3):
-        telemetry.log("corpus.ingest.accepted", jurisdiction=iso3, runId=str(run_id))
+        # A corpus is not a run: it is an input to many of them, and SAD 7.1
+        # gives it its own entity. So the entry is about the corpus, and the
+        # projector -- which folds runs -- passes it through untouched.
+        entry = await writing.writer().record(
+            site_id=ctx.site_id,
+            actor=ctx.actor,
+            subject_type=CORPUS_SUBJECT,
+            subject_id=iso3,
+            transition="ingest-accepted",
+            payload={"jurisdiction": iso3, "run_id": str(run_id)},
+        )
+        telemetry.log(
+            "corpus.ingest.accepted",
+            jurisdiction=iso3,
+            runId=str(run_id),
+            recorded=entry is not None,
+        )
 
     body = accepted(run_id, detail=f"ingesting the {iso3} corpus")
     complete(key, ctx, status=status.HTTP_202_ACCEPTED, body=body)
@@ -185,7 +233,20 @@ async def curate(iso3: Iso3, ctx: Guarded, idempotency_key: IdempotencyKey = Non
 
     run_id = new_id()
     with telemetry.span("corpora.curate", telemetry.EDGE, jurisdiction=iso3):
-        telemetry.log("corpus.curate.accepted", jurisdiction=iso3, runId=str(run_id))
+        entry = await writing.writer().record(
+            site_id=ctx.site_id,
+            actor=ctx.actor,
+            subject_type=CORPUS_SUBJECT,
+            subject_id=iso3,
+            transition="curate-accepted",
+            payload={"jurisdiction": iso3, "run_id": str(run_id)},
+        )
+        telemetry.log(
+            "corpus.curate.accepted",
+            jurisdiction=iso3,
+            runId=str(run_id),
+            recorded=entry is not None,
+        )
 
     body = accepted(run_id, detail=f"curating the {iso3} corpus")
     complete(key, ctx, status=status.HTTP_202_ACCEPTED, body=body)
