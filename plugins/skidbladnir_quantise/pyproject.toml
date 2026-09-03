@@ -22,3 +22,4 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["draupnir_skidbladnir_quantise"]
+artifacts = ["draupnir_skidbladnir_quantise/py.typed"]

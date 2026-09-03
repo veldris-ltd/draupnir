@@ -4,6 +4,12 @@ Knows interfaces, never implementations (SAD 11B). Nothing here imports the
 core, the edge or any module, and `.importlinter` holds it to that -- which is
 what lets a third party depend on this package alone to write a driver.
 
+Owns: The seven extension points, the vocabulary they are written in, entry
+point naming and version negotiation, the signature verification hook, and the
+conformance harness published for third parties.
+Must not: Import the core, the edge, or any module. A port that knew an
+implementation would make every driver depend on it.
+
     naming     entry point names and version negotiation (SAD 10.3)
     types      the vocabulary the Protocols are written in
     protocols  the seven interfaces

@@ -26,3 +26,4 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["draupnir_motsognir_slurm"]
+artifacts = ["draupnir_motsognir_slurm/py.typed"]

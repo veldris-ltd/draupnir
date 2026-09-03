@@ -33,6 +33,20 @@ from draupnir.hodd.stores import (
 URI = "hodd://sindri/corpora/GBR/curated"
 
 
+def mounted(root: Path, local_site: str = "sindri", **extra: Any) -> PosixStoreDriver:
+    """A store whose vault is mounted, which is what a provisioned one is.
+
+    The root is the NFS mount point. The estate provisions it; since the
+    unmounted-vault failure of SAD 11.2 was injected for real, the store
+    refuses to create it -- `put` creating the parents used to recreate the
+    mount point on local disk, which put weights somewhere nobody backs up. A
+    test that let the store create its own vault would exercise a path the
+    system no longer has.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    return PosixStoreDriver(root=root, local_site=local_site, **extra)
+
+
 @pytest.fixture
 def artefact(tmp_path: Path) -> Path:
     source = tmp_path / "incoming"
@@ -81,7 +95,7 @@ def test_a_relative_segment_is_refused() -> None:
 
 
 def test_a_path_escaping_the_vault_is_refused(tmp_path: Path) -> None:
-    store = PosixStoreDriver(root=tmp_path / "vault", local_site="sindri")
+    store = mounted(tmp_path / "vault", "sindri")
     with pytest.raises(StoreError):
         store.resolve("hodd://sindri/../../../etc/passwd")
 
@@ -97,7 +111,7 @@ def test_an_address_renders_back_fully_qualified() -> None:
 
 def test_relocating_the_vault_does_not_invalidate_a_uri(tmp_path: Path, artefact: Path) -> None:
     """A run specification records a URI, never a path."""
-    first = PosixStoreDriver(root=tmp_path / "vault-a", local_site="sindri")
+    first = mounted(tmp_path / "vault-a", "sindri")
     first.put(URI, artefact)
     assert first.stat(URI).exists
 
@@ -105,7 +119,7 @@ def test_relocating_the_vault_does_not_invalidate_a_uri(tmp_path: Path, artefact
     import shutil
 
     shutil.copytree(tmp_path / "vault-a", tmp_path / "vault-b")
-    second = PosixStoreDriver(root=tmp_path / "vault-b", local_site="sindri")
+    second = mounted(tmp_path / "vault-b", "sindri")
 
     assert second.stat(URI).exists
     assert second.resolve(URI) != first.resolve(URI)
@@ -115,7 +129,7 @@ def test_the_same_uri_resolves_against_a_different_kind_of_store(
     tmp_path: Path,
 ) -> None:
     """NVMe over Fabrics, or MinIO, or anything else: a new driver, not a new URI."""
-    posix = PosixStoreDriver(root=tmp_path / "vault", local_site="sindri")
+    posix = mounted(tmp_path / "vault", "sindri")
     objects = ObjectStoreDriver(bucket="draupnir", client=object(), local_site="sindri")
 
     assert posix.resolve(URI).endswith(str(Path("sindri") / "corpora" / "GBR" / "curated"))
@@ -126,8 +140,8 @@ def test_a_second_forges_artefacts_resolve_through_its_own_driver(
     tmp_path: Path,
 ) -> None:
     drivers: dict[str, Any] = {
-        "sindri": PosixStoreDriver(root=tmp_path / "sindri", local_site="sindri"),
-        "brokkr": PosixStoreDriver(root=tmp_path / "brokkr", local_site="brokkr"),
+        "sindri": mounted(tmp_path / "sindri", "sindri"),
+        "brokkr": mounted(tmp_path / "brokkr", "brokkr"),
     }
     chosen = driver_for("hodd://brokkr/adapters/x", drivers, local_site="sindri")
     assert chosen is drivers["brokkr"]
@@ -146,9 +160,7 @@ def test_an_unknown_authority_is_a_path_and_never_another_site(
     authority can never resolve to a *different* forge's artefact. It resolves
     to a local path that does not exist.
     """
-    drivers: dict[str, Any] = {
-        "sindri": PosixStoreDriver(root=tmp_path, local_site="sindri", sites=frozenset({"sindri"}))
-    }
+    drivers: dict[str, Any] = {"sindri": mounted(tmp_path, "sindri", sites=frozenset({"sindri"}))}
 
     chosen = driver_for("hodd://eitri/adapters/x", drivers, local_site="sindri")
     assert chosen is drivers["sindri"]
@@ -166,7 +178,7 @@ def test_an_unknown_authority_is_a_path_and_never_another_site(
 
 
 def test_a_sealed_artefact_is_not_overwritten(tmp_path: Path, artefact: Path) -> None:
-    store = PosixStoreDriver(root=tmp_path / "vault", local_site="sindri")
+    store = mounted(tmp_path / "vault", "sindri")
     store.put(URI, artefact)
     store.seal(URI)
 
@@ -175,7 +187,7 @@ def test_a_sealed_artefact_is_not_overwritten(tmp_path: Path, artefact: Path) ->
 
 
 def test_sealing_is_idempotent(tmp_path: Path, artefact: Path) -> None:
-    store = PosixStoreDriver(root=tmp_path / "vault", local_site="sindri")
+    store = mounted(tmp_path / "vault", "sindri")
     store.put(URI, artefact)
     store.seal(URI)
     store.seal(URI)
@@ -183,13 +195,13 @@ def test_sealing_is_idempotent(tmp_path: Path, artefact: Path) -> None:
 
 
 def test_an_absent_artefact_cannot_be_sealed(tmp_path: Path) -> None:
-    store = PosixStoreDriver(root=tmp_path / "vault", local_site="sindri")
+    store = mounted(tmp_path / "vault", "sindri")
     with pytest.raises(StoreError, match="does not exist"):
         store.seal(URI)
 
 
 def test_deletion_reports_what_it_freed(tmp_path: Path, artefact: Path) -> None:
-    store = PosixStoreDriver(root=tmp_path / "vault", local_site="sindri")
+    store = mounted(tmp_path / "vault", "sindri")
     store.put(URI, artefact)
     store.seal(URI)
 
@@ -204,7 +216,7 @@ def test_deletion_reports_what_it_freed(tmp_path: Path, artefact: Path) -> None:
 def test_stat_reports_a_hash_for_a_file_and_a_size_for_a_tree(
     tmp_path: Path, artefact: Path
 ) -> None:
-    store = PosixStoreDriver(root=tmp_path / "vault", local_site="sindri")
+    store = mounted(tmp_path / "vault", "sindri")
     store.put(URI, artefact)
 
     tree = store.stat(URI)
@@ -217,7 +229,7 @@ def test_stat_reports_a_hash_for_a_file_and_a_size_for_a_tree(
 
 
 def test_getting_an_absent_artefact_is_refused(tmp_path: Path) -> None:
-    store = PosixStoreDriver(root=tmp_path / "vault", local_site="sindri")
+    store = mounted(tmp_path / "vault", "sindri")
     with pytest.raises(StoreError, match="does not exist"):
         store.get(URI, tmp_path / "out")
 

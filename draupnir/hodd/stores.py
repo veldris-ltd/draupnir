@@ -38,6 +38,33 @@ class StoreError(Exception):
     """Raised when a store cannot satisfy a request."""
 
 
+class VaultUnavailableError(StoreError):
+    """Raised when the vault root is not there. SAD 11.2, HODD unavailable.
+
+    Found by injecting the failure rather than by review. `put` creates the
+    artefact's parent directories, which is correct inside a mounted vault and
+    catastrophic outside one: an NFS mount that has dropped leaves the root
+    absent, `mkdir(parents=True)` recreates it on the control plane's local
+    disk, and the run then trains and stages its weights somewhere nobody
+    backs up, nobody hashes and nobody looks. The vault reappearing later
+    hides the evidence.
+
+    So every operation checks that the root is present first. "The artefact is
+    not there" and "I cannot see the vault" are different answers, and a store
+    that gave the first when the second was true would let a run plan against
+    a vault that is gone.
+    """
+
+    def __init__(self, root: Path) -> None:
+        """Name the mount point that is missing."""
+        self.root = root
+        super().__init__(
+            f"the vault at {root} is not mounted. New runs refuse to plan until it "
+            "returns (SAD 11.2); running jobs writing to local scratch continue and "
+            "stage on recovery. Restore the mount, then run reconciliation."
+        )
+
+
 class ImmutableArtefactError(StoreError):
     """Raised when a write would overwrite a sealed artefact.
 
@@ -133,9 +160,19 @@ class PosixStoreDriver:
     sites: frozenset[str] = frozenset()
 
     def resolve(self, uri: str) -> str:
-        """Return the physical location of a `hodd://` URI."""
+        """Return the physical location of a `hodd://` URI.
+
+        Resolution is pure arithmetic on the path and does not touch the disk,
+        so it answers whether or not the vault is mounted. Everything that
+        *reads or writes* checks first.
+        """
         address = self._address(uri)
         return str(self._path(address))
+
+    def _require_mounted(self) -> None:
+        """Refuse when the vault root is absent. See `VaultUnavailableError`."""
+        if not self.root.is_dir():
+            raise VaultUnavailableError(self.root)
 
     def _address(self, uri: str) -> Address:
         return parse(uri, local_site=self.local_site, sites=self.sites)
@@ -150,6 +187,7 @@ class PosixStoreDriver:
 
     def stat(self, uri: str) -> ObjectInfo:
         """Return what is known about the object without fetching it."""
+        self._require_mounted()
         path = Path(self.resolve(uri))
         if not path.exists():
             return ObjectInfo(uri=uri, exists=False)
@@ -160,6 +198,7 @@ class PosixStoreDriver:
 
     def get(self, uri: str, destination: Path) -> ObjectInfo:
         """Copy the object to `destination`."""
+        self._require_mounted()
         source = Path(self.resolve(uri))
         if not source.exists():
             msg = f"{uri} does not exist"
@@ -173,6 +212,7 @@ class PosixStoreDriver:
 
     def put(self, uri: str, source: Path) -> ObjectInfo:
         """Store `source` at `uri`, refusing to overwrite a sealed artefact."""
+        self._require_mounted()
         target = Path(self.resolve(uri))
         if self.is_sealed(uri):
             raise ImmutableArtefactError(uri)
@@ -188,6 +228,7 @@ class PosixStoreDriver:
 
     def seal(self, uri: str) -> None:
         """Make every file read only. Idempotent."""
+        self._require_mounted()
         target = Path(self.resolve(uri))
         if not target.exists():
             msg = f"{uri} does not exist and cannot be sealed"
@@ -216,6 +257,7 @@ class PosixStoreDriver:
 
     def delete(self, uri: str) -> int:
         """Remove the artefact and return how many bytes went. Ledgered by the caller."""
+        self._require_mounted()
         target = Path(self.resolve(uri))
         if not target.exists():
             return 0
@@ -239,7 +281,10 @@ class PosixStoreDriver:
 
     def free_bytes(self) -> int:
         """Free space on the vault, for the pre-flight quota check of AC-S10."""
-        self.root.mkdir(parents=True, exist_ok=True)
+        # No `mkdir` here. Creating the vault to answer a capacity question is
+        # how an unmounted vault reports the control plane's own free space,
+        # and AC-S10 refuses a run against that number.
+        self._require_mounted()
         return shutil.disk_usage(self.root).free
 
     def total_bytes(self) -> int:

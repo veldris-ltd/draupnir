@@ -7,7 +7,7 @@
 PYTHON ?= python3
 
 .DEFAULT_GOAL := help
-.PHONY: help bootstrap hooks format lint typecheck lint-web imports secrets audit sbom crypto-inventory openapi clients clients-check openapi-diff migrate-dry migrate reset-db seed test-unit test-property test-contract test-skills test-integration test-frontend test-e2e test-a11y test-visual test images build-web up down logs api web dev smoke static ci clean
+.PHONY: help bootstrap hooks format lint typecheck lint-web imports secrets audit sbom crypto-inventory openapi clients clients-check openapi-diff migrate-dry migrate reset-db seed test-unit test-property test-contract test-skills test-degraded test-integration procedure verify-chain rebuild-projection module-readmes acceptance test-frontend test-e2e test-a11y test-visual test images build-web up down logs api web dev smoke static ci clean
 
 help:
 	@$(PYTHON) tasks.py --list
@@ -80,6 +80,24 @@ test-contract:
 
 test-skills:
 	@$(PYTHON) tasks.py test-skills
+
+test-degraded:
+	@$(PYTHON) tasks.py test-degraded
+
+procedure:
+	@$(PYTHON) tasks.py procedure
+
+verify-chain:
+	@$(PYTHON) tasks.py verify-chain
+
+rebuild-projection:
+	@$(PYTHON) tasks.py rebuild-projection
+
+module-readmes:
+	@$(PYTHON) tasks.py module-readmes
+
+acceptance:
+	@$(PYTHON) tasks.py acceptance
 
 test-integration:
 	@$(PYTHON) tasks.py test-integration

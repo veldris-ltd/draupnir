@@ -25,3 +25,4 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["draupnir_targz_export"]
+artifacts = ["draupnir_targz_export/py.typed"]

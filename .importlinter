@@ -18,6 +18,8 @@ root_packages =
     draupnir_brisingamen_mergekit
     draupnir_raun_lmeval
     draupnir_skidbladnir_quantise
+    draupnir_posix_store
+    draupnir_spdx_policy
 include_external_packages = True
 
 ; -------------------------------------------------------------------------
@@ -40,6 +42,7 @@ containers =
 name = Edge, modules, core, ports (SAD 11B)
 type = layers
 layers =
+    draupnir.procedures
     draupnir.api
     draupnir.megingjord | draupnir.gullinbursti | draupnir.svalinn | draupnir.skidbladnir | draupnir.raun | draupnir.brisingamen | draupnir.hamarr | draupnir.motsognir | draupnir.gleipnir | draupnir.hodd
     draupnir.core
@@ -135,6 +138,8 @@ source_modules =
     draupnir_brisingamen_mergekit
     draupnir_raun_lmeval
     draupnir_skidbladnir_quantise
+    draupnir_posix_store
+    draupnir_spdx_policy
 forbidden_modules =
     draupnir.core
     draupnir.api

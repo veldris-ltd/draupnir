@@ -29,3 +29,4 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["draupnir_local_subprocess"]
+artifacts = ["draupnir_local_subprocess/py.typed"]

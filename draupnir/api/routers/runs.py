@@ -22,7 +22,7 @@ from fastapi import APIRouter, Header, Path, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
 
 from draupnir.api import events as event_stream
-from draupnir.api import telemetry
+from draupnir.api import telemetry, writing
 from draupnir.api.concurrency import ConcurrencyError, require
 from draupnir.api.concurrency import etag as concurrency_etag
 from draupnir.api.deps import (
@@ -50,6 +50,7 @@ from draupnir.api.schemas import (
     RunPage,
     RunSubmission,
 )
+from draupnir.core.application.orchestrator import DuplicateRunError, OrchestrationError
 from draupnir.core.domain.identifiers import new_id
 from draupnir.core.domain.identity import InputHashError, RunIdentity, run_identity
 from draupnir.core.plugins import PluginError
@@ -105,8 +106,48 @@ async def submit(
     identity = _identity_of(body, on_error=lambda: release(key, ctx))
 
     run_id = new_id()
+    recorder = writing.writer()
     with telemetry.span("runs.submit", telemetry.EDGE, runId=str(run_id)):
-        telemetry.log("run.submitted", runId=str(run_id), runIdentity=identity.digest)
+        try:
+            recorded = await recorder.register_run(
+                site_id=ctx.site_id,
+                actor=ctx.actor,
+                run_id=run_id,
+                name=_spec_name(body),
+                spec_hash=identity.spec_hash,
+                kind=_spec_kind(body),
+                identity=identity.digest,
+                payload={"input_artefact_sha256": list(identity.input_artefact_sha256)},
+            )
+        except DuplicateRunError as duplicate:
+            # AC-F2. Reported rather than silently re-run, and 409 rather than
+            # 422: the submission is well formed and the conflict is with the
+            # state of the system, which is what 409 means.
+            release(key, ctx)
+            raise ProblemError(
+                status=409,
+                code="duplicate-run",
+                title="This run has already been submitted",
+                detail=str(duplicate),
+            ) from duplicate
+        except OrchestrationError as error:
+            release(key, ctx)
+            raise ProblemError(
+                status=503,
+                code="run-not-recorded",
+                title="The run could not be recorded",
+                detail=(
+                    f"{error} The submission was not accepted, because a run the ledger "
+                    "does not hold is a run nobody can audit."
+                ),
+            ) from error
+
+        telemetry.log(
+            "run.submitted",
+            runId=str(run_id),
+            runIdentity=identity.digest,
+            recorded=recorded is not None,
+        )
 
     body_out = accepted(run_id, detail="run queued")
     body_out["run_identity"] = identity.digest
@@ -124,6 +165,22 @@ async def submit(
         key, ctx, status=status.HTTP_202_ACCEPTED, body=body_out, location=f"/v1/runs/{run_id}"
     )
     return Accepted.model_validate(body_out)
+
+
+def _spec_kind(body: RunSubmission) -> str:
+    """The artefact kind this run produces, from the specification's `kind`.
+
+    `AdapterRun` produces an adapter, `SubstrateRun` a substrate. Mapped rather
+    than lowercased, because the eight artefact kinds are an enumeration the
+    database holds and a ninth is refused when the row is written.
+    """
+    kind = str(body.specification.get("kind", "AdapterRun"))
+    return {
+        "AdapterRun": "adapter",
+        "SubstrateRun": "substrate",
+        "MergeRun": "merged",
+        "QuantiseRun": "quantised",
+    }.get(kind, "adapter")
 
 
 def _spec_name(body: RunSubmission) -> str:

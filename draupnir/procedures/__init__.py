@@ -1,0 +1,25 @@
+"""The operator procedures DRAUPNIR automates.
+
+An edge, like `draupnir.api`, and for the same reason: it composes the modules
+and holds no domain logic of its own. SAD 1.1 states the purpose in one
+sentence -- "DRAUPNIR automates the procedures currently described as manual
+sequences in VLD-INF-SINDRI-001 Parts 4 and 5" -- and this package is where
+that sentence becomes a program.
+
+It sits above the modules in the layering of SAD 11B because it reaches every
+one of them. It must not be imported by any of them, and the import contract
+holds that as a rule.
+
+Owns: The order of the operator procedures, and the composition that runs them
+without a step in between.
+Must not: Decide anything. Every judgement in a procedure belongs to the
+module that owns it -- the licence policy is GLEIPNIR's, the gates are
+GLEIPNIR's, the suite is RAUN's, the refusal to publish is SKIDBLADNIR's, and
+the transition is the state machine's. A procedure that decided for itself
+would be a second implementation of a rule that already has one, and the two
+would eventually disagree.
+"""
+
+from draupnir.procedures.sindri import Procedure, ProcedureError, StepResult, run
+
+__all__ = ["Procedure", "ProcedureError", "StepResult", "run"]

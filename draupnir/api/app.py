@@ -24,10 +24,11 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI, Request, Response
+from sqlalchemy import create_engine as sync_engine
 
 from draupnir import __version__
 from draupnir.api import context as request_context
-from draupnir.api import deps, development
+from draupnir.api import deps, development, writing
 from draupnir.api.guards import enforce_declarations
 from draupnir.api.problems import CONTENT_TYPE, EXCEPTION_HANDLERS, Problem
 from draupnir.api.reading import DatabaseReadModel, EmptyReadModel
@@ -42,6 +43,7 @@ from draupnir.api.routers import (
     runs,
     sites,
 )
+from draupnir.core.infrastructure.config import get_settings
 from draupnir.core.infrastructure.database import create_engine, session_factory
 
 API_VERSION = "v1"
@@ -103,10 +105,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     engine = create_engine()
     deps.set_reader(DatabaseReadModel(session_factory(engine)))
+
+    # The write side is synchronous, because the repositories are (SAD 11B),
+    # and it therefore needs its own engine rather than the async one. Two
+    # engines against one database is not a duplication: they speak different
+    # drivers, and the alternative is an async orchestrator over synchronous
+    # repositories, which is the shape that makes a transaction hard to see.
+    writer_engine = sync_engine(get_settings().database_url_sync, future=True)
+    writing.set_writer(writing.DatabaseWriter(writer_engine))
     try:
         yield
     finally:
         deps.set_reader(EmptyReadModel())
+        writing.set_writer(writing.NoWriter())
+        writer_engine.dispose()
         await engine.dispose()
 
 

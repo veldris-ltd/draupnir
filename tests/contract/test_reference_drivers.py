@@ -14,6 +14,7 @@ forget to opt into.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -214,3 +215,113 @@ def test_the_eval_driver_never_decides_whether_a_gate_passed(
     assert {item.gate for item in outcomes} == {"E1", "E3"}
     assert all(item.passed is False for item in outcomes)
     assert all(item.baseline_value is None for item in outcomes)
+
+
+# ---------------------------------------------------------------------------
+# AC-D2: the last two extension points to acquire a reference implementation
+# ---------------------------------------------------------------------------
+
+
+def test_every_extension_point_has_a_reference_implementation(
+    registry: PluginRegistry,
+) -> None:
+    """AC-D2, checked against the table rather than against a list here.
+
+    `GROUPS` is the seven extension points of SAD 8.2. An interface with no
+    installed driver is an interface whose Protocol nobody has read from the
+    outside, and the two that had none -- store and policy -- are the two whose
+    owners address their own storage and decide their own policy directly.
+    """
+    from draupnir.interfaces.types import GROUPS
+
+    without = [group for group in GROUPS if not registry.names(group)]
+
+    assert without == [], f"no reference implementation for: {', '.join(without)}"
+
+
+def test_the_reference_store_and_policy_drivers_are_discoverable(
+    registry: PluginRegistry,
+) -> None:
+    assert "hodd.posix_reference/v1" in registry.names("draupnir.store")
+    assert "gleipnir.spdx/v1" in registry.names("draupnir.policy")
+
+
+def test_the_reference_store_round_trips_an_artefact(
+    registry: PluginRegistry, tmp_path: Path
+) -> None:
+    """Resolve, put, stat, get. The whole of what `StoreDriver` describes."""
+    from dataclasses import replace
+
+    driver = replace(installed(registry, "draupnir.store", "hodd.posix_reference/v1").driver)
+    driver.root = tmp_path / "store"
+    driver.root.mkdir()
+
+    source = tmp_path / "incoming"
+    source.mkdir()
+    (source / "corpus.txt").write_text("the text", encoding="utf-8")
+
+    stored = driver.put("hodd://corpora/GBR/curated", source)
+    assert stored.exists
+
+    fetched = tmp_path / "out"
+    driver.get("hodd://corpora/GBR/curated", fetched)
+    assert (fetched / "corpus.txt").read_text(encoding="utf-8") == "the text"
+
+    # A second put is refused: two sets of bytes at one URI make every hash
+    # recorded against that URI ambiguous.
+    with pytest.raises(Exception, match="already holds"):
+        driver.put("hodd://corpora/GBR/curated", source)
+
+
+def test_the_reference_store_refuses_a_path_that_escapes_its_root(
+    registry: PluginRegistry, tmp_path: Path
+) -> None:
+    """Otherwise it is a file read primitive with a URI syntax."""
+    from dataclasses import replace
+
+    driver = replace(installed(registry, "draupnir.store", "hodd.posix_reference/v1").driver)
+    driver.root = tmp_path / "store"
+    driver.root.mkdir()
+
+    # Caught at parse, before any path arithmetic: a relative segment in an
+    # artefact address is either a mistake or an attempt to leave the root, and
+    # neither should resolve.
+    with pytest.raises(Exception, match="relative path segment"):
+        driver.resolve("hodd://sindri/../../etc/passwd")
+
+    # And the arithmetic backstop, for an address that escapes without one.
+    driver.root = tmp_path / "store" / "inner"
+    driver.root.mkdir()
+    assert driver.resolve("hodd://corpora/GBR").startswith(str(driver.root))
+
+
+def test_the_reference_policy_denies_by_default(registry: PluginRegistry) -> None:
+    """A licence no rule matches is refused. Silence is not a permission."""
+    from draupnir.interfaces.types import Verdict
+
+    driver = installed(registry, "draupnir.policy", "gleipnir.spdx/v1").driver
+
+    decision = driver.evaluate({"licenceSpdx": "Proprietary-Unknown", "personalData": False})
+
+    assert decision.verdict is Verdict.REFUSE
+    assert decision.rule == "default"
+    assert decision.policy_version == driver.policy_version
+
+
+def test_the_reference_policy_records_the_rule_that_decided(
+    registry: PluginRegistry,
+) -> None:
+    """A decision is only explicable if it names the rule and the version."""
+    from draupnir.interfaces.types import Verdict
+
+    driver = installed(registry, "draupnir.policy", "gleipnir.spdx/v1").driver
+
+    permitted = driver.evaluate({"licenceSpdx": "Apache-2.0", "personalData": False})
+    refused = driver.evaluate({"licenceSpdx": "AGPL-3.0-only", "personalData": False})
+    approval = driver.evaluate({"licenceSpdx": "Apache-2.0", "personalData": True})
+
+    assert (permitted.verdict, permitted.rule) == (Verdict.PERMIT, "permissive-permitted")
+    assert (refused.verdict, refused.rule) == (Verdict.REFUSE, "share-alike-refused")
+    # Personal data is decided before the licence is looked at: a permissive
+    # licence does not make a DPIA unnecessary.
+    assert approval.verdict is Verdict.REQUIRES_APPROVAL

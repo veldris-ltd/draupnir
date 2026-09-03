@@ -73,11 +73,20 @@ dev = [
   # Supply chain
   "pip-audit>=2.7",
   "cyclonedx-bom>=5.1",
-  # The reference drivers of SAD 8.2. They are installed for development and
-  # for the contract stage, and are not part of what ships: a control plane
-  # that shipped its own local-subprocess scheduler would eventually run a
-  # production job on one.
+  # Every driver of SAD 8.2, installed for development and for the contract
+  # stage and not part of what ships: a control plane that shipped its own
+  # local-subprocess scheduler would eventually run a production job on one.
+  # Listed rather than left to workspace discovery, so that what the contract
+  # stage loads is a decision in this file rather than a side effect of which
+  # directories exist.
+  "veldris-draupnir-llamafactory",
+  "veldris-draupnir-lmeval",
   "veldris-draupnir-local-subprocess",
+  "veldris-draupnir-mergekit",
+  "veldris-draupnir-posix-store",
+  "veldris-draupnir-quantise",
+  "veldris-draupnir-slurm",
+  "veldris-draupnir-spdx-policy",
   "veldris-draupnir-targz-export",
 ]
 
@@ -103,7 +112,14 @@ members = ["plugins/*"]
 exclude = ["packaging/*"]
 
 [tool.uv.sources]
+veldris-draupnir-llamafactory = { workspace = true }
+veldris-draupnir-lmeval = { workspace = true }
 veldris-draupnir-local-subprocess = { workspace = true }
+veldris-draupnir-mergekit = { workspace = true }
+veldris-draupnir-posix-store = { workspace = true }
+veldris-draupnir-quantise = { workspace = true }
+veldris-draupnir-slurm = { workspace = true }
+veldris-draupnir-spdx-policy = { workspace = true }
 veldris-draupnir-targz-export = { workspace = true }
 
 [tool.uv]
@@ -172,6 +188,8 @@ ignore = [
 known-first-party = [
   "draupnir",
   "draupnir_local_subprocess",
+  "draupnir_posix_store",
+  "draupnir_spdx_policy",
   "draupnir_targz_export",
   "draupnirctl",
   "scripts",

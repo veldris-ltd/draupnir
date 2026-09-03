@@ -19,8 +19,10 @@ members = [
     "veldris-draupnir-lmeval",
     "veldris-draupnir-local-subprocess",
     "veldris-draupnir-mergekit",
+    "veldris-draupnir-posix-store",
     "veldris-draupnir-quantise",
     "veldris-draupnir-slurm",
+    "veldris-draupnir-spdx-policy",
     "veldris-draupnir-targz-export",
 ]
 
@@ -1542,7 +1544,14 @@ dev = [
     { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "ruff" },
     { name = "testcontainers", extra = ["minio"] },
+    { name = "veldris-draupnir-llamafactory" },
+    { name = "veldris-draupnir-lmeval" },
     { name = "veldris-draupnir-local-subprocess" },
+    { name = "veldris-draupnir-mergekit" },
+    { name = "veldris-draupnir-posix-store" },
+    { name = "veldris-draupnir-quantise" },
+    { name = "veldris-draupnir-slurm" },
+    { name = "veldris-draupnir-spdx-policy" },
     { name = "veldris-draupnir-targz-export" },
 ]
 
@@ -1583,7 +1592,14 @@ dev = [
     { name = "pywin32", marker = "sys_platform == 'win32'", specifier = ">=308" },
     { name = "ruff", specifier = ">=0.8" },
     { name = "testcontainers", extras = ["postgres", "minio"], specifier = ">=4.8" },
+    { name = "veldris-draupnir-llamafactory", editable = "plugins/hamarr_llamafactory" },
+    { name = "veldris-draupnir-lmeval", editable = "plugins/raun_lmeval" },
     { name = "veldris-draupnir-local-subprocess", editable = "plugins/local_subprocess" },
+    { name = "veldris-draupnir-mergekit", editable = "plugins/brisingamen_mergekit" },
+    { name = "veldris-draupnir-posix-store", editable = "plugins/posix_store" },
+    { name = "veldris-draupnir-quantise", editable = "plugins/skidbladnir_quantise" },
+    { name = "veldris-draupnir-slurm", editable = "plugins/motsognir_slurm" },
+    { name = "veldris-draupnir-spdx-policy", editable = "plugins/spdx_policy" },
     { name = "veldris-draupnir-targz-export", editable = "plugins/targz_export" },
 ]
 
@@ -1632,6 +1648,17 @@ dependencies = [
 requires-dist = [{ name = "veldris-draupnir", editable = "." }]
 
 [[package]]
+name = "veldris-draupnir-posix-store"
+version = "1.0.0"
+source = { editable = "plugins/posix_store" }
+dependencies = [
+    { name = "veldris-draupnir" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "veldris-draupnir", editable = "." }]
+
+[[package]]
 name = "veldris-draupnir-quantise"
 version = "1.0.0"
 source = { editable = "plugins/skidbladnir_quantise" }
@@ -1646,6 +1673,17 @@ requires-dist = [{ name = "veldris-draupnir", editable = "." }]
 name = "veldris-draupnir-slurm"
 version = "1.0.0"
 source = { editable = "plugins/motsognir_slurm" }
+dependencies = [
+    { name = "veldris-draupnir" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "veldris-draupnir", editable = "." }]
+
+[[package]]
+name = "veldris-draupnir-spdx-policy"
+version = "1.0.0"
+source = { editable = "plugins/spdx_policy" }
 dependencies = [
     { name = "veldris-draupnir" },
 ]

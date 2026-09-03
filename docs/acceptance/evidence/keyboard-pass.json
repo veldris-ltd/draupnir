@@ -1,0 +1,2001 @@
+{
+  "criterion": "AC-U5",
+  "performedAt": "2026-09-03T20:58:31.529Z",
+  "method": "Keyboard events only. No click() and no focus() anywhere in the spec; every stop is reached by Tab and read from document.activeElement.",
+  "routes": [
+    {
+      "route": "/",
+      "stops": [
+        {
+          "index": 0,
+          "tag": "a",
+          "role": "",
+          "name": "Skip to main content",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 1,
+          "tag": "a",
+          "role": "",
+          "name": "Brokkr\nFederation anchor state:\nunanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 2,
+          "tag": "a",
+          "role": "",
+          "name": "Sindri\nFederation anchor state:\nanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 3,
+          "tag": "button",
+          "role": "",
+          "name": "Search or command",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 4,
+          "tag": "a",
+          "role": "",
+          "name": "Overview",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 5,
+          "tag": "a",
+          "role": "",
+          "name": "Corpora",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 6,
+          "tag": "a",
+          "role": "",
+          "name": "Runs",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 7,
+          "tag": "a",
+          "role": "",
+          "name": "Models",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 8,
+          "tag": "a",
+          "role": "",
+          "name": "Gates",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 9,
+          "tag": "a",
+          "role": "",
+          "name": "Audit",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 10,
+          "tag": "a",
+          "role": "",
+          "name": "Admin",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 11,
+          "tag": "a",
+          "role": "",
+          "name": "0\nruns needing attention",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 12,
+          "tag": "a",
+          "role": "",
+          "name": "1\nruns in progress",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 13,
+          "tag": "a",
+          "role": "",
+          "name": "1\nartefacts awaiting a decision",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        }
+      ],
+      "cycled": false,
+      "reachedBody": true
+    },
+    {
+      "route": "/corpora",
+      "stops": [
+        {
+          "index": 0,
+          "tag": "a",
+          "role": "",
+          "name": "Skip to main content",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 1,
+          "tag": "a",
+          "role": "",
+          "name": "Brokkr\nFederation anchor state:\nunanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 2,
+          "tag": "a",
+          "role": "",
+          "name": "Sindri\nFederation anchor state:\nanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 3,
+          "tag": "button",
+          "role": "",
+          "name": "Search or command",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 4,
+          "tag": "a",
+          "role": "",
+          "name": "Overview",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 5,
+          "tag": "a",
+          "role": "",
+          "name": "Corpora",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 6,
+          "tag": "a",
+          "role": "",
+          "name": "Sources",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 7,
+          "tag": "a",
+          "role": "",
+          "name": "Curation",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 8,
+          "tag": "a",
+          "role": "",
+          "name": "Retention",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 9,
+          "tag": "a",
+          "role": "",
+          "name": "Runs",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 10,
+          "tag": "a",
+          "role": "",
+          "name": "Models",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 11,
+          "tag": "a",
+          "role": "",
+          "name": "Gates",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 12,
+          "tag": "a",
+          "role": "",
+          "name": "Audit",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 13,
+          "tag": "a",
+          "role": "",
+          "name": "Admin",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 14,
+          "tag": "a",
+          "role": "",
+          "name": "Register a source",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        }
+      ],
+      "cycled": false,
+      "reachedBody": true
+    },
+    {
+      "route": "/corpora/register",
+      "stops": [
+        {
+          "index": 0,
+          "tag": "a",
+          "role": "",
+          "name": "Skip to main content",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 1,
+          "tag": "a",
+          "role": "",
+          "name": "Brokkr\nFederation anchor state:\nunanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 2,
+          "tag": "a",
+          "role": "",
+          "name": "Sindri\nFederation anchor state:\nanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 3,
+          "tag": "button",
+          "role": "",
+          "name": "Search or command",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 4,
+          "tag": "a",
+          "role": "",
+          "name": "Overview",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 5,
+          "tag": "a",
+          "role": "",
+          "name": "Corpora",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 6,
+          "tag": "a",
+          "role": "",
+          "name": "Sources",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 7,
+          "tag": "a",
+          "role": "",
+          "name": "Curation",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 8,
+          "tag": "a",
+          "role": "",
+          "name": "Retention",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 9,
+          "tag": "a",
+          "role": "",
+          "name": "Runs",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 10,
+          "tag": "a",
+          "role": "",
+          "name": "Models",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 11,
+          "tag": "a",
+          "role": "",
+          "name": "Gates",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 12,
+          "tag": "a",
+          "role": "",
+          "name": "Audit",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 13,
+          "tag": "a",
+          "role": "",
+          "name": "Admin",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 14,
+          "tag": "input",
+          "role": "",
+          "name": "Source URL",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 15,
+          "tag": "select",
+          "role": "",
+          "name": "Jurisdiction",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 16,
+          "tag": "input",
+          "role": "",
+          "name": "Licence (SPDX)",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 17,
+          "tag": "input",
+          "role": "",
+          "name": "Content digest (SHA-256) * (required)",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 18,
+          "tag": "input",
+          "role": "",
+          "name": "Attribution is required by this licence",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        }
+      ],
+      "cycled": false,
+      "reachedBody": true
+    },
+    {
+      "route": "/runs",
+      "stops": [
+        {
+          "index": 0,
+          "tag": "a",
+          "role": "",
+          "name": "Skip to main content",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 1,
+          "tag": "a",
+          "role": "",
+          "name": "Brokkr\nFederation anchor state:\nunanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 2,
+          "tag": "a",
+          "role": "",
+          "name": "Sindri\nFederation anchor state:\nanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 3,
+          "tag": "button",
+          "role": "",
+          "name": "Search or command",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 4,
+          "tag": "a",
+          "role": "",
+          "name": "Overview",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 5,
+          "tag": "a",
+          "role": "",
+          "name": "Corpora",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 6,
+          "tag": "a",
+          "role": "",
+          "name": "Runs",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 7,
+          "tag": "a",
+          "role": "",
+          "name": "Board",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 8,
+          "tag": "a",
+          "role": "",
+          "name": "Array",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 9,
+          "tag": "a",
+          "role": "",
+          "name": "Compose",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 10,
+          "tag": "a",
+          "role": "",
+          "name": "Models",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 11,
+          "tag": "a",
+          "role": "",
+          "name": "Gates",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 12,
+          "tag": "a",
+          "role": "",
+          "name": "Audit",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 13,
+          "tag": "a",
+          "role": "",
+          "name": "Admin",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 14,
+          "tag": "a",
+          "role": "",
+          "name": "Submit a run",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 15,
+          "tag": "select",
+          "role": "",
+          "name": "State",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 16,
+          "tag": "a",
+          "role": "",
+          "name": "cim-gbr-v1.0",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        }
+      ],
+      "cycled": true,
+      "reachedBody": false
+    },
+    {
+      "route": "/runs/compose",
+      "stops": [
+        {
+          "index": 0,
+          "tag": "a",
+          "role": "",
+          "name": "Skip to main content",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 1,
+          "tag": "a",
+          "role": "",
+          "name": "Brokkr\nFederation anchor state:\nunanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 2,
+          "tag": "a",
+          "role": "",
+          "name": "Sindri\nFederation anchor state:\nanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 3,
+          "tag": "button",
+          "role": "",
+          "name": "Search or command",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 4,
+          "tag": "a",
+          "role": "",
+          "name": "Overview",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 5,
+          "tag": "a",
+          "role": "",
+          "name": "Corpora",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 6,
+          "tag": "a",
+          "role": "",
+          "name": "Runs",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 7,
+          "tag": "a",
+          "role": "",
+          "name": "Board",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 8,
+          "tag": "a",
+          "role": "",
+          "name": "Array",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 9,
+          "tag": "a",
+          "role": "",
+          "name": "Compose",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 10,
+          "tag": "a",
+          "role": "",
+          "name": "Models",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 11,
+          "tag": "a",
+          "role": "",
+          "name": "Gates",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 12,
+          "tag": "a",
+          "role": "",
+          "name": "Audit",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 13,
+          "tag": "a",
+          "role": "",
+          "name": "Admin",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 14,
+          "tag": "textarea",
+          "role": "",
+          "name": "Run specification (SAD 6.2)",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 15,
+          "tag": "button",
+          "role": "",
+          "name": "Dry run",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 16,
+          "tag": "button",
+          "role": "",
+          "name": "Submit",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        }
+      ],
+      "cycled": false,
+      "reachedBody": true
+    },
+    {
+      "route": "/models",
+      "stops": [
+        {
+          "index": 0,
+          "tag": "a",
+          "role": "",
+          "name": "Skip to main content",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 1,
+          "tag": "a",
+          "role": "",
+          "name": "Brokkr\nFederation anchor state:\nunanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 2,
+          "tag": "a",
+          "role": "",
+          "name": "Sindri\nFederation anchor state:\nanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 3,
+          "tag": "button",
+          "role": "",
+          "name": "Search or command",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 4,
+          "tag": "a",
+          "role": "",
+          "name": "Overview",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 5,
+          "tag": "a",
+          "role": "",
+          "name": "Corpora",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 6,
+          "tag": "a",
+          "role": "",
+          "name": "Runs",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 7,
+          "tag": "a",
+          "role": "",
+          "name": "Models",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 8,
+          "tag": "a",
+          "role": "",
+          "name": "Gates",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 9,
+          "tag": "a",
+          "role": "",
+          "name": "Audit",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 10,
+          "tag": "a",
+          "role": "",
+          "name": "Admin",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 11,
+          "tag": "a",
+          "role": "",
+          "name": "cim-gbr-v0.1",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 12,
+          "tag": "a",
+          "role": "",
+          "name": "cim-aus-v0.1",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 13,
+          "tag": "a",
+          "role": "",
+          "name": "cim-irl-v0.1",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 14,
+          "tag": "a",
+          "role": "",
+          "name": "cim-gbr-v0.2",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 15,
+          "tag": "a",
+          "role": "",
+          "name": "cim-gbr-v0.3",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        }
+      ],
+      "cycled": false,
+      "reachedBody": true
+    },
+    {
+      "route": "/gates",
+      "stops": [
+        {
+          "index": 0,
+          "tag": "a",
+          "role": "",
+          "name": "Skip to main content",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 1,
+          "tag": "a",
+          "role": "",
+          "name": "Brokkr\nFederation anchor state:\nunanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 2,
+          "tag": "a",
+          "role": "",
+          "name": "Sindri\nFederation anchor state:\nanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 3,
+          "tag": "button",
+          "role": "",
+          "name": "Search or command",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 4,
+          "tag": "a",
+          "role": "",
+          "name": "Overview",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 5,
+          "tag": "a",
+          "role": "",
+          "name": "Corpora",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 6,
+          "tag": "a",
+          "role": "",
+          "name": "Runs",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 7,
+          "tag": "a",
+          "role": "",
+          "name": "Models",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 8,
+          "tag": "a",
+          "role": "",
+          "name": "Gates",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 9,
+          "tag": "a",
+          "role": "",
+          "name": "Audit",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 10,
+          "tag": "a",
+          "role": "",
+          "name": "Admin",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 11,
+          "tag": "a",
+          "role": "",
+          "name": "cim-aus-v0.1",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        }
+      ],
+      "cycled": false,
+      "reachedBody": true
+    },
+    {
+      "route": "/audit",
+      "stops": [
+        {
+          "index": 0,
+          "tag": "a",
+          "role": "",
+          "name": "Skip to main content",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 1,
+          "tag": "a",
+          "role": "",
+          "name": "Brokkr\nFederation anchor state:\nunanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 2,
+          "tag": "a",
+          "role": "",
+          "name": "Sindri\nFederation anchor state:\nanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 3,
+          "tag": "button",
+          "role": "",
+          "name": "Search or command",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 4,
+          "tag": "a",
+          "role": "",
+          "name": "Overview",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 5,
+          "tag": "a",
+          "role": "",
+          "name": "Corpora",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 6,
+          "tag": "a",
+          "role": "",
+          "name": "Runs",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 7,
+          "tag": "a",
+          "role": "",
+          "name": "Models",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 8,
+          "tag": "a",
+          "role": "",
+          "name": "Gates",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 9,
+          "tag": "a",
+          "role": "",
+          "name": "Audit",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 10,
+          "tag": "a",
+          "role": "",
+          "name": "Admin",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 11,
+          "tag": "a",
+          "role": "",
+          "name": "b3b73a3fca32…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 12,
+          "tag": "a",
+          "role": "",
+          "name": "0076ca29a5ff…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 13,
+          "tag": "a",
+          "role": "",
+          "name": "3f4544bbf01c…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 14,
+          "tag": "a",
+          "role": "",
+          "name": "1435bc779938…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 15,
+          "tag": "a",
+          "role": "",
+          "name": "e4c96755d9ad…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 16,
+          "tag": "a",
+          "role": "",
+          "name": "b5eb54e06d9b…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 17,
+          "tag": "a",
+          "role": "",
+          "name": "6a267d70b9b6…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 18,
+          "tag": "a",
+          "role": "",
+          "name": "33d0d7450226…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 19,
+          "tag": "a",
+          "role": "",
+          "name": "560c758254c2…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 20,
+          "tag": "a",
+          "role": "",
+          "name": "e65000f7d7bc…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 21,
+          "tag": "a",
+          "role": "",
+          "name": "262a57ba19d5…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 22,
+          "tag": "a",
+          "role": "",
+          "name": "837504bf0900…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 23,
+          "tag": "a",
+          "role": "",
+          "name": "cd7362a22963…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 24,
+          "tag": "a",
+          "role": "",
+          "name": "1c7f7b2b4eed…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 25,
+          "tag": "a",
+          "role": "",
+          "name": "99c3e331655b…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 26,
+          "tag": "a",
+          "role": "",
+          "name": "bd1e688a10f0…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 27,
+          "tag": "a",
+          "role": "",
+          "name": "db80b6660fc9…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 28,
+          "tag": "a",
+          "role": "",
+          "name": "0e813dd27458…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 29,
+          "tag": "a",
+          "role": "",
+          "name": "982572a47cb1…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 30,
+          "tag": "a",
+          "role": "",
+          "name": "6d379d09ffe3…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 31,
+          "tag": "a",
+          "role": "",
+          "name": "db8b04cda5f5…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 32,
+          "tag": "a",
+          "role": "",
+          "name": "66813ff2b7d9…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 33,
+          "tag": "a",
+          "role": "",
+          "name": "fbedba5b3c86…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 34,
+          "tag": "a",
+          "role": "",
+          "name": "cc95c6d40ac4…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 35,
+          "tag": "a",
+          "role": "",
+          "name": "f2b6adf1645d…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 36,
+          "tag": "a",
+          "role": "",
+          "name": "35a1a7a1ef9f…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 37,
+          "tag": "a",
+          "role": "",
+          "name": "74eb13bc30bc…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 38,
+          "tag": "a",
+          "role": "",
+          "name": "53c17daf5206…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 39,
+          "tag": "a",
+          "role": "",
+          "name": "032baed0ba4f…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 40,
+          "tag": "a",
+          "role": "",
+          "name": "dc7f0921355d…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 41,
+          "tag": "a",
+          "role": "",
+          "name": "9ba578941a95…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 42,
+          "tag": "a",
+          "role": "",
+          "name": "1c070ce5b544…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 43,
+          "tag": "a",
+          "role": "",
+          "name": "4d555436bfcc…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 44,
+          "tag": "a",
+          "role": "",
+          "name": "3392b7470cdb…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 45,
+          "tag": "a",
+          "role": "",
+          "name": "9bd51ae05f17…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 46,
+          "tag": "a",
+          "role": "",
+          "name": "8ae9fc490681…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 47,
+          "tag": "a",
+          "role": "",
+          "name": "9d7470c116ce…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 48,
+          "tag": "a",
+          "role": "",
+          "name": "1defda5f26db…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 49,
+          "tag": "a",
+          "role": "",
+          "name": "94d764fe9d21…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 50,
+          "tag": "a",
+          "role": "",
+          "name": "a3054f49ef11…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 51,
+          "tag": "a",
+          "role": "",
+          "name": "8d280e951e0c…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 52,
+          "tag": "a",
+          "role": "",
+          "name": "6c7c663eb04e…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 53,
+          "tag": "a",
+          "role": "",
+          "name": "36cc149bf5c8…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 54,
+          "tag": "a",
+          "role": "",
+          "name": "261da23e1666…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 55,
+          "tag": "a",
+          "role": "",
+          "name": "d65c3237de37…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 56,
+          "tag": "a",
+          "role": "",
+          "name": "d3a18c92abc3…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 57,
+          "tag": "a",
+          "role": "",
+          "name": "0d3fee242103…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 58,
+          "tag": "a",
+          "role": "",
+          "name": "4882fc379177…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 59,
+          "tag": "a",
+          "role": "",
+          "name": "1ae0bbc43da9…",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        }
+      ],
+      "cycled": false,
+      "reachedBody": false
+    },
+    {
+      "route": "/sites",
+      "stops": [
+        {
+          "index": 0,
+          "tag": "a",
+          "role": "",
+          "name": "Skip to main content",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 1,
+          "tag": "a",
+          "role": "",
+          "name": "Brokkr\nFederation anchor state:\nunanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 2,
+          "tag": "a",
+          "role": "",
+          "name": "Sindri\nFederation anchor state:\nanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 3,
+          "tag": "button",
+          "role": "",
+          "name": "Search or command",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 4,
+          "tag": "a",
+          "role": "",
+          "name": "Overview",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 5,
+          "tag": "a",
+          "role": "",
+          "name": "Corpora",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 6,
+          "tag": "a",
+          "role": "",
+          "name": "Runs",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 7,
+          "tag": "a",
+          "role": "",
+          "name": "Models",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 8,
+          "tag": "a",
+          "role": "",
+          "name": "Gates",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 9,
+          "tag": "a",
+          "role": "",
+          "name": "Audit",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 10,
+          "tag": "a",
+          "role": "",
+          "name": "Admin",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 11,
+          "tag": "a",
+          "role": "",
+          "name": "Sites",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 12,
+          "tag": "a",
+          "role": "",
+          "name": "Plug-ins",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 13,
+          "tag": "a",
+          "role": "",
+          "name": "Policy",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 14,
+          "tag": "a",
+          "role": "",
+          "name": "Roles",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        }
+      ],
+      "cycled": false,
+      "reachedBody": true
+    },
+    {
+      "route": "/admin/policy",
+      "stops": [
+        {
+          "index": 0,
+          "tag": "a",
+          "role": "",
+          "name": "Skip to main content",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 1,
+          "tag": "a",
+          "role": "",
+          "name": "Brokkr\nFederation anchor state:\nunanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 2,
+          "tag": "a",
+          "role": "",
+          "name": "Sindri\nFederation anchor state:\nanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 3,
+          "tag": "button",
+          "role": "",
+          "name": "Search or command",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 4,
+          "tag": "a",
+          "role": "",
+          "name": "Overview",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 5,
+          "tag": "a",
+          "role": "",
+          "name": "Corpora",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 6,
+          "tag": "a",
+          "role": "",
+          "name": "Runs",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 7,
+          "tag": "a",
+          "role": "",
+          "name": "Models",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 8,
+          "tag": "a",
+          "role": "",
+          "name": "Gates",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 9,
+          "tag": "a",
+          "role": "",
+          "name": "Audit",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 10,
+          "tag": "a",
+          "role": "",
+          "name": "Admin",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 11,
+          "tag": "a",
+          "role": "",
+          "name": "Sites",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 12,
+          "tag": "a",
+          "role": "",
+          "name": "Plug-ins",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 13,
+          "tag": "a",
+          "role": "",
+          "name": "Policy",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 14,
+          "tag": "a",
+          "role": "",
+          "name": "Roles",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 15,
+          "tag": "div",
+          "role": "group",
+          "name": "Unified difference between gleipnir-licence/2025.11 and glei",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        }
+      ],
+      "cycled": false,
+      "reachedBody": true
+    },
+    {
+      "route": "/signin",
+      "stops": [
+        {
+          "index": 0,
+          "tag": "a",
+          "role": "",
+          "name": "Skip to main content",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 1,
+          "tag": "a",
+          "role": "",
+          "name": "Brokkr\nFederation anchor state:\nunanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 2,
+          "tag": "a",
+          "role": "",
+          "name": "Sindri\nFederation anchor state:\nanchored",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 3,
+          "tag": "button",
+          "role": "",
+          "name": "Search or command",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 4,
+          "tag": "a",
+          "role": "",
+          "name": "Overview",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 5,
+          "tag": "a",
+          "role": "",
+          "name": "Corpora",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 6,
+          "tag": "a",
+          "role": "",
+          "name": "Runs",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 7,
+          "tag": "a",
+          "role": "",
+          "name": "Models",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 8,
+          "tag": "a",
+          "role": "",
+          "name": "Gates",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 9,
+          "tag": "a",
+          "role": "",
+          "name": "Audit",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 10,
+          "tag": "a",
+          "role": "",
+          "name": "Admin",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 11,
+          "tag": "button",
+          "role": "",
+          "name": "Continue to MEGINGJORD",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        }
+      ],
+      "cycled": false,
+      "reachedBody": true
+    }
+  ]
+}

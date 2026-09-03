@@ -543,6 +543,48 @@ def seed() -> int:
     return 0
 
 
+@task("procedure", "AC-F12: run Procedures M1 to M10 end to end, in one command")
+def procedure() -> int:
+    # The database has to be there and migrated; the procedure writes its own
+    # site row. Nothing else is asked of the operator, which is the point.
+    seeded_stack()
+    # The reference drivers are unsigned until the Veldris PKI verifier has a
+    # key to verify against (SAD 9.3), so a demonstration that did not set this
+    # would record every driver as refused and render no plan. The flag names
+    # itself in the log on every load it permits, which is the point of it.
+    uv_run("python", "scripts/procedure.py", env={"DRAUPNIR_DEV": "1"})
+    return 0
+
+
+@task("verify-chain", "Verify a site's ledger chain (SAD 11.2, row 6)")
+def verify_chain() -> int:
+    uv_run("python", "scripts/ledger_admin.py", "verify")
+    return 0
+
+
+@task("rebuild-projection", "Replay a site's chain into the run registry")
+def rebuild_projection() -> int:
+    uv_run("python", "scripts/ledger_admin.py", "rebuild")
+    return 0
+
+
+@task("module-readmes", "AC-D1: regenerate every module README from its docstring")
+def module_readmes() -> int:
+    uv_run("python", "scripts/module_readmes.py")
+    return 0
+
+
+@task("acceptance", "Assemble the acceptance evidence pack (SAD 12)")
+def acceptance() -> int:
+    # Regenerating and checking, in that order. The pack is generated from the
+    # SAD and from the citations in the repository, so a criterion that lost
+    # its last citation fails here rather than reading as covered.
+    uv_run("python", "scripts/module_readmes.py")
+    uv_run("python", "scripts/acceptance.py")
+    uv_run("python", "scripts/acceptance.py", "--check")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Pipeline stage 2: test
 # ---------------------------------------------------------------------------
@@ -635,15 +677,39 @@ def test_skills() -> int:
     return 0
 
 
+@task("test-degraded", "Every degraded mode of SAD 11.2, with the fault injected")
+def test_degraded() -> int:
+    # A target of its own because it is the one an operator runs before a shift
+    # to see what the system does, rather than one CI runs to see that it still
+    # does it. It is part of the integration level either way.
+    uv_run(
+        "pytest",
+        "tests/integration/test_degraded_modes.py",
+        "-p",
+        "no:cacheprovider",
+        env={"DRAUPNIR_DEV": "1"},
+    )
+    return 0
+
+
 @task("test-integration", "Integration tests against ephemeral PostgreSQL and MinIO")
 def test_integration() -> int:
     uv_run(
         "pytest",
         "tests/integration",
         "--cov=draupnir/core/infrastructure",
+        "--cov=draupnir/core/application",
+        "--cov=draupnir/procedures",
         "--cov-fail-under=80",
         "--cov-report=term-missing",
-        env={"COVERAGE_FILE": str(ROOT / ".coverage.integration")},
+        # The M1-M10 procedure and the degraded-mode injections both place work
+        # through the reference drivers, which are unsigned until the Veldris
+        # PKI verifier has a key (SAD 9.3). Without this the procedure would run
+        # with no driver loaded and record every rendered plan as unavailable.
+        env={
+            "COVERAGE_FILE": str(ROOT / ".coverage.integration"),
+            "DRAUPNIR_DEV": "1",
+        },
     )
     return 0
 

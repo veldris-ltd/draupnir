@@ -113,8 +113,17 @@ jobs:
         # without its skill moving fails here rather than at a keyboard.
         run: python tasks.py test-contract
 
-      - name: "2.4 integration (ephemeral PostgreSQL + MinIO)"
+      - name: "2.4 integration (ephemeral PostgreSQL + MinIO, M1-M10, degraded modes)"
+        # AC-F12 and AC-D3 are here: the procedure runs end to end against a
+        # real database, and every degraded mode of SAD 11.2 is injected for
+        # real -- a killed API process, a removed vault, a rewritten ledger row.
         run: python tasks.py test-integration
+
+      - name: "2.4a acceptance evidence pack (SAD 12, AC-D1, AC-D4)"
+        # The pack is generated from the specification and from the citations in
+        # the repository, so a criterion that lost its last citation fails the
+        # build rather than reading as covered.
+        run: python tasks.py acceptance
 
       - name: "2.5 API contract (OpenAPI diff, breaking change gate)"
         run: |

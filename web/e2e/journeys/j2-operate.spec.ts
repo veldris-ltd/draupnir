@@ -25,6 +25,18 @@ test.describe('J2 Operate', () => {
     const editor = page.getByTestId('spec-editor');
     await expect(editor).toBeVisible();
 
+    // Name it. An operator composing a second run of the same jurisdiction
+    // names it something new, and so must this: a specification identical to
+    // one already submitted has the same run identity, and the API refuses it
+    // as a duplicate (AC-F2). A journey that could only run once against a
+    // persistent database would be a journey nobody runs twice.
+    const composed = `cim-gbr-v9.${String(Date.now())}`;
+    const specification = JSON.parse(await editor.inputValue()) as {
+      metadata: { name: string };
+    };
+    specification.metadata.name = composed;
+    await editor.fill(JSON.stringify(specification, null, 2));
+
     // -- dry run: the primary action, and it consumes nothing ---------------
     await page.getByRole('button', { name: 'Dry run' }).click();
     const plan = page.getByTestId('dry-run-result');
@@ -65,7 +77,10 @@ test.describe('J2 Operate', () => {
     await expect(page.getByRole('heading', { name: 'Runs', level: 1 })).toBeVisible();
     await expect(page.getByTestId('board-freshness')).toContainText(/Live/, { timeout: 15_000 });
 
-    const name = `cim-gbr-v9.${String(Date.now() % 1000)}`;
+    // Fully unique, not a thousand possibilities: the identity of a run is
+    // the hash of its specification, so two journeys that happened to pick the
+    // same name would be the same run and the second would be refused.
+    const name = `cim-gbr-v9.${String(Date.now())}`;
     const started = Date.now();
 
     const response = await page.request.post('/v1/runs', {

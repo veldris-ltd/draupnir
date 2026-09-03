@@ -1,0 +1,26 @@
+# AC-D2: "Every plug-in interface has a reference implementation and a worked
+# example." This is `draupnir.store`'s. It is discovered by entry point and
+# nothing under draupnir/ changed to admit it.
+
+[project]
+name = "veldris-draupnir-posix-store"
+version = "1.0.0"
+description = "Reference StoreDriver for DRAUPNIR: hodd:// URIs over a POSIX filesystem"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "Proprietary" }
+dependencies = ["veldris-draupnir"]
+
+[tool.uv.sources]
+veldris-draupnir = { workspace = true }
+
+[project.entry-points."draupnir.store"]
+"hodd.posix_reference/v1" = "draupnir_posix_store:driver"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["draupnir_posix_store"]
+artifacts = ["draupnir_posix_store/py.typed"]

@@ -26,3 +26,4 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["draupnir_hamarr_llamafactory"]
+artifacts = ["draupnir_hamarr_llamafactory/py.typed"]

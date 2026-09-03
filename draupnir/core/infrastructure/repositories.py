@@ -225,6 +225,43 @@ class LedgerRepository(ScopedRepository):
             ],
         )
 
+    def serialise(self) -> None:
+        """Take this site's advisory write lock until the transaction ends.
+
+        A chain is serial by construction: the next entry is at seq N+1. Two
+        writers that both read N both compute N+1, and the unique constraint on
+        `(site_id, seq)` refuses the second -- which is the right backstop and
+        the wrong answer to two operators submitting at once. So contending
+        writers queue here instead of racing there.
+
+        `pg_advisory_xact_lock` rather than a table lock: it is released when
+        the transaction ends, however it ends, and it blocks nothing except
+        another writer to the same site. Readers are untouched.
+        """
+        self._connection.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:site_id))"),
+            {"site_id": self.site_id},
+        )
+
+    def entries_with_identity(self, identity: str) -> tuple[LedgerEntry, ...]:
+        """Registration entries recording `identity`, oldest first. AC-F2.
+
+        A JSONB containment match rather than a scan: `payload @> {...}` uses
+        the default GIN operator class, so this stays affordable on a chain
+        that grows without bound. Scoped like everything else -- a run at
+        another site is not a duplicate of one here, because a site is a
+        separate chain and a separate estate.
+        """
+        rows = self._connection.execute(
+            text(
+                f"SELECT {_LEDGER_COLUMNS} FROM ledger_entry "  # noqa: S608 -- literal columns
+                "WHERE site_id = :site_id AND subject_type = 'run' "
+                "AND payload @> :probe ORDER BY seq"
+            ),
+            {"site_id": self.site_id, "probe": json.dumps({"run_identity": identity})},
+        ).all()
+        return tuple(_entry(row) for row in rows)
+
     def stream(self, from_seq: int = 1, to_seq: int | None = None) -> Iterator[LedgerEntry]:
         """Yield entries in sequence order, a batch at a time.
 

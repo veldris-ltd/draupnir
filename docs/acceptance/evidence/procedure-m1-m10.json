@@ -1,0 +1,318 @@
+{
+  "artefacts": {
+    "adapter": "507bdc3c3f7f2b5485d76dad8be94ba854ba9b3f3b56e21c47c01ac3002215d8",
+    "approval": "RQUjNZEb2uhH2+ZWuhdK1kO4ZgQLQziCxWbcVxfhe6E=",
+    "base_model": "6b2c31cfaa84bdf4a99e3a80206aca618ac7d4ed0f1bfaf0bbeeb0a27d2dfd00",
+    "baseline": "507bdc3c3f7f2b5485d76dad8be94ba854ba9b3f3b56e21c47c01ac3002215d8",
+    "baseline_suite": "general-core",
+    "corpus_curated": "eddb09751b7712c48e50ebf1ad75c8eae1e8432cc14cfd2afc64c641a4acd6d6",
+    "corpus_raw": "b618a3627d25a30dbe368a32fd39e480780861f85ca2398cb5b09edd4b492071",
+    "gguf-q4km": "e960a3daefc2fdb775b82e109460196fe531d9fe1faa19d19cdd10d424a82bc0",
+    "merged": "9bb9ac54945e38cda6302915a2a43604b50cd1e46c7477b8ce9f3ec60ba9b476",
+    "mlx4": "e960a3daefc2fdb775b82e109460196fe531d9fe1faa19d19cdd10d424a82bc0",
+    "nvfp4": "e960a3daefc2fdb775b82e109460196fe531d9fe1faa19d19cdd10d424a82bc0"
+  },
+  "criterion": "AC-F12",
+  "endedAt": "2026-09-03T20:28:20.589020+00:00",
+  "executor": "stand-in",
+  "jurisdiction": "GBR",
+  "model": "cim-gbr-v1.0",
+  "renderedPlans": {
+    "train": {
+      "command": [
+        "sh",
+        "-c",
+        "printf \"%s\" \"$DRAUPNIR_TRAIN_CONFIG\" > llamafactory.json && llamafactory-cli train llamafactory.json"
+      ],
+      "driver": "hamarr.llamafactory/v1",
+      "environment": {
+        "DRAUPNIR_TEMPLATE_MAP": "hamarr-templates/2026.01",
+        "DRAUPNIR_TRAIN_CONFIG": "{\"alpha\":128,\"bf16\":true,\"dataset\":\"hodd://corpora/GBR/curated\",\"ddp_timeout\":180000000,\"do_train\":true,\"dropout\":0.05,\"epochs\":3,\"finetuning_type\":\"lora\",\"fp16\":false,\"logging_steps\":10,\"lora_alpha\":32,\"lora_rank\":16,\"lora_target\":\"all\",\"model_name_or_path\":\"MIDGARD-CORE-QWEN36-35B-A3B-v1.0\",\"output_dir\":\"output/cim-gbr-v1.0\",\"overwrite_output_dir\":false,\"rank\":64,\"save_steps\":150,\"save_total_limit\":3,\"seed\":42,\"stage\":\"sft\",\"template\":\"qwen3_nothink\"}",
+        "PYTHONHASHSEED": "0",
+        "TOKENIZERS_PARALLELISM": "false"
+      },
+      "expectedArtefacts": [
+        "adapter_model.safetensors",
+        "trainer_state.json"
+      ],
+      "resources": {
+        "gpusPerNode": 1,
+        "nodes": 1,
+        "partition": "adapters",
+        "timeLimitMinutes": null
+      },
+      "workdir": "D:\\repos\\veldris\\draupnir\\build\\procedure\\GBR"
+    }
+  },
+  "runId": "01a068f5-4403-7417-bd95-c3e88f86918e",
+  "site": "sindri",
+  "startedAt": "2026-09-03T20:28:19.288283+00:00",
+  "steps": [
+    {
+      "automates": "manual licence spreadsheet",
+      "entries": [
+        254
+      ],
+      "evidence": {
+        "corpus_raw": "b618a3627d25a30dbe368a32fd39e480780861f85ca2398cb5b09edd4b492071",
+        "entry_hash": "6d379d09ffe308ebafec5469ebacedbd95947765c7a225c4218aec7fc48326a2",
+        "sources": 2
+      },
+      "id": "M1",
+      "seconds": 0.016,
+      "state": "CORPUS_REGISTERED",
+      "title": "Register sources and licences"
+    },
+    {
+      "automates": "manual legal sign-off email",
+      "entries": [
+        255
+      ],
+      "evidence": {
+        "assessed": 2,
+        "entry_hash": "982572a47cb16cc474ca6a83f244b46e245985e4f387be3107d11a6c5c8338e8",
+        "licences": [
+          "CC-BY-4.0",
+          "OGL-UK-3.0"
+        ],
+        "policy_version": "gleipnir-licence/2026.01"
+      },
+      "id": "M2",
+      "seconds": 0.016,
+      "state": "LICENCE_CLEARED",
+      "title": "Clear licences against policy"
+    },
+    {
+      "automates": "hand-run dedupe and filter scripts",
+      "entries": [
+        256
+      ],
+      "evidence": {
+        "curated_sha256": "eddb09751b7712c48e50ebf1ad75c8eae1e8432cc14cfd2afc64c641a4acd6d6",
+        "entry_hash": "0e813dd27458f38723dbd5e64762cd94c30b983b75a8da29fb41879ab386aaed",
+        "exit_code": 0,
+        "raw_read_only": true,
+        "scheduler_job_id": "86bea95a456a4e16"
+      },
+      "id": "M3",
+      "seconds": 0.203,
+      "state": "CURATED",
+      "title": "Curate the corpus"
+    },
+    {
+      "automates": "hand-edited trainer config",
+      "entries": [
+        257
+      ],
+      "evidence": {
+        "entry_hash": "db80b6660fc917a7501e8cc6dd36fa2efad0495c948c8785961cd0169eae103e",
+        "inputs": [
+          "6b2c31cfaa84bdf4a99e3a80206aca618ac7d4ed0f1bfaf0bbeeb0a27d2dfd00",
+          "eddb09751b7712c48e50ebf1ad75c8eae1e8432cc14cfd2afc64c641a4acd6d6"
+        ],
+        "run_identity": "ba6e57d15b01b5de23ffddb485fc65a1e8f5fa97687322fc8ad2417b9c888e21",
+        "spec_hash": "ee4ad57ac5f1b0cbf990390fbb820952b0491e24c47f5b4296b4ab13b13c70fe"
+      },
+      "id": "M4",
+      "seconds": 0.015,
+      "state": "QUEUED",
+      "title": "Compile and submit the specification"
+    },
+    {
+      "automates": "sbatch by hand, checkpoint copied by hand",
+      "entries": [
+        258,
+        259
+      ],
+      "evidence": {
+        "adapter_sha256": "507bdc3c3f7f2b5485d76dad8be94ba854ba9b3f3b56e21c47c01ac3002215d8",
+        "entry_hash": "99c3e331655bd5c6cfa76c1d4f1ca84cdf594c5f0d12e6eed9f819253413b5e2",
+        "executor": "stand-in",
+        "rendered_plan": {
+          "command": [
+            "sh",
+            "-c",
+            "printf \"%s\" \"$DRAUPNIR_TRAIN_CONFIG\" > llamafactory.json && llamafactory-cli train llamafactory.json"
+          ],
+          "driver": "hamarr.llamafactory/v1",
+          "environment": {
+            "DRAUPNIR_TEMPLATE_MAP": "hamarr-templates/2026.01",
+            "DRAUPNIR_TRAIN_CONFIG": "{\"alpha\":128,\"bf16\":true,\"dataset\":\"hodd://corpora/GBR/curated\",\"ddp_timeout\":180000000,\"do_train\":true,\"dropout\":0.05,\"epochs\":3,\"finetuning_type\":\"lora\",\"fp16\":false,\"logging_steps\":10,\"lora_alpha\":32,\"lora_rank\":16,\"lora_target\":\"all\",\"model_name_or_path\":\"MIDGARD-CORE-QWEN36-35B-A3B-v1.0\",\"output_dir\":\"output/cim-gbr-v1.0\",\"overwrite_output_dir\":false,\"rank\":64,\"save_steps\":150,\"save_total_limit\":3,\"seed\":42,\"stage\":\"sft\",\"template\":\"qwen3_nothink\"}",
+            "PYTHONHASHSEED": "0",
+            "TOKENIZERS_PARALLELISM": "false"
+          },
+          "expectedArtefacts": [
+            "adapter_model.safetensors",
+            "trainer_state.json"
+          ],
+          "resources": {
+            "gpusPerNode": 1,
+            "nodes": 1,
+            "partition": "adapters",
+            "timeLimitMinutes": null
+          },
+          "workdir": "D:\\repos\\veldris\\draupnir\\build\\procedure\\GBR"
+        },
+        "scheduler_job_id": "510e36b38c184b0e"
+      },
+      "id": "M5",
+      "seconds": 0.297,
+      "state": "TRAINED",
+      "title": "Place and train"
+    },
+    {
+      "automates": "eval run and a judgement call",
+      "entries": [
+        260,
+        261
+      ],
+      "evidence": {
+        "entry_hash": "cd7362a22963c2fd0ff38adf4180998a580dfe0e167518026dfb2d35a7d84c39",
+        "gates": [
+          "E1",
+          "E2",
+          "E3",
+          "E4",
+          "E5",
+          "E6"
+        ],
+        "margins": {
+          "E1": 0.035745,
+          "E2": 0.040238,
+          "E3": 0.043855,
+          "E4": 0.03509,
+          "E5": 0.040511
+        },
+        "measurements": {
+          "E1": 0.714909,
+          "E2": 0.804757,
+          "E3": 0.877095,
+          "E4": 0.701806,
+          "E5": 0.81022,
+          "E6": 2.6e-05
+        },
+        "suite": "general-core/2026.01"
+      },
+      "id": "M6",
+      "seconds": 0.032,
+      "state": "MERGED",
+      "title": "Evaluate against gates E1 to E6"
+    },
+    {
+      "automates": "mergekit and quantise by hand",
+      "entries": [
+        262
+      ],
+      "evidence": {
+        "entry_hash": "837504bf0900ee72c710652fc23966aade7be7eefbb2eba9be6aaacf4a7de306",
+        "formats": {
+          "gguf-q4km": "e960a3daefc2fdb775b82e109460196fe531d9fe1faa19d19cdd10d424a82bc0",
+          "mlx4": "e960a3daefc2fdb775b82e109460196fe531d9fe1faa19d19cdd10d424a82bc0",
+          "nvfp4": "e960a3daefc2fdb775b82e109460196fe531d9fe1faa19d19cdd10d424a82bc0"
+        },
+        "merge_gate_results": {
+          "failing": [],
+          "gates": {
+            "E1": {
+              "baseline": 0.840389,
+              "margin": 0.044231,
+              "passed": true,
+              "value": 0.88462
+            },
+            "E2": {
+              "baseline": 0.73176,
+              "margin": 0.038514,
+              "passed": true,
+              "value": 0.770274
+            },
+            "E3": {
+              "baseline": 0.701649,
+              "margin": 0.036929,
+              "passed": true,
+              "value": 0.738578
+            },
+            "E4": {
+              "baseline": 0.845285,
+              "margin": 0.044489,
+              "passed": true,
+              "value": 0.889774
+            },
+            "E5": {
+              "baseline": 0.712091,
+              "margin": 0.037478,
+              "passed": true,
+              "value": 0.749569
+            },
+            "E6": {
+              "baseline": null,
+              "margin": null,
+              "passed": true,
+              "value": 9e-06
+            }
+          },
+          "suiteVersion": "2026.01"
+        },
+        "merged_sha256": "9bb9ac54945e38cda6302915a2a43604b50cd1e46c7477b8ce9f3ec60ba9b476",
+        "sweep_points": 5
+      },
+      "id": "M7",
+      "seconds": 0.625,
+      "state": "QUANTISED",
+      "title": "Merge, sweep and quantise"
+    },
+    {
+      "automates": "skipped, in practice",
+      "entries": [
+        263
+      ],
+      "evidence": {
+        "entry_hash": "262a57ba19d5d731f0c65614edb2e73288efba3bca149b5b5e0d2581e817c56e",
+        "failing": [],
+        "formats_regated": [
+          "nvfp4",
+          "gguf-q4km",
+          "mlx4"
+        ]
+      },
+      "id": "M8",
+      "seconds": 0.015,
+      "state": "AWAITING_APPROVAL",
+      "title": "Re-gate every quantised build"
+    },
+    {
+      "automates": "an email saying yes",
+      "entries": [],
+      "evidence": {
+        "approval_id": "01a068f5-48d6-774b-a611-87c43f1953d7",
+        "approver": "approver@veldris.internal",
+        "signed": true,
+        "sole_approver_exception": false,
+        "submitter": "operator@veldris.internal"
+      },
+      "id": "M9",
+      "seconds": 0.0,
+      "state": null,
+      "title": "Approve"
+    },
+    {
+      "automates": "a manual copy into the release share",
+      "entries": [
+        264
+      ],
+      "evidence": {
+        "entry_hash": "e65000f7d7bcf0d08f2ec19015eb29a2f20205e1d3d301e4f641fdf9a1c8776c",
+        "formats": [
+          "nvfp4",
+          "gguf-q4km",
+          "mlx4"
+        ],
+        "model": "cim-gbr-v1.0",
+        "released": "e960a3daefc2fdb775b82e109460196fe531d9fe1faa19d19cdd10d424a82bc0"
+      },
+      "id": "M10",
+      "seconds": 0.016,
+      "state": "RELEASED",
+      "title": "Release"
+    }
+  ]
+}
