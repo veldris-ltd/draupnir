@@ -107,7 +107,10 @@ jobs:
       - name: "2.2 property (hypothesis, ledger and spec hashing)"
         run: python tasks.py test-property
 
-      - name: "2.3 contract (driver conformance harness)"
+      - name: "2.3 contract (driver conformance harness, API surface, AC-Q8 skills)"
+        # tests/contract/test_skills.py runs each of the six skills of SAD 11G
+        # and puts its output through the real gate, so a convention that moves
+        # without its skill moving fails here rather than at a keyboard.
         run: python tasks.py test-contract
 
       - name: "2.4 integration (ephemeral PostgreSQL + MinIO)"

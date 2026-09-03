@@ -155,6 +155,10 @@ ignore = [
 # shadows a builtin nobody uses.
 "tests/**" = ["S101", "A004", "D100", "D102", "D103", "D104", "D107", "ANN"]
 "scripts/**" = ["T20"]
+# A skill's scaffold is a command line tool, and what it prints is its
+# output. Its generated worked example is exercised by tests/contract/
+# test_skills.py, so the templates are checked by running them.
+"skills/**" = ["T20"]
 "migrations/**" = ["D", "ANN", "N999"]
 # The published conformance suite is test code that ships as a library: an
 # assertion is what it is for, and each inherited check documents itself
@@ -190,7 +194,7 @@ warn_unreachable = true
 warn_unused_configs = true
 disallow_any_unimported = true
 plugins = ["pydantic.mypy"]
-files = ["draupnir", "draupnirctl", "plugins", "scripts", "tests"]
+files = ["draupnir", "draupnirctl", "plugins", "scripts", "skills", "tests"]
 exclude = ["^docs/build/"]
 
 [[tool.mypy.overrides]]

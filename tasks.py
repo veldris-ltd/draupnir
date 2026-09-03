@@ -626,6 +626,15 @@ def test_contract() -> int:
     return 0
 
 
+@task("test-skills", "AC-Q8: each skill produces a conforming artefact")
+def test_skills() -> int:
+    # Runs as part of test-contract as well. It is a target of its own because
+    # a skill is used at a keyboard rather than in CI, and somebody editing one
+    # wants the ten-second answer rather than the whole contract level.
+    uv_run("pytest", "tests/contract/test_skills.py", "-p", "no:cacheprovider")
+    return 0
+
+
 @task("test-integration", "Integration tests against ephemeral PostgreSQL and MinIO")
 def test_integration() -> int:
     uv_run(

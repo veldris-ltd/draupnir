@@ -779,9 +779,34 @@ distribution. Without it, the plug-in is refused and the refusal is reported by
 party plug-in must not stop the control plane starting, but asking for that
 plug-in afterwards does raise, with the reason.
 
+### Start from a skill
+
+Six kinds of change recur, and each has a skill under `skills/` that scaffolds
+it: a driver, an API operation, a migration, a design-system component, an
+evaluation suite, and a release. Each ships an executable scaffold rather than
+a description of one, so the parts that are wrong when written from memory --
+the entry point spelling, the role declaration, the `FORCE` on a row level
+security policy, the seven state stories -- are not written from memory.
+
+```bash
+python skills/draupnir-driver/scripts/new_driver.py --help
+python skills/draupnir-endpoint/scripts/new_endpoint.py --help
+python skills/draupnir-migration/scripts/new_migration.py --check
+python skills/jarngreipr-component/scripts/new_component.py --help
+python skills/raun-suite/scripts/new_suite.py --help
+python skills/cim-release/scripts/preflight.py --demo
+```
+
+`skills/README.md` says which to reach for. Each skill's `references/` document
+is also the fastest way into the conventions of that part of the system, and
+`make test-skills` runs every one of their demonstrations through the real
+gate (AC-Q8) -- so a convention that moves without its skill moving fails in CI
+rather than at your keyboard.
+
 ### Writing a driver
 
-Install `draupnir[testing]` and inherit the published conformance suite:
+Run `skills/draupnir-driver/scripts/new_driver.py`, then install
+`draupnir[testing]` and inherit the published conformance suite:
 
 ```python
 from draupnir.interfaces.testing import ScheduleDriverConformance
@@ -832,7 +857,8 @@ changes are additive only.
 |---|---|---|
 | Unit | `make test-unit` | Pure domain logic. 90% statement coverage on `core/domain` |
 | Property | `make test-property` | Ledger invariants. 500 examples minimum |
-| Contract | `make test-contract` | Every driver against the conformance harness |
+| Contract | `make test-contract` | Every driver against the conformance harness, the API surface, and AC-Q8 |
+| Skills | `make test-skills` | AC-Q8 alone: each of the six skills, and the gate its output passes |
 | Integration | `make test-integration` | Ephemeral PostgreSQL and MinIO, real migrations |
 | Frontend | `make test-frontend` | Vitest and Testing Library |
 | End to end | `make test-e2e` | Playwright, the four journeys |
