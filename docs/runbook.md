@@ -39,6 +39,7 @@ make test-degraded          # every row of SAD 11.2, faults injected for real
 | Anchor queue growing, release refused | [7](#7-wide-area-network-to-megingjord-lost) | yes | yes |
 | Divergence alarm at both ends | [8](#8-chain-divergence-detected-at-anchor) | **yes, read only** | stop and investigate |
 | Supply on battery | [9](#9-mains-loss-uninterruptible-supply-on-battery) | yes | checkpointing, then halting |
+| Runs sitting in one state with the estate idle | [Running the worker](#running-the-worker) | no | yes |
 
 ---
 
@@ -56,11 +57,15 @@ never in the middle of one.
 
 ```bash
 make api                       # or: systemctl start draupnir-api
+make worker                    # or: systemctl start draupnir-worker
 curl -s localhost:8000/healthz
 ```
 
-The process rebuilds its view from the chain on start. There is nothing to
-replay by hand and nothing to reconcile.
+Both processes rebuild their view from the chain on start. There is nothing to
+replay by hand and nothing to reconcile. The worker holds nothing between ticks
+by design, so one killed mid-tick loses at most that tick: the job it had
+placed keeps running on the appliance, and the next tick finds it again by the
+scheduler job identifier the chain recorded at QUEUED to TRAINING.
 
 **How you know it is over.** `/healthz` answers, `/readyz` reports every
 dependency true, and the run board shows the same states it showed before.
@@ -346,6 +351,63 @@ through the one event it exists for.
 `test_a_supply_that_cannot_be_read_is_an_alarm_not_an_assumption`.
 
 ---
+
+## Running the worker
+
+The worker is what moves a run when nobody asks. It ticks; each tick reads the
+chain, does one thing to every run that needs something done, and performs
+whatever periodic duty of SAD 11.3 has come due.
+
+```bash
+make worker                                     # ticks until interrupted
+make worker-once                                # one tick, reported as JSON
+python -m draupnir.worker --site sindri --interval 5
+```
+
+**What it will and will not do.** It drives a run from QUEUED to
+AWAITING_APPROVAL and stops there. Approval is a person's and so is release
+(Decision S6): a worker that approved its own work would be the sole approver
+exception with nobody in it. Everything before QUEUED -- registering sources,
+clearing licences, curating -- is the curator's, and the worker does not touch
+it.
+
+**Running more than one.** SAD 5.1 asks for two to four processes and that is
+safe. Every append takes the site's advisory lock, and the guards of SAD 6.1
+refuse the loser of a race, so two workers that both see a queued run place it
+once between them. The second one logs `worker.refused` and moves on.
+
+**Stopping it.** SIGINT or SIGTERM. It finishes the tick it is in and exits
+zero, which is what a rolling restart should look like in a container's logs.
+
+**If runs are sitting in one state and the estate is idle,** the worker is
+probably not running. Check its log for `worker.moved` lines; a worker that is
+running and refusing says why on every tick.
+
+**The periodic duties, and what they record.** A duty that finds nothing wrong
+writes a log line and no ledger entry -- an hourly "the chain still verifies"
+entry would add tens of thousands of entries a year saying nothing. Alarms are
+recorded against the site; retention proposals are recorded against the corpus.
+So:
+
+| Duty | Every | Alarms when |
+|---|---|---|
+| Ledger chain integrity | hour | any divergence; the sequence number is in the alarm |
+| Fabric bandwidth probe | hour | below 80 per cent of the commissioned baseline |
+| Vault capacity | 15 minutes | at 85 per cent full, or the vault is not mounted |
+| Anchor freshness | 15 minutes | the last successful anchor is older than the interval |
+| Retention sweep | day | never. It proposes; it does not delete (SAD 7.3) |
+
+The fabric probe needs `all_reduce_perf` on the machine and a commissioned
+baseline in `DRAUPNIR_WORKER_FABRIC_BASELINE_GBPS`. Without the benchmark it
+reports the fabric as unmeasured; without the baseline it reports the reading
+and says the alarm cannot be raised against it. Neither invents a number.
+
+To run the runs and skip the duties -- which is what a second or third worker
+on the same site should do, since one of them verifying is enough:
+
+```bash
+python -m draupnir.worker --no-duties
+```
 
 ## Running the procedure
 

@@ -180,6 +180,9 @@ ignore = [
 # assertion is what it is for, and each inherited check documents itself
 # through the finding it raises.
 "draupnir/interfaces/testing/suite.py" = ["S101", "D102"]
+# The worker's entry point is a command line tool, and what it prints -- the
+# tick report, and the line a container's logs end with -- is its output.
+"draupnir/worker/__main__.py" = ["T20"]
 # The task runner is a script. Each task's documentation is the description in
 # its decorator, which is what `make` prints; a docstring would duplicate it.
 "tasks.py" = ["T20", "D103", "N818"]

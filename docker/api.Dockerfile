@@ -73,5 +73,13 @@ USER 65532:65532
 
 EXPOSE 8000
 
-ENTRYPOINT ["/app/.venv/bin/python", "-m", "uvicorn"]
-CMD ["draupnir.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# The interpreter is the entry point and the module is the command, so the one
+# image serves both deployable units: the default runs the API, and
+#
+#     docker run draupnir-api -m draupnir.worker
+#
+# runs the worker of SAD 5.1 ("two to four processes, poll the ledger for
+# actionable transitions"). One image rather than two, because they are one
+# codebase and a second Dockerfile is a second thing to keep in step.
+ENTRYPOINT ["/app/.venv/bin/python"]
+CMD ["-m", "uvicorn", "draupnir.api.app:app", "--host", "0.0.0.0", "--port", "8000"]

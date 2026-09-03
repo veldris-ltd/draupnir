@@ -21,6 +21,7 @@ make procedure
 - `scripts/procedure.py`
 - `tasks.py`
 - `tests/integration/test_procedures.py`
+- `tests/integration/test_worker_loop.py`
 
 ---
 

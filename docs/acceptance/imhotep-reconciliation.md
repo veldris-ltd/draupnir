@@ -43,7 +43,7 @@ ought to work.
 
 | Section | Items | Implemented | Deviated | Not built |
 |---|---:|---:|---:|---:|
-| 5.1 Deployable units | 6 | 5 | 1 | 0 |
+| 5.1 Deployable units | 6 | 6 | 0 | 0 |
 | 5.2 Module responsibilities | 11 | 11 | 0 | 0 |
 | 6.1 Lifecycle | 14 states, 16 transitions | all | 0 | 0 |
 | 6.2 Run specification | 1 | 1 | 0 | 0 |
@@ -53,7 +53,7 @@ ought to work.
 | 9.1–9.5 Security | 5 topics, 14 threats | 18 | 1 | 0 |
 | 9A Article 53 | 4 | 4 | 0 | 0 |
 | 10 Extensibility | 3 | 3 | 0 | 0 |
-| 11.1–11.4 Operations | 4 | 2 | 1 | 1 |
+| 11.1–11.4 Operations | 4 | 3 | 1 | 0 |
 | 11A Federation | 6 | 6 | 0 | 0 |
 | 11B–11E Engineering | 8 | 8 | 0 | 0 |
 | 11F Frontend | 4 | 4 | 0 | 0 |
@@ -62,7 +62,7 @@ ought to work.
 | 15 Decisions | 14 | 13 | 1 | 0 |
 | 16A Custody | 1 | 1 | 0 | 0 |
 
-Three items are **NOT BUILT**; all three are named in the sections below and
+Two items are **NOT BUILT**; both are named in the sections below and
 repeated at the end.
 
 ---
@@ -72,7 +72,7 @@ repeated at the end.
 | Unit | Mark | Where |
 |---|---|---|
 | Control plane API | IMPLEMENTED | `draupnir/api/`, `make api` |
-| Worker / orchestrator | DEVIATED | `draupnir/core/application/orchestrator.py` and `draupnir/procedures/`. The state machine, the ledger write and the projection are one transaction; the API and the M1–M10 procedure both drive them. There is **no long-running worker process** polling the scheduler and advancing runs on its own: dispatch and collection are driven by the procedure runner, not by a daemon. See NOT BUILT 1 below. |
+| Worker / orchestrator | IMPLEMENTED | `draupnir/core/application/orchestrator.py` and `draupnir/worker/`, `make worker` or `python -m draupnir.worker`. The orchestrator makes the state machine, the ledger write and the projection one transaction; the worker ticks, and each tick drives every run one step and performs whatever periodic duty of SAD 11.3 has come due. It holds nothing between ticks — SAD 11.2 row 1 — and it is safe to run the "two to four processes" SAD 5.1 asks for, because the chain serialises on the site's advisory lock and the guards refuse the loser of a race. `tests/integration/test_worker_loop.py` drives a curated run from QUEUED to AWAITING_APPROVAL with nobody asking. |
 | Web console | IMPLEMENTED | `web/apps/console/`, 31 screens |
 | CLI | IMPLEMENTED | `draupnirctl/`, generated from the OpenAPI document |
 | Executor shims on the appliances | IMPLEMENTED | `plugins/hamarr_llamafactory/`, `plugins/motsognir_slurm/` — the drivers that render and submit. They run where the tools are. |
@@ -133,8 +133,12 @@ Two things are stronger than the specification asked for, and one weaker:
 - The three constraints of SAD 11C are enforced by the **database**: an
   append-only trigger, a foreign key and NOT NULL on `release.approval_id`, and
   row level security with `FORCE` on every scoped table.
-- Retention runs when it is asked to. There is no scheduler firing it at
-  24 months; see NOT BUILT 1.
+- Retention is swept daily by the worker, which reads the 24 month rule out of
+  the chain — a corpus, the runs that consumed it, and the last release derived
+  from it — and records a proposal against any corpus past it. It never
+  deletes: SAD 7.3 gives the deletion an approver and `hodd.retention` refuses
+  an unapproved action, so a worker that deleted on a timer would be exactly
+  the cron job that rule forbids.
 
 ## 8.1 API surface
 
@@ -256,7 +260,7 @@ parsed by one module the loader, the drivers and the harness all share.
 |---|---|---|
 | 11.1 Deployment | IMPLEMENTED | Compose for development, distroless aarch64 images, migrate-dry then migrate, smoke test, rollback |
 | 11.2 Degraded modes | IMPLEMENTED | All nine rows, each with the fault injected for real. `docs/runbook.md` and `tests/integration/test_degraded_modes.py` |
-| 11.3 Observability | DEVIATED | Every signal has a source and a surface. The **fabric bandwidth probe** — an hourly `nccl-tests` job dispatched by MOTSOGNIR — is not dispatched by anything: there is no scheduler loop and no fabric. See NOT BUILT 1. |
+| 11.3 Observability | DEVIATED | Every signal has a source and a surface, and the four with a clock now have something running them: the worker verifies the chain hourly, dispatches the **fabric bandwidth probe** hourly, reads vault capacity, and checks anchor freshness, alarming at the thresholds the table states. The probe itself is the deviation: `all_reduce_perf` is not installed on a control plane, so it reports the fabric as unmeasured rather than inventing a reading, and the 80 per cent alarm needs a commissioned baseline that only Sindri can supply. |
 | 11.4 Technology selection | IMPLEMENTED | Every selected technology is the one in use |
 
 The uninterruptible supply is worth its own line. SAD 11.3 lists the mains and
@@ -334,30 +338,16 @@ concentration is auditable even though it is not reduced.
 
 ---
 
-## The four that are not built
+## The two that are not built
 
-### NOT BUILT 1 — There is no worker process
-
-SAD 5.1 lists a worker as a deployable unit. Nothing polls the scheduler,
-advances a run from `TRAINING` to `TRAINED`, dispatches the hourly fabric probe
-of SAD 11.3, or fires a retention action at 24 months. The M1–M10 procedure does
-all of that inline, in one call, which is what makes it a demonstration rather
-than an operating system.
-
-**Consequence.** A run submitted through the console reaches `DRAFT` and stays
-there: the endpoints that would move it exist and are wired, but nothing calls
-them on the run's behalf. An operator can drive every transition by hand
-through the API, and `make procedure` drives them all in one call. What is
-missing is the thing that does it without being asked.
-
-### NOT BUILT 2 — Vault reconciliation
+### NOT BUILT 1 — Vault reconciliation
 
 SAD 11.2 row 4's recovery is "restore NFS, run reconciliation". There is no
 reconciliation command: after a vault outage, staging what running jobs wrote
 to local scratch is manual. The runbook says so where an operator will read it
 rather than leaving them to discover it.
 
-### NOT BUILT 3 — Three non-functional targets are unmeasured
+### NOT BUILT 2 — Three non-functional targets are unmeasured
 
 AC-N1 (control plane overhead on ALVISS), AC-N2 (step time within one per cent)
 and AC-N11 (anchor round trip over WireGuard) are measurements on hardware that
@@ -369,8 +359,8 @@ measurement.
 
 ## What this reconciliation changed
 
-Five items moved from NOT BUILT to IMPLEMENTED while it was being written,
-because reading the specification against the code is what found them:
+Six items moved from NOT BUILT to IMPLEMENTED, because reading the
+specification against the code is what found them:
 
 1. **The mutating endpoints did not write.** Recorded here as a NOT BUILT and
    then built: every one now records through the orchestrator or refuses and
@@ -386,6 +376,12 @@ because reading the specification against the code is what found them:
    watched it fail. A test now plants a violation.
 5. **AC-D1, module READMEs.** None existed. They are generated from the package
    docstrings, so they cannot drift from the responsibilities they state.
+6. **The worker.** SAD 5.1 named a deployable unit that did not exist, so a
+   curated run stopped at `QUEUED` until somebody ran `make procedure`. It is
+   `draupnir/worker/`: a tick that reads the chain, does one thing to each run,
+   and performs the periodic duties of SAD 11.3. Building it closed the
+   retention sweep and the fabric probe with it, because those were missing for
+   the same reason — nothing owned a clock.
 
 And one defect was found by injecting a failure rather than by reading:
 **an unmounted HODD vault was silently recreated on the control plane's local

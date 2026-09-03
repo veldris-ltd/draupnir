@@ -18,6 +18,7 @@ make test-integration
 
 - `draupnir/core/domain/ledger.py`
 - `draupnir/core/infrastructure/repositories.py`
+- `draupnir/worker/duties.py`
 - `tests/integration/test_ledger_performance.py`
 - `tests/integration/test_repositories.py`
 - `tests/unit/test_ledger.py`

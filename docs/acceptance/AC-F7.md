@@ -18,6 +18,7 @@ make test-unit
 
 - `draupnir/api/routers/runs.py`
 - `draupnir/raun/transitions.py`
+- `draupnir/worker/stages.py`
 - `tests/integration/test_api_transitions.py`
 - `tests/unit/test_raun.py`
 

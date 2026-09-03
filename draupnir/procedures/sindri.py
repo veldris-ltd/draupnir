@@ -157,8 +157,14 @@ class Procedure:
     corpus_seed: str = ""
 
     def path(self, *parts: str) -> Path:
-        """A path inside this procedure's working directory."""
-        target = self.workdir.joinpath(*parts)
+        """A path inside this procedure's working directory.
+
+        Absolute, whatever the caller passed. A step's output path is handed to
+        a child process that runs *in* the working directory, so a relative one
+        resolves twice: the job exits zero, writes into a directory below
+        itself, and the step fails on a file that is not where it looked.
+        """
+        target = self.workdir.resolve().joinpath(*parts)
         target.parent.mkdir(parents=True, exist_ok=True)
         return target
 

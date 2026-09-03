@@ -1,0 +1,45 @@
+"""The worker: the thing that moves a run without being asked.
+
+SAD 5.1 lists a worker among the deployable units, and until now there was not
+one. A run submitted through the console reached DRAFT and stayed there; every
+transition existed and was reachable, and nothing called them on the run's
+behalf. `make procedure` drove the whole sequence in one call, which is a
+demonstration rather than an operating system.
+
+**What it does.** It ticks. Each tick reads the chain, decides what each run
+needs next, does one thing about it, and records the result. Between ticks it
+holds nothing that matters -- SAD 11.2 row 1: "Runs in flight continue on the
+appliances. State is reconstructed from the ledger on start" -- so a worker
+killed mid-tick loses at most the tick.
+
+It drives a run from QUEUED to AWAITING_APPROVAL and stops. Approval is a
+human's (Decision S6), and so is release: a worker that approved its own work
+would be the sole approver exception with nobody in it.
+
+Owns: The loop, the decision about what a run needs next, and the periodic
+duties of SAD 11.3 -- chain verification, the fabric probe, vault capacity,
+anchor freshness and the retention sweep.
+Must not: Decide anything about a run. Every judgement belongs to the module
+that owns it: placement is MOTSOGNIR's, the gates are GLEIPNIR's, the suite is
+RAUN's, the transition is the state machine's. The worker chooses *when*, and
+nothing else. A worker with an opinion about whether a gate passed would be a
+second implementation of a rule that already has one.
+
+**Three properties worth stating.**
+
+It is *idempotent*: a run already TRAINING is not dispatched again, a job whose
+result is recorded is not recorded twice, and running two ticks where one was
+due changes nothing.
+
+It is *safe to run twice*: the chain is the serialisation point, and dispatch
+takes the site's advisory lock, so two workers place a run once between them.
+
+It *stops when the power does*: the supply monitor gates dispatch, so a
+transfer to battery drains the queue rather than starting work the battery
+cannot finish (SAD 11.2, last row).
+"""
+
+from draupnir.worker.loop import Worker, WorkerSettings, tick
+from draupnir.worker.stages import Outcome, advance
+
+__all__ = ["Outcome", "Worker", "WorkerSettings", "advance", "tick"]

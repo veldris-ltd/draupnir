@@ -323,6 +323,17 @@ class Orchestrator:
             failing_gates=failing,
         )
 
+    def history(self, run_id: UUID) -> tuple[LedgerEntry, ...]:
+        """Every entry the chain holds about one run, oldest first.
+
+        What the projection does not keep. A run board needs a state and a
+        name; a caller resuming work needs the scheduler job it placed, the
+        checkpoint it produced and the formats it built, and those live in the
+        entry payloads rather than in the projected row. Reading them back is
+        what makes a worker able to hold nothing between ticks (SAD 11.2 row 1).
+        """
+        return self._ledger.entries_for_subject(str(run_id))
+
     def submitter_of(self, run_id: UUID) -> str:
         """Who registered this run.
 

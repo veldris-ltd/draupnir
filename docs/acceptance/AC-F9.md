@@ -21,6 +21,7 @@ make procedure
 - `draupnir/api/routers/approvals.py`
 - `draupnir/raun/transitions.py`
 - `draupnir/skidbladnir/publish.py`
+- `draupnir/worker/stages.py`
 - `plugins/skidbladnir_quantise/draupnir_skidbladnir_quantise/__init__.py`
 - `tests/unit/test_raun.py`
 - `tests/unit/test_skidbladnir.py`

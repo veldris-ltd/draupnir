@@ -17,6 +17,7 @@ make test-unit
 ## Evidence
 
 - `draupnir/brisingamen/sweep.py`
+- `draupnir/worker/stages.py`
 - `tests/unit/test_brisingamen.py`
 
 ---

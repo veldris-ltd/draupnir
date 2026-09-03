@@ -556,6 +556,22 @@ def procedure() -> int:
     return 0
 
 
+@task("worker", "Run the worker: move every queued run without being asked (SAD 5.1)")
+def worker() -> int:
+    # Ticks until interrupted. `make worker-once` is the one-shot form, which
+    # is what a runbook step and a smoke test want.
+    seeded_stack()
+    uv_run("python", "-m", "draupnir.worker", env={"DRAUPNIR_DEV": "1"})
+    return 0
+
+
+@task("worker-once", "One worker tick, reported as JSON")
+def worker_once() -> int:
+    seeded_stack()
+    uv_run("python", "-m", "draupnir.worker", "--once", env={"DRAUPNIR_DEV": "1"})
+    return 0
+
+
 @task("verify-chain", "Verify a site's ledger chain (SAD 11.2, row 6)")
 def verify_chain() -> int:
     uv_run("python", "scripts/ledger_admin.py", "verify")

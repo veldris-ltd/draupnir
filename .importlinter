@@ -42,7 +42,7 @@ containers =
 name = Edge, modules, core, ports (SAD 11B)
 type = layers
 layers =
-    draupnir.procedures
+    draupnir.worker | draupnir.procedures
     draupnir.api
     draupnir.megingjord | draupnir.gullinbursti | draupnir.svalinn | draupnir.skidbladnir | draupnir.raun | draupnir.brisingamen | draupnir.hamarr | draupnir.motsognir | draupnir.gleipnir | draupnir.hodd
     draupnir.core
