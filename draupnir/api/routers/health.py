@@ -10,25 +10,30 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Response
-from pydantic import BaseModel
 from sqlalchemy import text
 
 from draupnir.api.guards import unauthenticated
+from draupnir.api.schemas import Wire
 from draupnir.core.infrastructure.config import get_settings
 from draupnir.core.infrastructure.database import create_engine
 
 router = APIRouter(tags=["operations"])
 
 
-class Health(BaseModel):
-    """Liveness answer."""
+class Health(Wire):
+    """Liveness answer.
+
+    `Wire`, not a bare `BaseModel`: every other response on this API is
+    camelCase and a probe that answers `site_id` while the rest answer `siteId`
+    makes "one API" false in the one place every client reads first.
+    """
 
     status: Literal["ok"]
     version: str
     site_id: str
 
 
-class Readiness(BaseModel):
+class Readiness(Wire):
     """Readiness answer, one entry per dependency."""
 
     status: Literal["ready", "degraded"]

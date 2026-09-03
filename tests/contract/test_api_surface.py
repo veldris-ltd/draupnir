@@ -29,6 +29,7 @@ from draupnir.api.guards import (
 )
 from draupnir.api.idempotency import IdempotencyStore
 from draupnir.api.problems import CONTENT_TYPE, PROBLEM_BASE
+from draupnir.interfaces.testing import sample_spec
 from draupnir.svalinn.authz import UndeclaredRouteError
 
 pytestmark = pytest.mark.contract
@@ -47,6 +48,15 @@ CURATOR = {**OPERATOR, "sub": "curator-1", "roles": ["curator"]}
 APPROVER = {**OPERATOR, "sub": "akuma", "roles": ["approver"]}
 #: An approver who authenticated with a password alone. AC-S15.
 WEAK_APPROVER = {**APPROVER, "amr": ["pwd"]}
+
+#: A specification the API can actually read. Submission now computes the
+#: run identity of AC-F1, and an identity cannot be computed over a payload
+#: that is not a specification, so these tests send a real one.
+SPEC = sample_spec().as_mapping()
+OTHER_SPEC = {
+    **SPEC,
+    "metadata": {**SPEC["metadata"], "name": "cim-irl-v0.1", "jurisdiction": "IRL"},
+}
 
 
 def client_as(claims: dict[str, Any] | None) -> TestClient:
@@ -145,7 +155,7 @@ def test_a_viewer_submitting_a_run_returns_403() -> None:
     """AC-S4, second clause."""
     response = client_as(VIEWER).post(
         "/v1/runs",
-        json={"specification": {"kind": "AdapterRun"}},
+        json={"specification": SPEC},
         headers={"Idempotency-Key": "k1"},
     )
 
@@ -157,7 +167,7 @@ def test_a_viewer_submitting_a_run_returns_403() -> None:
 def test_an_operator_may_submit_a_run() -> None:
     response = client_as(OPERATOR).post(
         "/v1/runs",
-        json={"specification": {"kind": "AdapterRun"}},
+        json={"specification": SPEC},
         headers={"Idempotency-Key": "k1"},
     )
 
@@ -235,7 +245,7 @@ def test_a_mutating_endpoint_without_an_idempotency_key_is_refused() -> None:
     Optional means the retry that duplicated something was the one that
     omitted it.
     """
-    response = client_as(OPERATOR).post("/v1/runs", json={"specification": {"k": 1}})
+    response = client_as(OPERATOR).post("/v1/runs", json={"specification": SPEC})
 
     assert response.status_code == 428
     assert response.json()["code"] == "idempotency-key-required"
@@ -244,7 +254,7 @@ def test_a_mutating_endpoint_without_an_idempotency_key_is_refused() -> None:
 def test_a_replayed_submission_returns_the_original_result(monkeypatch: Any) -> None:
     """AC-B1, through the wire."""
     client = client_as(OPERATOR)
-    body = {"specification": {"kind": "AdapterRun"}}
+    body = {"specification": SPEC}
     headers = {"Idempotency-Key": "submit-1"}
 
     first = client.post("/v1/runs", json=body, headers=headers)
@@ -258,8 +268,8 @@ def test_the_same_key_with_a_different_body_is_refused_over_the_wire() -> None:
     client = client_as(OPERATOR)
     headers = {"Idempotency-Key": "submit-1"}
 
-    client.post("/v1/runs", json={"specification": {"a": 1}}, headers=headers)
-    response = client.post("/v1/runs", json={"specification": {"b": 2}}, headers=headers)
+    client.post("/v1/runs", json={"specification": SPEC}, headers=headers)
+    response = client.post("/v1/runs", json={"specification": OTHER_SPEC}, headers=headers)
 
     assert response.status_code == 422
     assert response.json()["code"] == "idempotency-key-reused"
@@ -269,7 +279,7 @@ def test_a_long_operation_returns_202_with_a_run_identifier() -> None:
     """AC-B9. Nothing blocks an HTTP request on training."""
     response = client_as(OPERATOR).post(
         "/v1/runs",
-        json={"specification": {"kind": "AdapterRun"}},
+        json={"specification": SPEC},
         headers={"Idempotency-Key": "k1"},
     )
 

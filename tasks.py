@@ -72,7 +72,14 @@ def run(
     """Run one command, echoing it first."""
     printable = " ".join(command)
     print(f"    $ {printable}", flush=True)
-    merged = {**os.environ, **(env or {})}
+    # UTF-8 for every child, always. Several tools in this pipeline write
+    # non-ASCII to the console -- `import-linter` renders its progress spinner
+    # with an emoji -- and on Windows a redirected stream falls back to the
+    # active code page, which is cp1252 here. The result is a UnicodeEncodeError
+    # raised while *tearing down a spinner*, after the work has succeeded: the
+    # contracts report "7 kept, 0 broken" and the stage still exits 1. That is
+    # the worst shape a failure can have, because the output says it passed.
+    merged = {**os.environ, "PYTHONIOENCODING": "utf-8", **(env or {})}
     completed = subprocess.run(command, cwd=cwd or ROOT, env=merged, check=False)  # noqa: S603
     if check and completed.returncode != 0:
         raise Failure(f"failed ({completed.returncode}): {printable}")
@@ -161,13 +168,27 @@ def pnpm_command() -> list[str]:
     )
 
 
-def pnpm(*args: str, check: bool = True) -> int:
+def pnpm(*args: str, check: bool = True, env: dict[str, str] | None = None) -> int:
     """Run pnpm in the web workspace."""
     return run(
         [*pnpm_command(), *args],
         cwd=WEB,
-        env={"COREPACK_ENABLE_DOWNLOAD_PROMPT": "0"},
+        env={"COREPACK_ENABLE_DOWNLOAD_PROMPT": "0", **(env or {})},
         check=check,
+    )
+
+
+def api_command() -> str:
+    """How Playwright should start the API.
+
+    Passed in rather than hard-coded in `playwright.config.ts`, because a bare
+    `python` there resolves to whatever is first on PATH -- on Windows that is
+    the Microsoft Store shim, which has no uvicorn and produces a webServer
+    failure that looks nothing like its cause. This names the interpreter the
+    rest of the pipeline uses.
+    """
+    return (
+        f'"{uv()}" run --frozen python -m uvicorn draupnir.api.app:app --host 127.0.0.1 --port 8000'
     )
 
 
@@ -424,6 +445,8 @@ def clients() -> int:
     uv_run("ruff", "format", "draupnirctl/_generated.py")
     say("TypeScript client")
     pnpm("run", "generate:client")
+    say("TypeScript operation table")
+    uv_run("python", "scripts/generate_ts_operations.py")
     return 0
 
 
@@ -433,6 +456,7 @@ GENERATED = (
     ROOT / "docs" / "api" / "openapi.json",
     ROOT / "draupnirctl" / "_generated.py",
     ROOT / "web" / "packages" / "api-client" / "src" / "generated" / "schema.d.ts",
+    ROOT / "web" / "packages" / "api-client" / "src" / "generated" / "operations.ts",
 )
 
 
@@ -623,19 +647,39 @@ def test_frontend() -> int:
 
 @task("test-e2e", "Playwright, the four journeys of SAD 11F.2")
 def test_e2e() -> int:
-    pnpm("run", "test:e2e")
+    # AC-U1 requires the journeys to complete "against a seeded stack", so the
+    # stack is brought up rather than assumed. Playwright starts the API and
+    # the console itself; what it cannot start is the database, and a journey
+    # run against an empty one would pass its navigation and prove nothing.
+    seeded_stack()
+    pnpm("run", "test:e2e", env={"DRAUPNIR_API_COMMAND": api_command()})
     return 0
+
+
+def seeded_stack() -> None:
+    """Bring up the database, migrate it and seed it if it is empty."""
+    up()
+    say("Schema")
+    migrate()
+    say("Seed data")
+    seed_if_empty()
 
 
 @task("test-a11y", "axe over every route and every Storybook story")
 def test_a11y() -> int:
-    pnpm("run", "test:a11y")
+    # The console half of this scans real routes, so it needs the same stack
+    # the journeys do.
+    seeded_stack()
+    pnpm("run", "test:a11y", env={"DRAUPNIR_API_COMMAND": api_command()})
     return 0
 
 
 @task("test-visual", "Storybook visual regression snapshots")
 def test_visual() -> int:
-    pnpm("run", "test:visual")
+    # The visual project does not read the API, but Playwright starts every
+    # configured webServer whichever project runs, so it still has to be told
+    # which interpreter to start it with.
+    pnpm("run", "test:visual", env={"DRAUPNIR_API_COMMAND": api_command()})
     return 0
 
 

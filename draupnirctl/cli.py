@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -38,6 +39,14 @@ def _call(operation: Operation, path_params: dict[str, str], body: Any | None) -
     """Perform one request and print the response. Returns a process exit code."""
     url = _base_url() + operation.path.format(**path_params)
     headers = {"Accept": "application/json, application/problem+json"}
+
+    # Every mutating endpoint requires an `Idempotency-Key` (SAD 11E.2), and
+    # the API answers 428 without one. Generated here rather than asked of the
+    # operator: the key exists so that a retried request does not act twice,
+    # and a key a human types is a key a human reuses.
+    if operation.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        headers["Idempotency-Key"] = str(uuid.uuid4())
+
     try:
         response = httpx.request(operation.method, url, headers=headers, json=body, timeout=30.0)
     except httpx.HTTPError as error:
@@ -67,6 +76,13 @@ def _register(operation: Operation) -> None:
             str | None,
             typer.Option("--body", help="Request body as JSON, or @filename."),
         ] = None,
+        spec: Annotated[
+            Path | None,
+            typer.Option(
+                "--spec",
+                help="A run specification file (SAD 6.2), wrapped as the request body.",
+            ),
+        ] = None,
     ) -> None:
         path_params = dict(item.split("=", 1) for item in (param or []))
         missing = [name for name in operation.path_params if name not in path_params]
@@ -76,8 +92,14 @@ def _register(operation: Operation) -> None:
             )
             raise typer.Exit(2)
 
+        if spec is not None and body is not None:
+            typer.secho("give --spec or --body, not both", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2)
+
         payload: Any | None = None
-        if body is not None:
+        if spec is not None:
+            payload = {"specification": _read_specification(spec)}
+        elif body is not None:
             raw = Path(body[1:]).read_text(encoding="utf-8") if body.startswith("@") else body
             payload = json.loads(raw)
 
@@ -89,6 +111,37 @@ def _register(operation: Operation) -> None:
 
 for _operation in OPERATIONS:
     _register(_operation)
+
+
+def _read_specification(path: Path) -> Any:
+    """Read a run specification file and return it parsed.
+
+    This is input marshalling, not a client method. The request still goes
+    through the generated operation table below; what this does is spare an
+    operator from wrapping their specification in `{"specification": …}` by
+    hand and from discovering the shape by reading the OpenAPI document.
+
+    The identity is not computed here. AC-F1 requires the CLI and the console
+    to agree on it, and they do because neither of them computes it: both post
+    the specification and the API returns the identity it recorded. A client
+    that hashed the specification itself would be a second implementation of
+    the rule, and the first time the two disagreed the disagreement would be
+    invisible.
+
+    JSON only for now. A specification is JSON or YAML in SAD 6.2 and this
+    package deliberately carries no YAML parser, because adding one to the CLI
+    adds it to every deployment of the control plane. `yq . spec.yaml` converts.
+    """
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as error:
+        typer.secho(
+            f"{path}: not readable as JSON ({error}). A YAML specification can be "
+            "converted with `yq . spec.yaml`.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(2) from error
 
 
 @app.command(name="version", help="Print the client version and the contract it was built from.")

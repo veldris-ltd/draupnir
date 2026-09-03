@@ -495,7 +495,9 @@ describe('SweepMatrix', () => {
         arms={[{ id: 'a', label: 'lr 1e-4', values: {} }]}
       />,
     );
-    expect(screen.getByLabelText('Not measured')).toBeInTheDocument();
+    // Visually hidden text rather than `aria-label`: a bare `span` has no
+    // role that supports an accessible name, and axe refuses it.
+    expect(screen.getByText('Not measured')).toBeInTheDocument();
   });
 });
 

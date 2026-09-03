@@ -176,6 +176,43 @@ What the build enforces rather than asserts:
 - axe runs over every route and over all 168 stories, so the denied and
   partitioned states -- the ones nobody looks at while building -- are checked
   as hard as the happy path.
+- The console and `draupnirctl` are both generated clients of one API. There is
+  no method per operation in either: the operation table is generated from
+  `openapi.json` and one generic caller performs the request, so a hand-written
+  client method is not something a reviewer has to catch -- there is nowhere to
+  write one.
+- A run's *identity* and a run's *identifier* are different things. The
+  identifier is a UUIDv7 and says when the run was created; the identity is the
+  hash of the specification and its resolved input artefact hashes and says
+  what the run is. Submitting the same file twice is two runs with one identity,
+  which is exactly the relationship an operator wants when comparing them.
+- The dry run is the primary action on the compose screen and submission is the
+  secondary one. An allocation on this estate is the scarce resource, so a
+  specification error should cost nothing to find, and submitting without a dry
+  run takes an extra confirmation.
+- The gate queue puts the evidence and the sole approver notice above the
+  decision controls, and the controls stay unavailable until the evidence has
+  actually been on screen. Evidence an approver can scroll past without noticing
+  is evidence they can decline to read.
+- CON-A, the local status view on DVALIN, imports no HTTP client and nothing
+  from `draupnir`. It is tested with every source unavailable, because the case
+  where everything else is broken is the case it was bought for.
+- All thirty one screens of the inventory are built. Two of them publish a
+  table that is enforced somewhere else rather than a copy of one: the policy
+  screen renders the `Policy` object the licence gate decides with, and the
+  role screen renders the same `@needs` declarations the guard reads at request
+  time. Neither can drift from what actually happens, because neither is
+  written twice.
+- The ledger entry viewer recomputes the entry hash from the previous hash and
+  the canonical payload and shows both. A viewer that rendered the stored hash
+  would prove nothing: the stored hash is exactly what a tamperer would have
+  rewritten.
+- An attestation over an incomplete chain exports unsigned and says so.
+  Signing it would certify the gap.
+- CON-B, the wall panel, states its own staleness in words and rotates its
+  three dashboards on a timer. A panel whose numbers stopped an hour ago is
+  worse than a blank one: nobody is watching closely enough to notice, and the
+  numbers are believed.
 
 Verified: 100,000 ledger entries verify in about four seconds against the
 sixty second budget of AC-N5, and a rebuild of the run projection is

@@ -161,9 +161,14 @@ RUN_PLAN = (
     ("cim-nld-v0.1", "adapter", RunState.EVALUATING, "brokkr"),
     ("cim-gbr-v0.2", "merge", RunState.MERGED, "sindri"),
     ("cim-irl-v0.1", "merge", RunState.QUANTISED, "sindri"),
-    ("cim-aus-v0.1", "adapter", RunState.AWAITING_APPROVAL, "brokkr"),
+    # AWAITING_APPROVAL sits at the same site as RELEASED on purpose. The
+    # approval journey and the audit journey are one chain -- approve, then
+    # walk the lineage of what was approved -- and splitting the two stages
+    # across sites makes that chain unwalkable at either of them, because
+    # reads are site scoped and no view aggregates across sites (AC-U11).
+    ("cim-aus-v0.1", "adapter", RunState.AWAITING_APPROVAL, "sindri"),
     ("cim-gbr-v0.1", "adapter", RunState.RELEASED, "sindri"),
-    ("cim-fra-v0.1", "adapter", RunState.QUARANTINED, "sindri"),
+    ("cim-fra-v0.1", "adapter", RunState.QUARANTINED, "brokkr"),
 )
 
 GATES = ("E1", "E2", "E3", "E4", "E5", "E6")

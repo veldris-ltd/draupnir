@@ -10,15 +10,22 @@ it is complete rather than leaving the caller to notice a gap.
 
 from __future__ import annotations
 
-from typing import Annotated
+import hashlib
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Path, Query
 
 from draupnir.api import telemetry
-from draupnir.api.deps import Cursor, Guarded, PageSize
+from draupnir.api.deps import Cursor, Guarded, PageSize, Reading, now
 from draupnir.api.guards import needs
 from draupnir.api.problems import ProblemError
-from draupnir.api.schemas import LedgerSlice, LineageOut
+from draupnir.api.schemas import (
+    AttestationOut,
+    LedgerEntryDetailOut,
+    LedgerSlice,
+    LineageOut,
+)
+from draupnir.core.domain.ledger import canonical
 from draupnir.svalinn.roles import Permission
 
 router = APIRouter(tags=["audit"])
@@ -36,7 +43,7 @@ Artefact = Annotated[
     response_model=LineageOut,
 )
 @needs(Permission.READ)
-async def lineage(artefact: Artefact, ctx: Guarded) -> LineageOut:
+async def lineage(artefact: Artefact, ctx: Guarded, reading: Reading) -> LineageOut:
     """The complete chain to base model licences and corpus hashes. AC-F11.
 
     `complete` and `gaps` are returned rather than an error on an incomplete
@@ -45,8 +52,10 @@ async def lineage(artefact: Artefact, ctx: Guarded) -> LineageOut:
     *attestation* over a broken chain is what is refused, and that refusal is
     in SKIDBLADNIR.
     """
-    del ctx
     telemetry.log("lineage.requested", artefactSha256=artefact)
+    found = await reading.lineage(ctx.site_id, artefact)
+    if found is not None:
+        return found
     raise ProblemError(
         status=404,
         code="artefact-not-found",
@@ -68,6 +77,7 @@ async def lineage(artefact: Artefact, ctx: Guarded) -> LineageOut:
 @needs(Permission.READ)
 async def ledger(
     ctx: Guarded,
+    reading: Reading,
     limit: PageSize,
     cursor: Cursor = None,
     from_seq: Annotated[
@@ -83,8 +93,6 @@ async def ledger(
     themselves will not, and an endpoint that returned entries without saying
     whether they chain is an endpoint that makes tampering look like data.
     """
-    del cursor, ctx
-
     if from_seq is not None and to_seq is not None and to_seq < from_seq:
         raise ProblemError(
             status=422,
@@ -93,5 +101,98 @@ async def ledger(
             detail=f"from={from_seq} and to={to_seq}.",
         )
 
-    telemetry.log("ledger.sliced", fromSeq=from_seq, toSeq=to_seq, limit=limit)
-    return LedgerSlice(items=[], next_cursor=None, limit=limit, verified=True, divergence=None)
+    slice_ = await reading.ledger(ctx.site_id, limit=limit, cursor=cursor)
+    telemetry.log(
+        "ledger.sliced",
+        fromSeq=from_seq,
+        toSeq=to_seq,
+        limit=limit,
+        count=len(slice_.items),
+        verified=slice_.verified,
+    )
+    return slice_
+
+
+@router.get(
+    "/ledger/{entry_hash}",
+    summary="One ledger entry, with its hash recomputed",
+    operation_id="getLedgerEntry",
+    response_model=LedgerEntryDetailOut,
+)
+@needs(Permission.READ)
+async def ledger_entry(
+    entry_hash: Annotated[str, Path(pattern="^[0-9a-f]{64}$", description="The entry's own hash.")],
+    ctx: Guarded,
+    reading: Reading,
+) -> LedgerEntryDetailOut:
+    """The payload, the actor, and both hashes. S27.
+
+    The response carries a hash recomputed here from `prev_hash` and the
+    canonical payload, beside the one that was stored. An entry viewer that
+    rendered only the stored hash would prove nothing: the stored hash is
+    exactly what a tamperer would have rewritten.
+    """
+    found = await reading.ledger_entry(ctx.site_id, entry_hash)
+    if found is not None:
+        telemetry.log("ledger.entry.read", seq=found.seq, verified=found.verified)
+        return found
+    raise ProblemError(
+        status=404,
+        code="entry-not-found",
+        title="No such ledger entry",
+        detail=(
+            f"no entry with hash {entry_hash[:12]} is in this site's segment. Each site "
+            "keeps its own chain, so an entry at another forge is not here (SAD 7.1)."
+        ),
+    )
+
+
+@router.get(
+    "/lineage/{artefact}/attestation",
+    summary="A signed lineage bundle, for export",
+    operation_id="exportAttestation",
+    response_model=AttestationOut,
+)
+@needs(Permission.READ)
+async def attestation(artefact: Artefact, ctx: Guarded, reading: Reading) -> AttestationOut:
+    """The lineage as a canonical, hashed bundle. S28, AC-F11.
+
+    An incomplete chain exports **unsigned**, and says so. Signing an
+    attestation over a gap would certify the gap, which is worse than refusing
+    to sign: a signature is read as a statement that somebody checked, and
+    nobody checked what is missing.
+    """
+    found = await reading.lineage(ctx.site_id, artefact)
+    if found is None:
+        raise ProblemError(
+            status=404,
+            code="artefact-not-found",
+            title="No such artefact",
+            detail=f"no artefact {artefact[:12]} is registered at this site.",
+        )
+
+    issued = now()
+    payload: dict[str, Any] = {
+        "artefact": found.artefact,
+        "siteId": ctx.site_id,
+        "issuedAt": issued.isoformat(),
+        "complete": found.complete,
+        "gaps": list(found.gaps),
+        "licences": list(found.licences),
+        "corpusHashes": list(found.corpus_hashes),
+        "nodes": list(found.nodes),
+        "approval": dict(found.approval),
+    }
+    digest = hashlib.sha256(canonical(payload)).hexdigest()
+
+    telemetry.log("attestation.exported", artefactSha256=artefact, complete=found.complete)
+    return AttestationOut(
+        artefact=found.artefact,
+        complete=found.complete,
+        gaps=list(found.gaps),
+        issued_at=issued,
+        site_id=ctx.site_id,
+        payload=payload,
+        payload_sha256=digest,
+        signature=f"sha256:{digest}" if found.complete else None,
+    )

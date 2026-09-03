@@ -28,8 +28,10 @@ request context and carries only that site's subjects.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -167,6 +169,9 @@ class EventStream:
     capacity: int = BUFFER
     _events: list[Delta] = field(default_factory=list, repr=False)
     _next_seq: int = 1
+    #: Live subscribers. A queue each, so one slow console cannot hold up the
+    #: others and cannot hold up the publisher.
+    _subscribers: set[asyncio.Queue[Delta]] = field(default_factory=set, repr=False)
 
     def publish(
         self,
@@ -191,7 +196,38 @@ class EventStream:
         self._events.append(delta)
         if len(self._events) > self.capacity:
             del self._events[: len(self._events) - self.capacity]
+        for queue in self._subscribers:
+            # `put_nowait` on a bounded queue, and a full queue drops the
+            # event for that subscriber alone. The alternative -- awaiting a
+            # slow consumer -- would let one wedged console stall every other
+            # console and the request that published. A dropped event is
+            # recoverable: the subscriber's next `Last-Event-ID` reconnect
+            # asks for what it missed, and is told to resynchronise if the
+            # buffer has moved past it.
+            with contextlib.suppress(asyncio.QueueFull):
+                queue.put_nowait(delta)
         return delta
+
+    @contextlib.asynccontextmanager
+    async def subscribe(self) -> AsyncIterator[asyncio.Queue[Delta]]:
+        """Register a live subscriber for the duration of a connection.
+
+        The board needs this and the buffer cannot provide it: `frames()`
+        answers "what did I miss", and a client that only ever asked that
+        would have to ask repeatedly, which is the polling this stream exists
+        to avoid (AC-U4).
+        """
+        queue: asyncio.Queue[Delta] = asyncio.Queue(maxsize=256)
+        self._subscribers.add(queue)
+        try:
+            yield queue
+        finally:
+            self._subscribers.discard(queue)
+
+    @property
+    def subscribers(self) -> int:
+        """How many live subscribers this stream has."""
+        return len(self._subscribers)
 
     @property
     def latest_seq(self) -> int:
@@ -251,3 +287,46 @@ def deltas_between(
     """
     keys = tuple(fields) if fields is not None else tuple(sorted({*before, *after}))
     return {key: after[key] for key in keys if key in after and before.get(key) != after[key]}
+
+
+async def live_frames(
+    stream: EventStream,
+    *,
+    since: int | None,
+    keepalive_seconds: float = 15.0,
+    only_run: UUID | None = None,
+    disconnected: Callable[[], Awaitable[bool]] | None = None,
+) -> AsyncIterator[str]:
+    """Backlog, then live events, until the client goes away.
+
+    Two halves, and both are necessary. The backlog answers "what did I miss
+    while I was reconnecting"; the live half is what makes AC-N3's five second
+    budget achievable without polling, since a state change is pushed the
+    moment it is published rather than found by the next request.
+
+    The keep-alive is a comment frame. A proxy that sees no bytes for its idle
+    timeout closes the connection, and on a quiet estate there may be no events
+    for minutes; without this the console would reconnect continuously and look
+    exactly like the polling it is not doing.
+
+    `disconnected` is checked rather than waiting for the generator to be
+    finalised. A subscriber is removed by the `finally` of `subscribe()`, and
+    that runs when this generator *returns*; abandoning it and leaving the
+    cleanup to garbage collection means a queue per departed console, held for
+    as long as the collector takes to notice. Returning on an observed
+    disconnect makes the removal happen at the moment the client leaves.
+    """
+    async with stream.subscribe() as queue:
+        for frame in stream.frames(since):
+            yield frame
+        while True:
+            if disconnected is not None and await disconnected():
+                return
+            try:
+                delta = await asyncio.wait_for(queue.get(), timeout=keepalive_seconds)
+            except TimeoutError:
+                yield comment("keep-alive")
+                continue
+            if only_run is not None and delta.run_id != only_run and delta.subject_id != only_run:
+                continue
+            yield delta.render()

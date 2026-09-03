@@ -870,6 +870,73 @@ and the fixture wrote the rule on one. The fixtures exist so that cannot happen
 again quietly -- the same reason the gitleaks allowlist is proved with a planted
 token rather than trusted.
 
+### The console, the CLI and the local view
+
+| Deliverable | Where | What it depends on |
+|---|---|---|
+| Console | `web/apps/console/` | The generated client, and nothing else. No hand-written request. |
+| CLI | `draupnirctl/` | The generated command table. `--spec` marshals a file; it is not a client method. |
+| CON-A | `tools/stedi-view/` | The appliance it is attached to. Nothing else, and a test proves it. |
+
+Both clients come from `docs/api/openapi.json`. `scripts/generate_cli.py`
+writes the Python command table and `scripts/generate_ts_operations.py` writes
+the TypeScript one; they share `collect()`, so the two clients cannot disagree
+about what the API offers. `make clients-check` regenerates both and fails on
+any diff (AC-Q2).
+
+There is deliberately no method per operation in either client. A generated
+table plus one generic caller means "a hand-written client method fails review"
+is enforced by there being nowhere to write one.
+
+**Running the journeys.** They are acceptance evidence for AC-U1 and run
+against the seeded stack, so `make test-e2e` brings the database up, migrates
+it and seeds it before Playwright starts. Playwright then starts the API and
+the console itself.
+
+**`DRAUPNIR_DEV=1`.** Two controls relax under it and both are refusals in a
+real deployment: the plug-in loader accepts unsigned drivers, and
+`draupnir/api/development.py` installs a principal so that a running stack
+answers something other than 401. It verifies nothing, accepts no token, and
+logs a warning naming itself on every startup that installs it. Without it the
+four journeys would need a full identity deployment to run at all.
+
+### Where the screens live
+
+| Route | Screen | Backed by |
+|---|---|---|
+| `/` | S01 Overview | `listRuns`, `listGates` |
+| `/corpora` | S02, S03 Corpus list and source register | `listSources` |
+| `/corpora/register` | S04 Register source wizard | `registerSource` |
+| `/corpora/curation` | S05 Curation | `listCorpora` |
+| `/corpora/retention` | S06 Retention schedule | `listRetention` |
+| `/runs` | S07 Run board | `listRuns`, `streamSiteEvents` |
+| `/runs/:id` | S08 Run detail, S11 Failure diagnosis | `getRun`, `retryRun` |
+| `/runs/compose` | S09 Compose, S10 Dry run result | `dryRunSpecification`, `submitRun` |
+| `/runs/array` | S12 Array monitor | `getArray` |
+| `/runs/:id/sweep` | S15 Sweep comparison | `getSweep` |
+| `/models` | S13 Model registry | `listModels` |
+| `/models/:artefact` | S14 Model detail | `getModel` |
+| `/models/:artefact/lineage` | S16 Lineage explorer, S20 Publish | `getLineage`, `publishRelease` |
+| `/models/:artefact/release` | S17 Release package | `getRelease` |
+| `/models/:artefact/attestation` | S28 Attestation export | `exportAttestation` |
+| `/gates` | S18 Approval queue | `listGates` |
+| `/gates/:id` | S19 Approval detail, S21 Reject | `decideGate` |
+| `/sites` | S22 Sites | `listSites` |
+| `/admin/plugins` | S23 Plug-ins | `listPlugins` |
+| `/admin/policy` | S24 Policy | `getPolicy` |
+| `/admin/roles` | S25 Users and roles | `getRoles` |
+| `/audit` | S26 Ledger explorer | `getLedger` |
+| `/audit/:hash` | S27 Ledger entry detail | `getLedgerEntry` |
+| `/signin` | S29 Sign in | `getHealth` |
+| `/kiosk` | S31 CON-B ops dashboard | `listRuns`, `listSites` |
+
+S30 is CON-A and is not a console route: it is `tools/stedi-view/`, rendered by
+DVALIN, with no API dependency at all.
+
+The kiosk renders outside the shell. It has no navigation, no site switcher and
+no command palette, because nobody stands at it -- it is on a wall. A test
+asserts that it has no button at all.
+
 The unit gate measures `draupnir/core/domain`, which is what SAD 11E.3 scopes
 the unit level to ("pure domain logic") and what AC-N8 names ("the core state
 machine and ledger"). The infrastructure half of the core is gated by the

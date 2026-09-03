@@ -24,6 +24,7 @@ from draupnir.api.deps import (
     IdempotencyKey,
     IfMatch,
     PageSize,
+    Reading,
     as_problem,
     complete,
     now,
@@ -58,6 +59,7 @@ Artefact = Annotated[
 @needs(Permission.READ)
 async def list_gates(
     ctx: Guarded,
+    reading: Reading,
     limit: PageSize,
     cursor: Cursor = None,
     state: Annotated[
@@ -65,10 +67,16 @@ async def list_gates(
         Query(description="Which part of the queue to return."),
     ] = "pending",
 ) -> ApprovalPage:
-    """List artefacts awaiting a decision, with their gate results."""
-    del cursor, ctx
-    telemetry.log("gates.listed", queue=state, limit=limit)
-    return ApprovalPage(items=[], next_cursor=None, limit=limit)
+    """List artefacts awaiting a decision, with their gate results.
+
+    The gate results come back with the queue rather than behind a second
+    request per row. AC-U13 puts the evidence above the decision control, and a
+    queue that has to be expanded row by row to see any of it is a queue whose
+    evidence is, in practice, after the decision.
+    """
+    page = await reading.approvals(ctx.site_id, limit=limit, cursor=cursor)
+    telemetry.log("gates.listed", queue=state, limit=limit, count=len(page.items))
+    return page
 
 
 @router.post(

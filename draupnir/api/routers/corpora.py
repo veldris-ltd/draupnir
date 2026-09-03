@@ -20,6 +20,7 @@ from draupnir.api.deps import (
     Guarded,
     IdempotencyKey,
     PageSize,
+    Reading,
     accepted,
     complete,
     release,
@@ -28,7 +29,14 @@ from draupnir.api.deps import (
 )
 from draupnir.api.guards import needs
 from draupnir.api.problems import ProblemError
-from draupnir.api.schemas import Accepted, SourceIn, SourceOut, SourcePage
+from draupnir.api.schemas import (
+    Accepted,
+    CorpusPage,
+    RetentionPage,
+    SourceIn,
+    SourceOut,
+    SourcePage,
+)
 from draupnir.core.domain.identifiers import new_id
 from draupnir.core.domain.states import RunState
 from draupnir.svalinn.roles import Permission
@@ -119,15 +127,17 @@ async def register_source(
     response_model=SourcePage,
 )
 @needs(Permission.READ)
-async def list_sources(ctx: Guarded, limit: PageSize, cursor: Cursor = None) -> SourcePage:
+async def list_sources(
+    ctx: Guarded, reading: Reading, limit: PageSize, cursor: Cursor = None
+) -> SourcePage:
     """List sources for the scoped site, cursor paginated.
 
     Scoped by the row level security variable the site resolver sets, so a
     request cannot read another forge's register even if it names one.
     """
-    del cursor
-    telemetry.log("sources.listed", limit=limit)
-    return SourcePage(items=[], next_cursor=None, limit=limit)
+    page = await reading.sources(ctx.site_id, limit=limit, cursor=cursor)
+    telemetry.log("sources.listed", limit=limit, count=len(page.items))
+    return page
 
 
 @router.post(
@@ -180,3 +190,44 @@ async def curate(iso3: Iso3, ctx: Guarded, idempotency_key: IdempotencyKey = Non
     body = accepted(run_id, detail=f"curating the {iso3} corpus")
     complete(key, ctx, status=status.HTTP_202_ACCEPTED, body=body)
     return Accepted.model_validate(body)
+
+
+@router.get(
+    "/corpora",
+    summary="Corpora by jurisdiction, with curation progress",
+    operation_id="listCorpora",
+    response_model=CorpusPage,
+)
+@needs(Permission.READ)
+async def list_corpora(ctx: Guarded, reading: Reading) -> CorpusPage:
+    """The corpus of each jurisdiction, and how far curation has reached. S05.
+
+    The counts are what a curator acts on: how many sources are registered,
+    how many cleared the licence gate, and how many were quarantined by it. A
+    quarantined source is not a failure of the pipeline -- it is the licence
+    gate doing its job -- so it is counted beside the others rather than
+    hidden in an error state.
+    """
+    page = await reading.corpora(ctx.site_id)
+    telemetry.log("corpora.listed", jurisdictions=len(page.items))
+    return page
+
+
+@router.get(
+    "/retention",
+    summary="Retention actions, due and executed",
+    operation_id="listRetention",
+    response_model=RetentionPage,
+)
+@needs(Permission.READ)
+async def list_retention(ctx: Guarded, reading: Reading) -> RetentionPage:
+    """Corpora approaching their deletion point. S06, SAD 7.3.
+
+    Deletion here is an approved, ledgered action rather than a timer firing,
+    so an unapproved action that is past its due date is a thing somebody has
+    to decide about rather than a thing that has silently happened. The overdue
+    count is on the response for exactly that reason.
+    """
+    page = await reading.retention(ctx.site_id)
+    telemetry.log("retention.listed", actions=len(page.items), overdue=page.overdue)
+    return page

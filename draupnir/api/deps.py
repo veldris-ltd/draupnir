@@ -38,6 +38,7 @@ from draupnir.api.idempotency import (
 )
 from draupnir.api.pagination import PaginationError, clamp
 from draupnir.api.problems import ProblemError
+from draupnir.api.reading import EmptyReadModel, ReadModel
 from draupnir.core.domain.sites import SiteScope
 from draupnir.core.infrastructure.config import get_settings
 from draupnir.svalinn.authz import decide
@@ -54,6 +55,27 @@ STORE = IdempotencyStore()
 def store() -> IdempotencyStore:
     """The current idempotency store, resolved at call time."""
     return STORE
+
+
+#: The process-wide read model. Reached through `reader()` for the same reason
+#: the store is: a router that captured the object at import time would keep
+#: reading the empty model after startup replaced it with the database one, and
+#: the symptom would be an API that answers every list with nothing at all.
+READER: ReadModel = EmptyReadModel()
+
+
+def reader() -> ReadModel:
+    """The current read model, resolved at call time."""
+    return READER
+
+
+def set_reader(model: ReadModel) -> None:
+    """Install the read model. Called by the application's lifespan, and by tests."""
+    global READER
+    READER = model
+
+
+Reading = Annotated[ReadModel, Depends(reader)]
 
 
 def complete(

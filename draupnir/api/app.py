@@ -20,15 +20,29 @@ below carries run id, site id and actor without being passed them.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI, Request, Response
 
 from draupnir import __version__
 from draupnir.api import context as request_context
+from draupnir.api import deps, development
 from draupnir.api.guards import enforce_declarations
 from draupnir.api.problems import CONTENT_TYPE, EXCEPTION_HANDLERS, Problem
-from draupnir.api.routers import approvals, audit, corpora, health, plugins, runs
+from draupnir.api.reading import DatabaseReadModel, EmptyReadModel
+from draupnir.api.routers import (
+    approvals,
+    audit,
+    corpora,
+    governance,
+    health,
+    models,
+    plugins,
+    runs,
+    sites,
+)
+from draupnir.core.infrastructure.database import create_engine, session_factory
 
 API_VERSION = "v1"
 
@@ -72,6 +86,30 @@ async def bind_context(
     return response
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Install the database read model for the life of the process.
+
+    The default read model answers every list with nothing, which is what the
+    contract tests want and what a mechanism test should see. A running
+    deployment needs the other one, and installing it here rather than at
+    import time means the engine is created once, when there is an event loop
+    to own it, and disposed when the process stops.
+
+    A database that cannot be reached does not stop startup: SAD 11.2 requires
+    degraded modes to be visible rather than fatal, and `/readyz` is where that
+    visibility lives. Refusing to start would take the readiness probe down
+    with the database and leave an operator with nothing to read.
+    """
+    engine = create_engine()
+    deps.set_reader(DatabaseReadModel(session_factory(engine)))
+    try:
+        yield
+    finally:
+        deps.set_reader(EmptyReadModel())
+        await engine.dispose()
+
+
 def create_app() -> FastAPI:
     """Build the application.
 
@@ -88,9 +126,17 @@ def create_app() -> FastAPI:
         redoc_url=None,
         exception_handlers=EXCEPTION_HANDLERS,
         responses=DEFAULT_RESPONSES,
+        lifespan=lifespan,
     )
 
     app.middleware("http")(bind_context)
+
+    # A development principal, when DRAUPNIR_DEV=1 and never otherwise. Without
+    # it a running stack answers 401 to everything and the console can read
+    # nothing, which makes the four journeys of AC-U1 unrunnable outside a full
+    # identity deployment. See `development.py` for why it is shaped the way
+    # it is.
+    development.install(app)
 
     # Operator probes, unversioned.
     app.include_router(health.router)
@@ -103,6 +149,9 @@ def create_app() -> FastAPI:
     v1.include_router(approvals.router)
     v1.include_router(audit.router)
     v1.include_router(plugins.router)
+    v1.include_router(sites.router)
+    v1.include_router(models.router)
+    v1.include_router(governance.router)
     app.include_router(v1)
 
     # AC-B6, and the prompt's sharper form of it: a route without an explicit

@@ -624,7 +624,10 @@ export function SweepMatrix({
                       data-jg-best={isBest ? 'true' : undefined}
                     >
                       {value === undefined ? (
-                        <span aria-label="Not measured">—</span>
+                        <>
+                          <span aria-hidden="true">—</span>
+                          <span className="jg-sr-only">Not measured</span>
+                        </>
                       ) : (
                         <>
                           {isBest ? (

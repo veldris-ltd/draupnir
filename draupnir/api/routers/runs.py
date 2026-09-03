@@ -11,22 +11,27 @@ precondition the retry silently undoes the cancellation.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
+from pathlib import Path as Path_
+from tempfile import TemporaryDirectory
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Header, Path, Request, status
+from fastapi import APIRouter, Header, Path, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
 
 from draupnir.api import events as event_stream
 from draupnir.api import telemetry
 from draupnir.api.concurrency import ConcurrencyError, require
+from draupnir.api.concurrency import etag as concurrency_etag
 from draupnir.api.deps import (
     Cursor,
     Guarded,
     IdempotencyKey,
     IfMatch,
     PageSize,
+    Reading,
     accepted,
     as_problem,
     complete,
@@ -36,8 +41,19 @@ from draupnir.api.deps import (
 )
 from draupnir.api.guards import needs
 from draupnir.api.problems import ProblemError
-from draupnir.api.schemas import Accepted, CancelIn, RunOut, RunPage, RunSubmission
+from draupnir.api.routers import plugins
+from draupnir.api.schemas import (
+    Accepted,
+    CancelIn,
+    DryRunOut,
+    RunOut,
+    RunPage,
+    RunSubmission,
+)
 from draupnir.core.domain.identifiers import new_id
+from draupnir.core.domain.identity import InputHashError, RunIdentity, run_identity
+from draupnir.core.plugins import PluginError
+from draupnir.interfaces.types import RunSpec
 from draupnir.svalinn.roles import Permission
 
 router = APIRouter(tags=["runs"])
@@ -86,31 +102,114 @@ async def submit(
             detail="SAD 6.2 makes the specification the unit of reproduction.",
         )
 
+    identity = _identity_of(body, on_error=lambda: release(key, ctx))
+
     run_id = new_id()
     with telemetry.span("runs.submit", telemetry.EDGE, runId=str(run_id)):
-        telemetry.log("run.submitted", runId=str(run_id))
+        telemetry.log("run.submitted", runId=str(run_id), runIdentity=identity.digest)
 
     body_out = accepted(run_id, detail="run queued")
+    body_out["run_identity"] = identity.digest
+    # The board learns about this run from the stream, not from a refresh
+    # (AC-U4, AC-N3). Published after the identity is settled so the event
+    # carries what the board renders.
+    stream_for(ctx.site_id).publish(
+        event_stream.EventKind.RUN_STATE,
+        subject_id=run_id,
+        run_id=run_id,
+        at=datetime.now(UTC),
+        changed={"state": "QUEUED", "name": _spec_name(body), "runIdentity": identity.digest},
+    )
     complete(
         key, ctx, status=status.HTTP_202_ACCEPTED, body=body_out, location=f"/v1/runs/{run_id}"
     )
     return Accepted.model_validate(body_out)
 
 
+def _spec_name(body: RunSubmission) -> str:
+    """The specification's `metadata.name`, or a placeholder for the board."""
+    metadata = body.specification.get("metadata")
+    if isinstance(metadata, dict) and isinstance(metadata.get("name"), str):
+        return str(metadata["name"])
+    return "unnamed"
+
+
+def _identity_of(body: RunSubmission, *, on_error: Callable[[], None]) -> RunIdentity:
+    """Compute the run identity of a submission, or refuse it.
+
+    AC-F1 requires the CLI and the console to arrive at the same identity for
+    the same specification, and they do so by construction: both post here, and
+    the identity is computed here rather than by either client. A client that
+    computed it would be a second implementation of the rule, and two
+    implementations of a hash is one too many.
+    """
+    try:
+        spec = RunSpec.from_mapping(body.specification)
+    except (ValueError, KeyError, TypeError) as error:
+        on_error()
+        raise ProblemError(
+            status=422,
+            code="specification-invalid",
+            title="The run specification could not be read",
+            detail=str(error),
+        ) from error
+
+    # Both inputs, not just the base. A specification consumes a base model
+    # and a curated corpus, and two runs over the same base and different
+    # corpora are different work; an identity that ignored the dataset would
+    # call them the same.
+    inputs = [
+        digest
+        for digest in (spec.base.expect_sha256, spec.dataset.expect_sha256)
+        if digest is not None
+    ]
+    try:
+        return run_identity(spec.spec_hash(), inputs)
+    except InputHashError as error:
+        on_error()
+        raise ProblemError(
+            status=422,
+            code="input-hash-unresolved",
+            title="An input artefact hash is missing or malformed",
+            detail=(
+                f"{error} A run identity computed over an unresolved reference looks "
+                "reproducible and is not, so the submission is refused rather than "
+                "recorded under an identity that means nothing (AC-F1)."
+            ),
+        ) from error
+
+
 @router.get("/runs", summary="List runs", operation_id="listRuns", response_model=RunPage)
 @needs(Permission.READ)
-async def list_runs(ctx: Guarded, limit: PageSize, cursor: Cursor = None) -> RunPage:
-    """List runs for the scoped site, cursor paginated. AC-B3, AC-N4."""
-    del cursor
-    telemetry.log("runs.listed", limit=limit)
-    return RunPage(items=[], next_cursor=None, limit=limit)
+async def list_runs(
+    ctx: Guarded,
+    reading: Reading,
+    limit: PageSize,
+    cursor: Cursor = None,
+    state: Annotated[str | None, Query(description="Filter to one state of SAD 6.1.")] = None,
+) -> RunPage:
+    """List runs for the scoped site, cursor paginated. AC-B3, AC-N4.
+
+    The filter is in the query string rather than in client-side state because
+    every screen has a URL that restores it (UX 11, deep links): an operator
+    who filters the board to FAILED and sends the link to a colleague must send
+    the filter with it.
+    """
+    page = await reading.runs(ctx.site_id, limit=limit, cursor=cursor, state=state)
+    telemetry.log("runs.listed", limit=limit, count=len(page.items))
+    return page
 
 
 @router.get("/runs/{run_id}", summary="Inspect a run", operation_id="getRun", response_model=RunOut)
 @needs(Permission.READ)
-async def get_run(run_id: RunId, ctx: Guarded) -> RunOut:
+async def get_run(run_id: RunId, ctx: Guarded, reading: Reading, response: Response) -> RunOut:
     """Return one run, with an `ETag` for a later conditional write."""
-    del ctx
+    found = await reading.run(ctx.site_id, run_id)
+    if found is not None:
+        response.headers["ETag"] = concurrency_etag(
+            {"id": str(found.id), "state": str(found.state)}
+        )
+        return found
     raise ProblemError(
         status=404,
         code="run-not-found",
@@ -247,6 +346,133 @@ async def run_events(
 
     return StreamingResponse(
         body(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post(
+    "/runs/dry-run",
+    summary="Render a run specification without submitting it",
+    operation_id="dryRunSpecification",
+    response_model=DryRunOut,
+)
+@needs(Permission.SUBMIT_RUN)
+async def dry_run(body: RunSubmission, ctx: Guarded) -> DryRunOut:
+    """Render the exact job plan, consuming no allocation. AC-F14.
+
+    This is the primary action of the compose screen, and submission is the
+    secondary one, because an allocation on this estate is the scarce resource
+    and a specification error should cost nothing to find.
+
+    Nothing is reserved here and nothing is recorded. `render` is pure by
+    Decision S5 and the conformance harness enforces that, so calling it is
+    the same operation whether the run is ever submitted or not -- which is
+    what makes the plan shown here the plan that would actually be run rather
+    than an approximation of it.
+    """
+    del ctx
+    identity = _identity_of(body, on_error=lambda: None)
+
+    spec = RunSpec.from_mapping(body.specification)
+    group = "draupnir.merge" if spec.kind.lower() == "mergerun" else "draupnir.train"
+    try:
+        plugin = plugins.registry().for_spec(spec, group)
+    except PluginError as error:
+        raise ProblemError(
+            status=422,
+            code="driver-unavailable",
+            title="No installed driver can render this specification",
+            detail=str(error),
+        ) from error
+
+    # Validated before rendered, so that a specification problem is reported as
+    # one. `render` on a specification the driver has refused is undefined
+    # behaviour, and letting it raise turns "your specification is missing
+    # save_steps" into a KeyError, which is the operator's problem stated in
+    # the driver author's vocabulary.
+    problems = list(plugin.driver.validate(spec))
+    if problems:
+        raise ProblemError(
+            status=422,
+            code="specification-rejected",
+            title="The driver refused this specification",
+            detail=" ".join(f"{problem.field}: {problem.message}" for problem in problems),
+        )
+
+    with TemporaryDirectory(prefix="draupnir-dry-run-") as workdir:
+        # A temporary directory that is discarded: `render` must have no side
+        # effects, and giving it a real working directory would make a driver
+        # that writes one look like it works here.
+        try:
+            plan = plugin.driver.render(spec, Path_(workdir))
+        except Exception as error:
+            # `validate` passed and `render` raised, which is a defect in the
+            # driver rather than in the specification. Named as such, because
+            # an operator told to fix their specification will not be able to.
+            raise ProblemError(
+                status=502,
+                code="driver-defect",
+                title="The driver accepted this specification and then failed to render it",
+                detail=(
+                    f"{plugin.name} raised {type(error).__name__}: {error}. Its `validate` "
+                    "returned no problems, so this is a fault in the driver rather than in "
+                    "the specification. The conformance suite covers exactly this."
+                ),
+            ) from error
+
+    warnings: list[str] = []
+    telemetry.log("run.dry-run", driver=plugin.name, runIdentity=identity.digest)
+
+    return DryRunOut(
+        run_identity=identity.digest,
+        spec_hash=identity.spec_hash,
+        input_artefact_sha256=list(identity.input_artefact_sha256),
+        driver=str(plugin.name),
+        command=list(plan.command),
+        environment=dict(plan.environment),
+        resources=plan.as_mapping()["resources"],
+        warnings=warnings,
+    )
+
+
+@router.get(
+    "/events",
+    summary="Watch this site's state deltas",
+    operation_id="streamSiteEvents",
+    response_class=StreamingResponse,
+    responses={200: {"content": {"text/event-stream": {}}}},
+)
+@needs(Permission.READ)
+async def site_events(
+    request: Request,
+    ctx: Guarded,
+    last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
+) -> StreamingResponse:
+    """The run board's stream. AC-U4, AC-N3.
+
+    The per-run stream answers "what is happening to this run". The board needs
+    "what is happening at this site", and building it from one subscription per
+    visible run would open fifty-six connections to render one screen.
+
+    The connection stays open and events are pushed. A board that reconnected
+    for each answer would be polling with extra steps, which is what "no full
+    list poll" rules out.
+    """
+    stream = stream_for(ctx.site_id)
+    try:
+        since = event_stream.parse_last_event_id(last_event_id)
+    except event_stream.StreamError as error:
+        raise ProblemError(
+            status=422,
+            code="invalid-last-event-id",
+            title="Invalid Last-Event-ID",
+            detail=str(error),
+        ) from error
+
+    telemetry.log("events.site.opened", siteId=ctx.site_id, since=since)
+    return StreamingResponse(
+        event_stream.live_frames(stream, since=since, disconnected=request.is_disconnected),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )

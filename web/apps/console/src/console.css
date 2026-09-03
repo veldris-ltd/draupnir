@@ -1,0 +1,956 @@
+/*
+ * The console's layout. Every value is a JARNGREIPR token (AC-U3): the token
+ * linter scans this file exactly as it scans the design system, because the
+ * application is where the temptation to reach for a quick colour arises.
+ *
+ * The layout is responsive down to 320 px and usable at 200 per cent zoom
+ * (AC-U8), which is one requirement rather than two: a 320 px viewport and a
+ * 640 px viewport at 200 per cent present the same number of CSS pixels, so a
+ * layout that reflows for one reflows for the other.
+ */
+
+/*
+ * Border box everywhere inside the shell.
+ *
+ * Without it `padding` is added outside the content box, so a panel with
+ * `width: 100%` and any padding is wider than its container -- which at a
+ * 320 px viewport pushes the whole layout past the edge and gives the page a
+ * horizontal scrollbar. AC-U8 is about exactly that, and it is a layout
+ * property rather than a component one, so it is set here rather than in
+ * JARNGREIPR where it would change every recorded visual baseline.
+ */
+.cn-shell *,
+.cn-shell *::before,
+.cn-shell *::after {
+  box-sizing: border-box;
+}
+
+.cn-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--jg-surface);
+  color: var(--jg-text);
+}
+
+/* The skip link: first in the tab order, invisible until focused. */
+.cn-skip {
+  position: absolute;
+  left: var(--jg-space-2);
+  top: calc(var(--jg-space-2) * -20);
+  z-index: var(--jg-z-toast);
+  padding: var(--jg-space-2) var(--jg-space-3);
+  background: var(--jg-surface-raised);
+  color: var(--jg-text);
+  border: var(--jg-border-width) solid var(--jg-border);
+  border-radius: var(--jg-radius-md);
+  transition: top var(--jg-duration-fast) var(--jg-ease-standard);
+}
+
+.cn-skip:focus {
+  top: var(--jg-space-2);
+}
+
+/* ------------------------------------------------------------------ header */
+
+.cn-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jg-space-3);
+  padding: var(--jg-space-3) var(--jg-space-4);
+  border-bottom: var(--jg-border-width) solid var(--jg-border);
+  background: var(--jg-surface-raised);
+}
+
+.cn-header__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--jg-space-2);
+  font-weight: var(--jg-weight-semibold);
+}
+
+.cn-header__mark {
+  color: var(--jg-accent);
+  font-size: var(--jg-text-lg);
+}
+
+.cn-header__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--jg-space-2);
+  margin-left: auto;
+}
+
+.cn-header__shortcut {
+  font-family: var(--jg-font-mono);
+  font-size: var(--jg-text-2xs);
+  color: var(--jg-text-subtle);
+  border: var(--jg-border-width) solid var(--jg-border);
+  border-radius: var(--jg-radius-sm);
+  padding: var(--jg-space-0) var(--jg-space-1);
+}
+
+/* The site context. Present on every screen, because no screen states it. */
+.cn-site {
+  display: flex;
+  align-items: center;
+  gap: var(--jg-space-2);
+  margin: 0;
+  font-size: var(--jg-text-sm);
+}
+
+.cn-site__label {
+  color: var(--jg-text-muted);
+}
+
+.cn-site__name {
+  font-weight: var(--jg-weight-semibold);
+}
+
+.cn-site__list {
+  display: flex;
+  gap: var(--jg-space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cn-site__option {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--jg-space-1);
+  padding: var(--jg-space-1) var(--jg-space-2);
+  border: var(--jg-border-width) solid var(--jg-border);
+  border-radius: var(--jg-radius-md);
+  color: var(--jg-text);
+  text-decoration: none;
+  /* 24 px minimum target (WCAG 2.5.8); 44 px on touch, below. */
+  min-height: var(--jg-space-6);
+}
+
+.cn-site__option[aria-current='true'] {
+  background: var(--jg-accent-subtle);
+  border-color: var(--jg-accent-border);
+  font-weight: var(--jg-weight-semibold);
+}
+
+/* The partition notice. Stated once, above everything (AC-U12). */
+.cn-partition {
+  padding: var(--jg-space-3) var(--jg-space-4);
+  background: var(--jg-info-subtle);
+  border-bottom: var(--jg-border-width) solid var(--jg-info-border);
+  color: var(--jg-text);
+  font-size: var(--jg-text-sm);
+}
+
+/* -------------------------------------------------------------------- body */
+
+.cn-body {
+  display: flex;
+  flex: 1;
+  align-items: stretch;
+}
+
+.cn-nav {
+  flex: 0 0 auto;
+  width: 12rem;
+  padding: var(--jg-space-4);
+  border-right: var(--jg-border-width) solid var(--jg-border);
+  background: var(--jg-surface-raised);
+}
+
+.cn-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--jg-space-1);
+}
+
+.cn-nav__link {
+  display: block;
+  padding: var(--jg-space-2) var(--jg-space-3);
+  border-radius: var(--jg-radius-md);
+  color: var(--jg-text);
+  text-decoration: none;
+  min-height: var(--jg-space-6);
+}
+
+.cn-nav__link:hover {
+  background: var(--jg-surface-sunken);
+}
+
+.cn-nav__link[aria-current='page'] {
+  background: var(--jg-accent-subtle);
+  font-weight: var(--jg-weight-semibold);
+}
+
+.cn-nav__roles {
+  margin-top: var(--jg-space-6);
+  font-size: var(--jg-text-xs);
+  color: var(--jg-text-muted);
+}
+
+.cn-nav__roles-label {
+  display: block;
+  color: var(--jg-text-subtle);
+}
+
+.cn-main {
+  flex: 1;
+  min-width: 0;
+  /* `max-width` alone lets a wide child stretch the column; the explicit
+     100% keeps the main region inside the viewport and leaves the widest
+     child -- a table -- to scroll inside its own wrapper. */
+  width: 100%;
+  padding: var(--jg-space-6);
+  max-width: 72rem;
+}
+
+.cn-main:focus {
+  outline: none;
+}
+
+/* At 320 px, and equivalently at 200 per cent zoom, the navigation becomes a
+   horizontal strip rather than disappearing: AC-U8 asks for no loss of
+   function, and a hidden navigation is a lost function. */
+@media (max-width: 48rem) {
+  .cn-body {
+    flex-direction: column;
+  }
+
+  .cn-nav {
+    width: auto;
+    border-right: none;
+    border-bottom: var(--jg-border-width) solid var(--jg-border);
+    padding: var(--jg-space-2);
+  }
+
+  .cn-nav ul {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .cn-nav__roles {
+    margin-top: var(--jg-space-2);
+  }
+
+  .cn-main {
+    padding: var(--jg-space-4) var(--jg-space-3);
+  }
+
+  .cn-header {
+    padding: var(--jg-space-2) var(--jg-space-3);
+  }
+}
+
+/* Touch contexts get the larger target of WCAG 2.5.5. */
+@media (pointer: coarse) {
+  .cn-nav__link,
+  .cn-site__option {
+    min-height: var(--jg-space-10);
+  }
+}
+
+/* -------------------------------------------------------------------- page */
+
+.cn-page {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--jg-space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--jg-space-5);
+}
+
+.cn-page h1 {
+  margin: 0;
+  font-size: var(--jg-text-2xl);
+  line-height: var(--jg-leading-tight);
+}
+
+.cn-page h1:focus {
+  outline: none;
+}
+
+.cn-page__subtitle {
+  margin: var(--jg-space-1) 0 0;
+  font-family: var(--jg-font-mono);
+  font-size: var(--jg-text-xs);
+  color: var(--jg-text-subtle);
+  overflow-wrap: anywhere;
+}
+
+.cn-action {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--jg-space-2) var(--jg-space-4);
+  background: var(--jg-accent);
+  color: var(--jg-text-on-accent);
+  border-radius: var(--jg-radius-md);
+  text-decoration: none;
+  font-weight: var(--jg-weight-medium);
+  min-height: var(--jg-space-8);
+}
+
+.cn-action:hover {
+  background: var(--jg-accent-hover);
+}
+
+.cn-note {
+  font-size: var(--jg-text-sm);
+  color: var(--jg-text-muted);
+  max-width: 60ch;
+}
+
+.cn-filters {
+  margin-bottom: var(--jg-space-4);
+  /* Narrower than the viewport when the viewport is narrower than this. */
+  max-width: min(24rem, 100%);
+}
+
+.cn-freshness {
+  margin-top: var(--jg-space-2);
+  font-size: var(--jg-text-sm);
+  color: var(--jg-text-muted);
+}
+
+.cn-resync {
+  margin-top: var(--jg-space-2);
+  padding: var(--jg-space-3);
+  background: var(--jg-warning-subtle);
+  border: var(--jg-border-width) solid var(--jg-warning-border);
+  border-radius: var(--jg-radius-md);
+  font-size: var(--jg-text-sm);
+}
+
+.cn-digest {
+  font-family: var(--jg-font-mono);
+  font-size: var(--jg-text-2xs);
+  color: var(--jg-text-subtle);
+}
+
+/* ------------------------------------------------------------------- cards */
+
+.cn-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--jg-space-4);
+  margin-bottom: var(--jg-space-6);
+}
+
+.cn-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jg-space-1);
+  padding: var(--jg-space-4);
+  background: var(--jg-surface-raised);
+  border: var(--jg-border-width) solid var(--jg-border);
+  border-radius: var(--jg-radius-lg);
+  color: var(--jg-text);
+  text-decoration: none;
+}
+
+.cn-card:hover {
+  border-color: var(--jg-accent-border);
+}
+
+.cn-card__figure {
+  font-size: var(--jg-text-3xl);
+  font-weight: var(--jg-weight-semibold);
+  line-height: var(--jg-leading-tight);
+}
+
+.cn-card__label {
+  font-size: var(--jg-text-sm);
+  color: var(--jg-text-muted);
+}
+
+/* ------------------------------------------------------------------- forms */
+
+.cn-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jg-space-4);
+  max-width: 36rem;
+}
+
+.cn-form__actions,
+.cn-editor__actions {
+  display: flex;
+  gap: var(--jg-space-3);
+  margin-top: var(--jg-space-4);
+}
+
+.cn-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jg-space-3);
+  list-style: none;
+  margin: 0 0 var(--jg-space-5);
+  padding: 0;
+  font-size: var(--jg-text-sm);
+  color: var(--jg-text-muted);
+}
+
+.cn-steps li[aria-current='step'] {
+  color: var(--jg-text);
+  font-weight: var(--jg-weight-semibold);
+}
+
+.cn-dpia {
+  padding: var(--jg-space-4);
+  background: var(--jg-warning-subtle);
+  border: var(--jg-border-width) solid var(--jg-warning-border);
+  border-radius: var(--jg-radius-md);
+}
+
+.cn-dpia h2 {
+  margin-top: 0;
+  font-size: var(--jg-text-md);
+}
+
+.cn-editor__label {
+  display: block;
+  margin-bottom: var(--jg-space-2);
+  font-weight: var(--jg-weight-medium);
+}
+
+.cn-editor {
+  width: 100%;
+  font-family: var(--jg-font-mono);
+  font-size: var(--jg-text-xs);
+  line-height: var(--jg-leading-normal);
+  padding: var(--jg-space-3);
+  background: var(--jg-surface-sunken);
+  color: var(--jg-text);
+  border: var(--jg-border-width) solid var(--jg-border);
+  border-radius: var(--jg-radius-md);
+  resize: vertical;
+}
+
+.cn-plan,
+.cn-submitted,
+.cn-diagnosis,
+.cn-evidence,
+.cn-decision,
+.cn-sole,
+.cn-publish {
+  margin-top: var(--jg-space-6);
+  padding: var(--jg-space-4);
+  background: var(--jg-surface-raised);
+  border: var(--jg-border-width) solid var(--jg-border);
+  border-radius: var(--jg-radius-lg);
+}
+
+.cn-plan h2,
+.cn-submitted h2,
+.cn-diagnosis h2,
+.cn-evidence h2,
+.cn-decision h2,
+.cn-sole h2,
+.cn-publish h2 {
+  margin-top: 0;
+  font-size: var(--jg-text-lg);
+}
+
+.cn-plan__note {
+  color: var(--jg-text-muted);
+  font-size: var(--jg-text-sm);
+}
+
+.cn-plan__command {
+  margin: 0;
+  padding: var(--jg-space-3);
+  background: var(--jg-surface-sunken);
+  border-radius: var(--jg-radius-md);
+  font-family: var(--jg-font-mono);
+  font-size: var(--jg-text-xs);
+  overflow-x: auto;
+}
+
+.cn-plan__warnings {
+  color: var(--jg-warning);
+  font-size: var(--jg-text-sm);
+}
+
+/* The sole approver notice: warning, not danger. Nothing is wrong. */
+.cn-sole {
+  background: var(--jg-warning-subtle);
+  border-color: var(--jg-warning-border);
+}
+
+.cn-decision__controls {
+  display: flex;
+  gap: var(--jg-space-3);
+  margin-top: var(--jg-space-3);
+}
+
+.cn-decision__gate {
+  font-size: var(--jg-text-sm);
+  color: var(--jg-text-muted);
+}
+
+.cn-publish__blocked {
+  padding: var(--jg-space-3);
+  background: var(--jg-info-subtle);
+  border: var(--jg-border-width) solid var(--jg-info-border);
+  border-radius: var(--jg-radius-md);
+  font-size: var(--jg-text-sm);
+}
+
+/* --------------------------------------------------------------- diagnosis */
+
+.cn-diagnosis__cause {
+  font-size: var(--jg-text-md);
+}
+
+.cn-diagnosis__fix {
+  padding: var(--jg-space-3);
+  background: var(--jg-accent-subtle);
+  border-radius: var(--jg-radius-md);
+  font-size: var(--jg-text-sm);
+}
+
+.cn-histogram {
+  margin: var(--jg-space-4) 0;
+}
+
+.cn-histogram figcaption {
+  font-size: var(--jg-text-sm);
+  color: var(--jg-text-muted);
+  margin-bottom: var(--jg-space-2);
+}
+
+.cn-histogram__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--jg-space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  height: 8rem;
+}
+
+.cn-histogram__bars li {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  flex: 1;
+  height: 100%;
+}
+
+.cn-histogram__bar {
+  width: 100%;
+  background: var(--jg-accent);
+  border-radius: var(--jg-radius-sm) var(--jg-radius-sm) 0 0;
+}
+
+.cn-histogram__label {
+  font-size: var(--jg-text-2xs);
+  color: var(--jg-text-subtle);
+  margin-top: var(--jg-space-1);
+}
+
+/* ------------------------------------------------------------------ errors */
+
+.cn-error {
+  margin-top: var(--jg-space-4);
+  padding: var(--jg-space-4);
+  background: var(--jg-danger-subtle);
+  border: var(--jg-border-width) solid var(--jg-danger-border);
+  border-radius: var(--jg-radius-lg);
+}
+
+.cn-error__title {
+  margin: 0 0 var(--jg-space-2);
+  font-size: var(--jg-text-lg);
+}
+
+.cn-error__detail {
+  margin: 0 0 var(--jg-space-3);
+  max-width: 60ch;
+}
+
+.cn-error__no-action {
+  margin: 0;
+  font-size: var(--jg-text-sm);
+  color: var(--jg-text-muted);
+}
+
+.cn-error__correlation {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--jg-space-2);
+  margin: var(--jg-space-3) 0 0;
+  font-size: var(--jg-text-xs);
+}
+
+.cn-error__correlation-label {
+  color: var(--jg-text-muted);
+}
+
+.cn-error__correlation code {
+  font-family: var(--jg-font-mono);
+  user-select: all;
+  padding: var(--jg-space-1) var(--jg-space-2);
+  background: var(--jg-surface-sunken);
+  border-radius: var(--jg-radius-sm);
+}
+
+.cn-error__copied {
+  color: var(--jg-success);
+}
+
+.cn-action-result {
+  margin-top: var(--jg-space-3);
+  font-size: var(--jg-text-sm);
+}
+
+/* ----------------------------------------------------------------- lineage */
+
+.cn-lineage__banner {
+  padding: var(--jg-space-3);
+  border-radius: var(--jg-radius-md);
+  font-size: var(--jg-text-sm);
+  background: var(--jg-success-subtle);
+  border: var(--jg-border-width) solid var(--jg-success-border);
+}
+
+.cn-lineage__banner[data-jg-complete='false'] {
+  background: var(--jg-warning-subtle);
+  border-color: var(--jg-warning-border);
+}
+
+.cn-lineage__gaps {
+  color: var(--jg-text);
+  font-size: var(--jg-text-sm);
+}
+
+.cn-hashes {
+  list-style: none;
+  padding: 0;
+  font-family: var(--jg-font-mono);
+  font-size: var(--jg-text-2xs);
+  overflow-wrap: anywhere;
+}
+
+.cn-chain {
+  padding: var(--jg-space-3);
+  margin-bottom: var(--jg-space-4);
+  border-radius: var(--jg-radius-md);
+  font-size: var(--jg-text-sm);
+  background: var(--jg-success-subtle);
+  border: var(--jg-border-width) solid var(--jg-success-border);
+}
+
+.cn-chain[data-jg-verified='false'] {
+  background: var(--jg-danger-subtle);
+  border-color: var(--jg-danger-border);
+}
+
+/* ---------------------------------------------------------------- palette */
+
+.cn-palette__scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--jg-scrim);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--jg-space-16) var(--jg-space-4);
+  z-index: var(--jg-z-dialog);
+}
+
+.cn-palette {
+  width: 100%;
+  max-width: 36rem;
+  background: var(--jg-surface-overlay);
+  border: var(--jg-border-width) solid var(--jg-border);
+  border-radius: var(--jg-radius-lg);
+  box-shadow: var(--jg-elevation-3);
+  padding: var(--jg-space-3);
+}
+
+.cn-palette__input {
+  width: 100%;
+  padding: var(--jg-space-3);
+  font-size: var(--jg-text-lg);
+  background: var(--jg-surface-sunken);
+  color: var(--jg-text);
+  border: var(--jg-border-width) solid var(--jg-border);
+  border-radius: var(--jg-radius-md);
+}
+
+.cn-palette__problem {
+  margin: var(--jg-space-2) 0 0;
+  font-size: var(--jg-text-sm);
+  color: var(--jg-warning);
+}
+
+.cn-palette__list {
+  list-style: none;
+  margin: var(--jg-space-2) 0 0;
+  padding: 0;
+  max-height: 20rem;
+  overflow-y: auto;
+}
+
+.cn-palette__option[data-jg-active='true'] {
+  background: var(--jg-accent-subtle);
+  border-radius: var(--jg-radius-md);
+}
+
+.cn-palette__button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--jg-space-0);
+  width: 100%;
+  padding: var(--jg-space-2) var(--jg-space-3);
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--jg-text);
+  text-align: left;
+  cursor: pointer;
+  min-height: var(--jg-space-8);
+}
+
+.cn-palette__label {
+  font-weight: var(--jg-weight-medium);
+}
+
+.cn-palette__detail {
+  font-size: var(--jg-text-xs);
+  color: var(--jg-text-muted);
+}
+
+.cn-palette__empty {
+  padding: var(--jg-space-3);
+  color: var(--jg-text-muted);
+  font-size: var(--jg-text-sm);
+}
+
+.cn-palette__hint {
+  margin: var(--jg-space-2) 0 0;
+  font-size: var(--jg-text-xs);
+  color: var(--jg-text-subtle);
+}
+
+/* --------------------------------------------------------------- new screens */
+
+.cn-nav__children {
+  margin-top: var(--jg-space-1);
+  margin-left: var(--jg-space-3);
+  border-left: var(--jg-border-width) solid var(--jg-border-subtle);
+  padding-left: var(--jg-space-2);
+}
+
+.cn-nav__link--child {
+  font-size: var(--jg-text-xs);
+  color: var(--jg-text-muted);
+}
+
+.cn-nav__link--child[aria-current='page'] {
+  color: var(--jg-text);
+}
+
+.cn-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jg-space-2);
+  list-style: none;
+  margin: var(--jg-space-4) 0;
+  padding: 0;
+}
+
+.cn-permissions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--jg-space-1);
+}
+
+/* The separation of duty, stated rather than left to be inferred. */
+.cn-separation {
+  padding: var(--jg-space-3);
+  margin-bottom: var(--jg-space-4);
+  background: var(--jg-accent-subtle);
+  border: var(--jg-border-width) solid var(--jg-accent-border);
+  border-radius: var(--jg-radius-md);
+  font-size: var(--jg-text-sm);
+  max-width: 70ch;
+}
+
+.cn-trade {
+  padding: var(--jg-space-3);
+  margin: var(--jg-space-4) 0;
+  background: var(--jg-surface-sunken);
+  border-radius: var(--jg-radius-md);
+  font-size: var(--jg-text-md);
+  max-width: 70ch;
+}
+
+.cn-package {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--jg-space-2);
+}
+
+.cn-package li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--jg-space-3);
+  padding: var(--jg-space-2) var(--jg-space-3);
+  background: var(--jg-surface-sunken);
+  border-radius: var(--jg-radius-md);
+}
+
+.cn-package__label {
+  min-width: 14rem;
+  font-weight: var(--jg-weight-medium);
+}
+
+.cn-package__note {
+  display: block;
+  font-size: var(--jg-text-2xs);
+  color: var(--jg-text-subtle);
+  font-weight: var(--jg-weight-regular);
+}
+
+.cn-package code {
+  font-family: var(--jg-font-mono);
+  font-size: var(--jg-text-xs);
+  overflow-wrap: anywhere;
+}
+
+.cn-signin {
+  max-width: 44rem;
+  padding: var(--jg-space-6);
+  background: var(--jg-surface-raised);
+  border: var(--jg-border-width) solid var(--jg-border);
+  border-radius: var(--jg-radius-lg);
+}
+
+.cn-signin h2 {
+  margin-top: 0;
+}
+
+.cn-signin__factor {
+  margin: var(--jg-space-5) 0;
+  padding: var(--jg-space-4);
+  background: var(--jg-warning-subtle);
+  border: var(--jg-border-width) solid var(--jg-warning-border);
+  border-radius: var(--jg-radius-md);
+}
+
+.cn-signin__factor h3 {
+  margin-top: 0;
+  font-size: var(--jg-text-md);
+}
+
+/* ------------------------------------------------------------------- kiosk */
+
+/*
+ * CON-B at 1280 x 720, on a wall. Larger type throughout, because it is read
+ * from across a room rather than from a desk, and no interactive control at
+ * all: there is nothing on this panel to press.
+ */
+.cn-kiosk {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--jg-surface);
+  color: var(--jg-text);
+  padding: var(--jg-space-6);
+  gap: var(--jg-space-4);
+  font-size: var(--jg-text-lg);
+}
+
+.cn-kiosk__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--jg-space-4);
+  border-bottom: var(--jg-border-width) solid var(--jg-border);
+  padding-bottom: var(--jg-space-3);
+}
+
+.cn-kiosk__header h1 {
+  margin: 0;
+  font-size: var(--jg-text-2xl);
+}
+
+.cn-kiosk__tabs {
+  display: flex;
+  gap: var(--jg-space-3);
+}
+
+.cn-kiosk__tab {
+  font-size: var(--jg-text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--jg-text-subtle);
+}
+
+.cn-kiosk__tab[data-jg-active='true'] {
+  color: var(--jg-accent);
+  font-weight: var(--jg-weight-semibold);
+}
+
+.cn-kiosk__panel {
+  flex: 1;
+}
+
+.cn-kiosk__panel h2 {
+  margin-top: 0;
+  font-size: var(--jg-text-xl);
+}
+
+.cn-kiosk__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--jg-space-4);
+  list-style: none;
+  margin: var(--jg-space-4) 0;
+  padding: 0;
+}
+
+.cn-kiosk__tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jg-space-1);
+  padding: var(--jg-space-4);
+  background: var(--jg-surface-raised);
+  border: var(--jg-border-width) solid var(--jg-border);
+  border-radius: var(--jg-radius-lg);
+}
+
+.cn-kiosk__tile-name {
+  font-size: var(--jg-text-sm);
+  color: var(--jg-text-muted);
+}
+
+.cn-kiosk__figure {
+  font-size: var(--jg-text-3xl);
+  font-weight: var(--jg-weight-semibold);
+  line-height: var(--jg-leading-tight);
+}
+
+.cn-kiosk__footer {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--jg-space-4);
+  border-top: var(--jg-border-width) solid var(--jg-border);
+  padding-top: var(--jg-space-3);
+  font-size: var(--jg-text-sm);
+  color: var(--jg-text-muted);
+}

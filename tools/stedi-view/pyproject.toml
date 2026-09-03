@@ -1,0 +1,19 @@
+[project]
+name = "stedi-view"
+version = "0.1.0"
+description = "CON-A, the DRAUPNIR local status view rendered by DVALIN"
+requires-python = ">=3.12"
+# Deliberately empty. CON-A depends on nothing beyond the appliance it is
+# attached to (Decision U2), and a dependency list is where that stops being
+# true. The standard library reads every one of the eight lines.
+dependencies = []
+
+[project.scripts]
+stedi-view = "stedi_view.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["stedi_view"]
