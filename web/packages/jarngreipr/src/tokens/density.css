@@ -1,0 +1,89 @@
+/*
+ * Density. VLD-UX-DRAUPNIR-001 section 4.5.
+ *
+ * | Mode        | Row height | Body | Gutter | Context                       |
+ * | Comfortable | 44 px      | 14   | 24     | Desktop browser. Default      |
+ * | Compact     | 32 px      | 13   | 12     | CON-A and CON-B at 1280 x 720 |
+ *
+ * "Compact reduces chrome and spacing. It never reduces touch target size."
+ *
+ * That last sentence is why `--jg-touch-target` is declared outside the two
+ * density blocks and not restated inside either. A token that is only ever
+ * defined once cannot be reduced by a mode that does not mention it, which is
+ * a stronger guarantee than two blocks that happen to agree. AC-V7's test
+ * reads the file and fails if compact declares it at all.
+ *
+ * A row can be shorter than a touch target because a table row is not a touch
+ * target: what a finger lands on is the control inside it, and a control keeps
+ * its 44 px minimum in both modes. Both consoles are read only, so at compact
+ * density there is usually nothing to hit at all.
+ */
+
+:root {
+  /*
+   * WCAG 2.2 target size (minimum) is 24 px, and 2.5.5 target size (enhanced)
+   * is 44. Section 4.5 asks for 44 in both modes, which is the enhanced level,
+   * so that is what this is. It is not density-dependent and it is not
+   * theme-dependent: it is one number for the system.
+   */
+  --jg-touch-target: 44px;
+}
+
+:root,
+:root[data-jg-density='comfortable'] {
+  --jg-density: comfortable;
+  --jg-row-height: 44px;
+  --jg-density-body: var(--jg-text-body);
+  --jg-gutter: var(--jg-space-6);
+  --jg-density-pad-x: var(--jg-space-3);
+  --jg-density-pad-y: var(--jg-space-2);
+}
+
+:root[data-jg-density='compact'] {
+  --jg-density: compact;
+  --jg-row-height: 32px;
+  --jg-density-body: var(--jg-text-small);
+  --jg-gutter: var(--jg-space-3);
+  --jg-density-pad-x: var(--jg-space-2);
+  --jg-density-pad-y: var(--jg-space-1);
+}
+
+/*
+ * The floor, applied rather than described.
+ *
+ * Named by control class rather than by element, because "every anchor is
+ * 44 px" would turn a link inside a sentence into a 44 px block and make the
+ * prose unreadable. What has to meet the target size is a control: the things
+ * JARNGREIPR ships as controls are listed here, and a screen that invents
+ * another one opts in with the same class or sets the token itself.
+ *
+ * `:where()` keeps the specificity at zero, so a component that needs a larger
+ * control still wins without `!important`, and a component cannot accidentally
+ * lose the floor by being more specific than it.
+ */
+:where(.jg-root) :where(.jg-button, .jg-select, .jg-input, .jg-toggle),
+:where(.jg-root) :where(.jg-tabs__tab, .jg-pagination__page, .jg-choice) {
+  min-block-size: var(--jg-touch-target);
+}
+
+/*
+ * Width as well, for the controls whose label does not give them one: a
+ * checkbox, a radio, a pagination page number, an icon-only button. A wide
+ * button already clears 44 px across and forcing a minimum on it would leave
+ * a short label floating in the middle of a square.
+ */
+:where(.jg-root) :where(.jg-pagination__page, .jg-choice, [data-jg-icon-only='true']) {
+  min-inline-size: var(--jg-touch-target);
+}
+
+/*
+ * The one exception: a control that sits inside a line of text -- a copy
+ * button beside a hash, a tag's remove cross. WCAG 2.5.8 exempts a target
+ * inline in a sentence, because enlarging it would reflow the sentence around
+ * it. These get 24 px, which is 2.5.8's own floor, and are spaced so their
+ * hit areas do not overlap.
+ */
+:where(.jg-root) :where([data-jg-target='inline']) {
+  min-block-size: var(--jg-space-6);
+  min-inline-size: var(--jg-space-6);
+}

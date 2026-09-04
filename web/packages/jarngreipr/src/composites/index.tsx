@@ -1,6 +1,8 @@
 import type { JSX, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { StateSurface, type StateProps } from '../state/states';
+import { RunStatePill } from '../tokens/RunStatePill';
+import { type RunState } from '../tokens';
 import { Badge, Button, type Tone } from '../primitives';
 import './composites.css';
 
@@ -22,31 +24,6 @@ import './composites.css';
 // ---------------------------------------------------------------------------
 // Run card
 // ---------------------------------------------------------------------------
-
-/** The run lifecycle of SAD 6.1. */
-export type RunState =
-  | 'DRAFT'
-  | 'QUEUED'
-  | 'RUNNING'
-  | 'TRAINED'
-  | 'EVALUATED'
-  | 'GATED'
-  | 'RELEASED'
-  | 'FAILED'
-  | 'CANCELLED';
-
-/** Which tone each lifecycle state reads as. */
-const RUN_TONE: Record<RunState, Tone> = {
-  DRAFT: 'neutral',
-  QUEUED: 'neutral',
-  RUNNING: 'info',
-  TRAINED: 'info',
-  EVALUATED: 'info',
-  GATED: 'warning',
-  RELEASED: 'success',
-  FAILED: 'danger',
-  CANCELLED: 'neutral',
-};
 
 export interface RunAction {
   label: string;
@@ -108,7 +85,7 @@ export function RunCard({
             </h3>
             <p className="jg-card__subtitle">{runId}</p>
           </div>
-          <Badge tone={RUN_TONE[runState]}>{runState}</Badge>
+          <RunStatePill state={runState} />
         </div>
 
         <dl className="jg-facts">

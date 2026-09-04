@@ -13,6 +13,7 @@
     "build": "pnpm --recursive --filter ./packages/** run build && pnpm --filter @draupnir/console build",
     "lint": "eslint .",
     "lint:tokens": "node scripts/token-lint.mjs",
+    "lint:contrast": "vitest run packages/jarngreipr/src/tokens",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --build --force && tsc -p tsconfig.tools.json",
     "format": "prettier --write \"**/*.{ts,tsx,css,json,md}\"",

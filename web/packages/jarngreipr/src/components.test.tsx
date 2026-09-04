@@ -142,7 +142,7 @@ const COMPONENTS: [name: string, render: Renderer][] = [
       <RunCard
         runId="01a06244"
         model="CIM-014 Gaelic"
-        runState="RUNNING"
+        runState="TRAINING"
         step={42}
         totalSteps={120}
         state={state}

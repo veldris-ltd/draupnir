@@ -1,0 +1,467 @@
+/*
+ * Run state tokens. VLD-UX-DRAUPNIR-001 section 4.2.
+ *
+ * "State colour is a token, not a per component choice, so a state reads the
+ * same on a table row, a card, a badge and a timeline." That sentence is why
+ * this file exists and why no component may map a state to a colour of its
+ * own. AC-V4 checks it: a component with its own state-to-colour table fails.
+ *
+ * Four tokens per state, because a pill is four things:
+ *
+ *   --jg-state-<S>          the colour section 4.2 assigns. The marker: a
+ *                           timeline node, a left bar, a dot
+ *   --jg-state-<S>-surface  the tint the pill sits on
+ *   --jg-state-<S>-on       the pill's text, at 4.5:1 on that tint
+ *   --jg-state-<S>-border   the pill's edge, at 3:1 on that tint
+ *
+ * The marker is not held to a contrast threshold and that is deliberate.
+ * Section 4.2 ends "colour never carries meaning alone. Every state renders as
+ * a text label inside its pill", so the marker is redundant with the label it
+ * accompanies, and WCAG 1.4.11 exempts a graphic that conveys nothing the text
+ * does not. The text and the edge are held, because those are what a
+ * low-vision user reads and what tells them the pill is there.
+ *
+ * Several states take their `-on` colour from a darker step than the state
+ * colour itself. TRAINING is forge 500, which is 2.13:1 on forge 50 and cannot
+ * be text; forge 800 on the same tint is 5.5:1 and can. The state colour is
+ * unchanged -- it is still forge 500 and still the marker -- and the label
+ * beside it is legible. `docs/design/tokens.md` records the four states where
+ * this applies.
+ */
+
+:root {
+  /* QUEUED: inert. Nothing is happening yet. */
+  --jg-state-queued: var(--jg-ink-600);
+  --jg-state-queued-surface: var(--jg-ink-100);
+  --jg-state-queued-on: var(--jg-ink-800);
+  --jg-state-queued-border: var(--jg-ink-600);
+
+  /* TRAINING: the active state, and the accent of the whole system. */
+  --jg-state-training: var(--jg-forge-500);
+  --jg-state-training-surface: var(--jg-forge-50);
+  --jg-state-training-on: var(--jg-forge-800);
+  --jg-state-training-border: var(--jg-forge-800);
+
+  /* TRAINED: active work finished, not yet judged. */
+  --jg-state-trained: var(--jg-forge-300);
+  --jg-state-trained-surface: var(--jg-forge-50);
+  --jg-state-trained-on: var(--jg-forge-800);
+  --jg-state-trained-border: var(--jg-forge-800);
+
+  /* EVALUATING: under judgement. */
+  --jg-state-evaluating: var(--jg-ink-800);
+  --jg-state-evaluating-surface: var(--jg-ink-100);
+  --jg-state-evaluating-on: var(--jg-ink-800);
+  --jg-state-evaluating-border: var(--jg-ink-800);
+
+  /* MERGED: reweighting is a distinct kind of act and reads distinctly. */
+  --jg-state-merged: var(--jg-merge-500);
+  --jg-state-merged-surface: var(--jg-merge-50);
+  --jg-state-merged-on: var(--jg-merge-500);
+  --jg-state-merged-border: var(--jg-merge-500);
+
+  /* QUANTISED: near release, deliberately sober. */
+  --jg-state-quantised: var(--jg-ink-900);
+  --jg-state-quantised-surface: var(--jg-ink-100);
+  --jg-state-quantised-on: var(--jg-ink-900);
+  --jg-state-quantised-border: var(--jg-ink-900);
+
+  /* AWAITING_APPROVAL: requires a human. Warning, not danger. */
+  --jg-state-awaiting-approval: var(--jg-warning-500);
+  --jg-state-awaiting-approval-surface: var(--jg-warning-50);
+  --jg-state-awaiting-approval-on: var(--jg-warning-800);
+  --jg-state-awaiting-approval-border: var(--jg-warning-800);
+
+  /* RELEASED: terminal and good. */
+  --jg-state-released: var(--jg-success-500);
+  --jg-state-released-surface: var(--jg-success-50);
+  --jg-state-released-on: var(--jg-success-800);
+  --jg-state-released-border: var(--jg-success-800);
+
+  /* FAILED: terminal and bad, recoverable by retry. */
+  --jg-state-failed: var(--jg-danger-500);
+  --jg-state-failed-surface: var(--jg-danger-50);
+  --jg-state-failed-on: var(--jg-danger-500);
+  --jg-state-failed-border: var(--jg-danger-800);
+
+  /* QUARANTINED: withdrawn and retained. A decision, not an accident. */
+  --jg-state-quarantined: var(--jg-danger-800);
+  --jg-state-quarantined-surface: var(--jg-danger-50);
+  --jg-state-quarantined-on: var(--jg-danger-800);
+  --jg-state-quarantined-border: var(--jg-danger-800);
+
+  /*
+   * The three corpus states of SAD 6.1 that section 4.2 does not assign a
+   * colour to. They are stages of a corpus before a run exists, they never
+   * appear on a run board, and they take the inert treatment rather than an
+   * invented one. Recorded in `docs/design/tokens.md`.
+   */
+  --jg-state-draft: var(--jg-ink-600);
+  --jg-state-draft-surface: var(--jg-ink-100);
+  --jg-state-draft-on: var(--jg-ink-800);
+  --jg-state-draft-border: var(--jg-ink-600);
+
+  --jg-state-corpus-registered: var(--jg-ink-600);
+  --jg-state-corpus-registered-surface: var(--jg-ink-100);
+  --jg-state-corpus-registered-on: var(--jg-ink-800);
+  --jg-state-corpus-registered-border: var(--jg-ink-600);
+
+  --jg-state-licence-cleared: var(--jg-ink-600);
+  --jg-state-licence-cleared-surface: var(--jg-ink-100);
+  --jg-state-licence-cleared-on: var(--jg-ink-800);
+  --jg-state-licence-cleared-border: var(--jg-ink-600);
+
+  --jg-state-curated: var(--jg-ink-600);
+  --jg-state-curated-surface: var(--jg-ink-100);
+  --jg-state-curated-on: var(--jg-ink-800);
+  --jg-state-curated-border: var(--jg-ink-600);
+}
+
+/*
+ * Dark. Section 4.1: "accent and semantic ramps shift one step lighter in dark
+ * theme to hold contrast." A state whose colour is one of ink's dark steps
+ * cannot shift one step and still be read on a dark surface, so those take the
+ * ramp's light steps: EVALUATING becomes ink 300 and QUANTISED ink 100, which
+ * keeps them the sober end of the ink ramp in a theme where sober is light.
+ *
+ * The tint is the state colour at low weight over the base surface, derived
+ * rather than invented: section 4.1 specifies no dark tints, and a mix of two
+ * specified values is a value the specification can account for.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-jg-theme='light']) {
+    --jg-state-queued: var(--jg-ink-400);
+    --jg-state-queued-surface: color-mix(in srgb, var(--jg-ink-400) 20%, var(--jg-dark-base));
+    --jg-state-queued-on: var(--jg-ink-300);
+    --jg-state-queued-border: var(--jg-ink-400);
+
+    --jg-state-training: var(--jg-forge-500);
+    --jg-state-training-surface: color-mix(in srgb, var(--jg-forge-500) 20%, var(--jg-dark-base));
+    --jg-state-training-on: var(--jg-forge-300);
+    --jg-state-training-border: var(--jg-forge-500);
+
+    --jg-state-trained: var(--jg-forge-300);
+    --jg-state-trained-surface: color-mix(in srgb, var(--jg-forge-500) 20%, var(--jg-dark-base));
+    --jg-state-trained-on: var(--jg-forge-300);
+    --jg-state-trained-border: var(--jg-forge-500);
+
+    --jg-state-evaluating: var(--jg-ink-300);
+    --jg-state-evaluating-surface: color-mix(in srgb, var(--jg-ink-400) 20%, var(--jg-dark-base));
+    --jg-state-evaluating-on: var(--jg-ink-300);
+    --jg-state-evaluating-border: var(--jg-ink-400);
+
+    --jg-state-merged: var(--jg-merge-100);
+    --jg-state-merged-surface: color-mix(in srgb, var(--jg-merge-500) 32%, var(--jg-dark-base));
+    --jg-state-merged-on: var(--jg-merge-100);
+    --jg-state-merged-border: var(--jg-merge-100);
+
+    --jg-state-quantised: var(--jg-ink-100);
+    --jg-state-quantised-surface: color-mix(in srgb, var(--jg-ink-400) 20%, var(--jg-dark-base));
+    --jg-state-quantised-on: var(--jg-ink-100);
+    --jg-state-quantised-border: var(--jg-ink-300);
+
+    --jg-state-awaiting-approval: var(--jg-warning-300);
+    --jg-state-awaiting-approval-surface: color-mix(
+      in srgb,
+      var(--jg-warning-500) 20%,
+      var(--jg-dark-base)
+    );
+    --jg-state-awaiting-approval-on: var(--jg-warning-300);
+    --jg-state-awaiting-approval-border: var(--jg-warning-500);
+
+    --jg-state-released: var(--jg-success-300);
+    --jg-state-released-surface: color-mix(in srgb, var(--jg-success-500) 22%, var(--jg-dark-base));
+    --jg-state-released-on: var(--jg-success-300);
+    --jg-state-released-border: var(--jg-success-500);
+
+    --jg-state-failed: var(--jg-danger-300);
+    --jg-state-failed-surface: color-mix(in srgb, var(--jg-danger-500) 22%, var(--jg-dark-base));
+    --jg-state-failed-on: var(--jg-danger-300);
+    --jg-state-failed-border: var(--jg-danger-300);
+
+    --jg-state-quarantined: var(--jg-danger-500);
+    --jg-state-quarantined-surface: color-mix(
+      in srgb,
+      var(--jg-danger-500) 22%,
+      var(--jg-dark-base)
+    );
+    --jg-state-quarantined-on: var(--jg-danger-300);
+    --jg-state-quarantined-border: var(--jg-danger-300);
+
+    --jg-state-draft: var(--jg-ink-400);
+    --jg-state-draft-surface: color-mix(in srgb, var(--jg-ink-400) 20%, var(--jg-dark-base));
+    --jg-state-draft-on: var(--jg-ink-300);
+    --jg-state-draft-border: var(--jg-ink-400);
+
+    --jg-state-corpus-registered: var(--jg-ink-400);
+    --jg-state-corpus-registered-surface: color-mix(
+      in srgb,
+      var(--jg-ink-400) 20%,
+      var(--jg-dark-base)
+    );
+    --jg-state-corpus-registered-on: var(--jg-ink-300);
+    --jg-state-corpus-registered-border: var(--jg-ink-400);
+
+    --jg-state-licence-cleared: var(--jg-ink-400);
+    --jg-state-licence-cleared-surface: color-mix(
+      in srgb,
+      var(--jg-ink-400) 20%,
+      var(--jg-dark-base)
+    );
+    --jg-state-licence-cleared-on: var(--jg-ink-300);
+    --jg-state-licence-cleared-border: var(--jg-ink-400);
+
+    --jg-state-curated: var(--jg-ink-400);
+    --jg-state-curated-surface: color-mix(in srgb, var(--jg-ink-400) 20%, var(--jg-dark-base));
+    --jg-state-curated-on: var(--jg-ink-300);
+    --jg-state-curated-border: var(--jg-ink-400);
+  }
+}
+
+:root[data-jg-theme='dark'] {
+  --jg-state-queued: var(--jg-ink-400);
+  --jg-state-queued-surface: color-mix(in srgb, var(--jg-ink-400) 20%, var(--jg-dark-base));
+  --jg-state-queued-on: var(--jg-ink-300);
+  --jg-state-queued-border: var(--jg-ink-400);
+
+  --jg-state-training: var(--jg-forge-500);
+  --jg-state-training-surface: color-mix(in srgb, var(--jg-forge-500) 20%, var(--jg-dark-base));
+  --jg-state-training-on: var(--jg-forge-300);
+  --jg-state-training-border: var(--jg-forge-500);
+
+  --jg-state-trained: var(--jg-forge-300);
+  --jg-state-trained-surface: color-mix(in srgb, var(--jg-forge-500) 20%, var(--jg-dark-base));
+  --jg-state-trained-on: var(--jg-forge-300);
+  --jg-state-trained-border: var(--jg-forge-500);
+
+  --jg-state-evaluating: var(--jg-ink-300);
+  --jg-state-evaluating-surface: color-mix(in srgb, var(--jg-ink-400) 20%, var(--jg-dark-base));
+  --jg-state-evaluating-on: var(--jg-ink-300);
+  --jg-state-evaluating-border: var(--jg-ink-400);
+
+  --jg-state-merged: var(--jg-merge-100);
+  --jg-state-merged-surface: color-mix(in srgb, var(--jg-merge-500) 32%, var(--jg-dark-base));
+  --jg-state-merged-on: var(--jg-merge-100);
+  --jg-state-merged-border: var(--jg-merge-100);
+
+  --jg-state-quantised: var(--jg-ink-100);
+  --jg-state-quantised-surface: color-mix(in srgb, var(--jg-ink-400) 20%, var(--jg-dark-base));
+  --jg-state-quantised-on: var(--jg-ink-100);
+  --jg-state-quantised-border: var(--jg-ink-300);
+
+  --jg-state-awaiting-approval: var(--jg-warning-300);
+  --jg-state-awaiting-approval-surface: color-mix(
+    in srgb,
+    var(--jg-warning-500) 20%,
+    var(--jg-dark-base)
+  );
+  --jg-state-awaiting-approval-on: var(--jg-warning-300);
+  --jg-state-awaiting-approval-border: var(--jg-warning-500);
+
+  --jg-state-released: var(--jg-success-300);
+  --jg-state-released-surface: color-mix(in srgb, var(--jg-success-500) 22%, var(--jg-dark-base));
+  --jg-state-released-on: var(--jg-success-300);
+  --jg-state-released-border: var(--jg-success-500);
+
+  --jg-state-failed: var(--jg-danger-300);
+  --jg-state-failed-surface: color-mix(in srgb, var(--jg-danger-500) 22%, var(--jg-dark-base));
+  --jg-state-failed-on: var(--jg-danger-300);
+  --jg-state-failed-border: var(--jg-danger-300);
+
+  --jg-state-quarantined: var(--jg-danger-500);
+  --jg-state-quarantined-surface: color-mix(in srgb, var(--jg-danger-500) 22%, var(--jg-dark-base));
+  --jg-state-quarantined-on: var(--jg-danger-300);
+  --jg-state-quarantined-border: var(--jg-danger-300);
+
+  --jg-state-draft: var(--jg-ink-400);
+  --jg-state-draft-surface: color-mix(in srgb, var(--jg-ink-400) 20%, var(--jg-dark-base));
+  --jg-state-draft-on: var(--jg-ink-300);
+  --jg-state-draft-border: var(--jg-ink-400);
+
+  --jg-state-corpus-registered: var(--jg-ink-400);
+  --jg-state-corpus-registered-surface: color-mix(
+    in srgb,
+    var(--jg-ink-400) 20%,
+    var(--jg-dark-base)
+  );
+  --jg-state-corpus-registered-on: var(--jg-ink-300);
+  --jg-state-corpus-registered-border: var(--jg-ink-400);
+
+  --jg-state-licence-cleared: var(--jg-ink-400);
+  --jg-state-licence-cleared-surface: color-mix(
+    in srgb,
+    var(--jg-ink-400) 20%,
+    var(--jg-dark-base)
+  );
+  --jg-state-licence-cleared-on: var(--jg-ink-300);
+  --jg-state-licence-cleared-border: var(--jg-ink-400);
+
+  --jg-state-curated: var(--jg-ink-400);
+  --jg-state-curated-surface: color-mix(in srgb, var(--jg-ink-400) 20%, var(--jg-dark-base));
+  --jg-state-curated-on: var(--jg-ink-300);
+  --jg-state-curated-border: var(--jg-ink-400);
+}
+
+/*
+ * The mapping, in the token layer. AC-V4.
+ *
+ * A component writes `data-jg-run-state="TRAINING"` and nothing else. It does
+ * not know that TRAINING is forge 500, and it has no table of its own to
+ * disagree with this one. Fourteen rules rather than one, because CSS cannot
+ * build a custom property name out of an attribute value -- and fourteen rules
+ * in the token layer is exactly the trade section 4.2 asks for: "state colour
+ * is a token, not a per component choice".
+ *
+ * Each rule sets four generic properties. Everything that renders a state --
+ * a pill, a table row's leading edge, a card's rule, a timeline node -- reads
+ * those four and therefore reads the same in every context, which is the
+ * sentence the section opens with.
+ */
+[data-jg-run-state='DRAFT'] {
+  --jg-state-colour: var(--jg-state-draft);
+  --jg-state-surface: var(--jg-state-draft-surface);
+  --jg-state-on: var(--jg-state-draft-on);
+  --jg-state-border: var(--jg-state-draft-border);
+}
+
+[data-jg-run-state='CORPUS_REGISTERED'] {
+  --jg-state-colour: var(--jg-state-corpus-registered);
+  --jg-state-surface: var(--jg-state-corpus-registered-surface);
+  --jg-state-on: var(--jg-state-corpus-registered-on);
+  --jg-state-border: var(--jg-state-corpus-registered-border);
+}
+
+[data-jg-run-state='LICENCE_CLEARED'] {
+  --jg-state-colour: var(--jg-state-licence-cleared);
+  --jg-state-surface: var(--jg-state-licence-cleared-surface);
+  --jg-state-on: var(--jg-state-licence-cleared-on);
+  --jg-state-border: var(--jg-state-licence-cleared-border);
+}
+
+[data-jg-run-state='CURATED'] {
+  --jg-state-colour: var(--jg-state-curated);
+  --jg-state-surface: var(--jg-state-curated-surface);
+  --jg-state-on: var(--jg-state-curated-on);
+  --jg-state-border: var(--jg-state-curated-border);
+}
+
+[data-jg-run-state='QUEUED'] {
+  --jg-state-colour: var(--jg-state-queued);
+  --jg-state-surface: var(--jg-state-queued-surface);
+  --jg-state-on: var(--jg-state-queued-on);
+  --jg-state-border: var(--jg-state-queued-border);
+}
+
+[data-jg-run-state='TRAINING'] {
+  --jg-state-colour: var(--jg-state-training);
+  --jg-state-surface: var(--jg-state-training-surface);
+  --jg-state-on: var(--jg-state-training-on);
+  --jg-state-border: var(--jg-state-training-border);
+}
+
+[data-jg-run-state='TRAINED'] {
+  --jg-state-colour: var(--jg-state-trained);
+  --jg-state-surface: var(--jg-state-trained-surface);
+  --jg-state-on: var(--jg-state-trained-on);
+  --jg-state-border: var(--jg-state-trained-border);
+}
+
+[data-jg-run-state='EVALUATING'] {
+  --jg-state-colour: var(--jg-state-evaluating);
+  --jg-state-surface: var(--jg-state-evaluating-surface);
+  --jg-state-on: var(--jg-state-evaluating-on);
+  --jg-state-border: var(--jg-state-evaluating-border);
+}
+
+[data-jg-run-state='MERGED'] {
+  --jg-state-colour: var(--jg-state-merged);
+  --jg-state-surface: var(--jg-state-merged-surface);
+  --jg-state-on: var(--jg-state-merged-on);
+  --jg-state-border: var(--jg-state-merged-border);
+}
+
+[data-jg-run-state='QUANTISED'] {
+  --jg-state-colour: var(--jg-state-quantised);
+  --jg-state-surface: var(--jg-state-quantised-surface);
+  --jg-state-on: var(--jg-state-quantised-on);
+  --jg-state-border: var(--jg-state-quantised-border);
+}
+
+[data-jg-run-state='AWAITING_APPROVAL'] {
+  --jg-state-colour: var(--jg-state-awaiting-approval);
+  --jg-state-surface: var(--jg-state-awaiting-approval-surface);
+  --jg-state-on: var(--jg-state-awaiting-approval-on);
+  --jg-state-border: var(--jg-state-awaiting-approval-border);
+}
+
+[data-jg-run-state='RELEASED'] {
+  --jg-state-colour: var(--jg-state-released);
+  --jg-state-surface: var(--jg-state-released-surface);
+  --jg-state-on: var(--jg-state-released-on);
+  --jg-state-border: var(--jg-state-released-border);
+}
+
+[data-jg-run-state='FAILED'] {
+  --jg-state-colour: var(--jg-state-failed);
+  --jg-state-surface: var(--jg-state-failed-surface);
+  --jg-state-on: var(--jg-state-failed-on);
+  --jg-state-border: var(--jg-state-failed-border);
+}
+
+[data-jg-run-state='QUARANTINED'] {
+  --jg-state-colour: var(--jg-state-quarantined);
+  --jg-state-surface: var(--jg-state-quarantined-surface);
+  --jg-state-on: var(--jg-state-quarantined-on);
+  --jg-state-border: var(--jg-state-quarantined-border);
+}
+
+/*
+ * The pill itself. One rule, reading the four properties the mapping above
+ * set, so a state's appearance is decided once for every context that shows
+ * one. The label is inside it: section 4.2's "colour never carries meaning
+ * alone" is a property of the markup, and `RunStatePill` renders the text.
+ */
+.jg-state-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--jg-space-1);
+  padding: var(--jg-space-1) var(--jg-space-2);
+  font-size: var(--jg-text-caption);
+  font-weight: var(--jg-weight-medium);
+  line-height: var(--jg-leading-tight);
+  white-space: nowrap;
+  color: var(--jg-state-on);
+  background: var(--jg-state-surface);
+  border: var(--jg-border-width) solid var(--jg-state-border);
+  border-radius: var(--jg-radius-badge);
+}
+
+/*
+ * The marker. A dot, and the only place the section 4.2 colour itself is
+ * painted. It is redundant with the label beside it, which is what lets it sit
+ * below the contrast threshold: it tells a sighted user which state at a
+ * glance, and the label tells everybody.
+ */
+.jg-state-pill__marker {
+  inline-size: var(--jg-space-2);
+  block-size: var(--jg-space-2);
+  border-radius: var(--jg-radius-badge);
+  background: var(--jg-state-colour);
+  flex: none;
+}
+
+/*
+ * The same four properties, in the other three contexts section 4.2 names.
+ * A table row and a card get the state as a leading edge; a timeline gets it
+ * as a node. None of them restates a colour.
+ */
+.jg-state-edge {
+  border-inline-start: var(--jg-border-width-thick) solid var(--jg-state-colour);
+}
+
+.jg-state-node {
+  inline-size: var(--jg-space-3);
+  block-size: var(--jg-space-3);
+  border-radius: var(--jg-radius-badge);
+  background: var(--jg-state-colour);
+}

@@ -17,7 +17,6 @@ make test-frontend
 ## Evidence
 
 - `web/packages/jarngreipr/src/motion.test.ts`
-- `web/packages/jarngreipr/src/tokens/tokens.test.ts`
 
 ---
 

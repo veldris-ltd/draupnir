@@ -1,40 +1,84 @@
 /*
- * JARNGREIPR tokens. The only source of visual values in the system.
+ * JARNGREIPR semantic tokens. The roles a component names.
  *
- * AC-U3: no component contains a hard coded colour, spacing or radius value,
- * and a token linter enforces it. This file is the exception it is enforced
- * against -- literals live here and nowhere else.
+ * `ramp.css` holds the palette of VLD-UX-DRAUPNIR-001 section 4.1 as issued.
+ * This file decides which step of that palette fills which role, per theme.
+ * The split is the whole design: a component names `--jg-text` and never
+ * `--jg-ink-900`, so the theme can move underneath it and the component does
+ * not change (AC-V1, and the exit condition of prompt UX-1).
  *
- * The colour ramps are authored so that every foreground/background pair the
- * components actually use clears WCAG 2.2 AA (AC-U7): 4.5:1 for body text,
- * 3:1 for large text and interface components. `contrast.test.ts` computes
- * every pair rather than trusting this comment, because a ramp adjusted by eye
- * is a ramp that drifts one shade at a time.
+ * Every pairing a component makes is listed in `contrast.ts` and checked at
+ * 4.5:1 for text and 3:1 for boundaries, in both themes, by a test and by
+ * `pnpm lint:contrast` in CI (AC-V6, and AC-U7 in the SAD's set). The figures are not written in comments
+ * here, because a figure in a comment is true on the day it is typed and
+ * silently false three colour changes later.
  *
- * Two ramps, light and dark, expressed as the same semantic names. A component
- * never names a ramp: it names a role -- surface, text, border, accent -- and
- * the theme decides what that is. That is what makes a component theme-blind,
- * and it is why there is no `--jg-grey-400` in the semantic layer.
+ * Where a specified value could not fill the role its name suggests, the
+ * reason is in `docs/design/tokens.md`. Nothing here adjusts a specified
+ * value; the choices are all about which specified value goes where.
  */
 
 :root {
   /* ---------------------------------------------------------------------
-   * Typography. A scale rather than free values, so that two headings
-   * chosen independently are the same size.
+   * Typography. Section 4.3: eight roles, each with a size, a line height
+   * and a weight. Inter for interface text, JetBrains Mono for anything a
+   * user may need to compare character by character.
    * ------------------------------------------------------------------ */
   --jg-font-sans:
-    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
   --jg-font-mono:
-    ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+    'JetBrains Mono', ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', 'Roboto Mono', Menlo,
+    Consolas, monospace;
 
-  --jg-text-2xs: 0.6875rem;
-  --jg-text-xs: 0.75rem;
-  --jg-text-sm: 0.8125rem;
-  --jg-text-md: 0.875rem;
-  --jg-text-lg: 1rem;
-  --jg-text-xl: 1.25rem;
-  --jg-text-2xl: 1.5rem;
-  --jg-text-3xl: 2rem;
+  --jg-text-display: 2rem;
+  --jg-text-display-line: 2.5rem;
+  --jg-text-display-weight: 600;
+
+  --jg-text-h1: 1.5rem;
+  --jg-text-h1-line: 2rem;
+  --jg-text-h1-weight: 600;
+
+  --jg-text-h2: 1.25rem;
+  --jg-text-h2-line: 1.75rem;
+  --jg-text-h2-weight: 600;
+
+  --jg-text-h3: 1rem;
+  --jg-text-h3-line: 1.5rem;
+  --jg-text-h3-weight: 600;
+
+  --jg-text-body: 0.875rem;
+  --jg-text-body-line: 1.375rem;
+  --jg-text-body-weight: 400;
+
+  --jg-text-small: 0.8125rem;
+  --jg-text-small-line: 1.25rem;
+  --jg-text-small-weight: 400;
+
+  --jg-text-caption: 0.75rem;
+  --jg-text-caption-line: 1rem;
+  --jg-text-caption-weight: 400;
+
+  --jg-text-mono: 0.8125rem;
+  --jg-text-mono-line: 1.25rem;
+  --jg-text-mono-weight: 400;
+
+  /*
+   * The earlier size names, kept as aliases so that a component written
+   * against them still resolves. They are references rather than values, so
+   * the two names cannot drift apart. New work names the role.
+   *
+   * `--jg-text-2xs` was an 11px step section 4.3 does not define. It resolves
+   * to caption, which is the smallest size the specification has.
+   */
+  --jg-text-3xl: var(--jg-text-display);
+  --jg-text-2xl: var(--jg-text-h1);
+  --jg-text-xl: var(--jg-text-h2);
+  --jg-text-lg: var(--jg-text-h3);
+  --jg-text-md: var(--jg-text-body);
+  --jg-text-sm: var(--jg-text-small);
+  --jg-text-xs: var(--jg-text-caption);
+  --jg-text-2xs: var(--jg-text-caption);
 
   --jg-leading-tight: 1.25;
   --jg-leading-normal: 1.5;
@@ -45,46 +89,70 @@
   --jg-weight-semibold: 600;
 
   /* ---------------------------------------------------------------------
-   * Spacing. A 4px base, because a dense operational console needs steps
-   * smaller than 8 and an 8px base produces half-step exceptions.
+   * Space. Section 4.4: a 4px base, and exactly these steps --
+   * 4, 8, 12, 16, 24, 32, 48, 64. The step numbers are quarter-rems, so
+   * `--jg-space-6` is 24px, which is what the specification's table calls a
+   * comfortable gutter.
    * ------------------------------------------------------------------ */
   --jg-space-0: 0;
   --jg-space-1: 0.25rem;
   --jg-space-2: 0.5rem;
   --jg-space-3: 0.75rem;
   --jg-space-4: 1rem;
-  --jg-space-5: 1.25rem;
   --jg-space-6: 1.5rem;
   --jg-space-8: 2rem;
-  --jg-space-10: 2.5rem;
   --jg-space-12: 3rem;
   --jg-space-16: 4rem;
 
+  /*
+   * 20px and 40px are not on the scale. They were, and the two names remain
+   * as references to the nearest step above so nothing breaks; a component
+   * written today uses a step.
+   */
+  --jg-space-5: var(--jg-space-6);
+  --jg-space-10: var(--jg-space-12);
+
   /* ---------------------------------------------------------------------
-   * Radius and border width.
+   * Radius. Section 4.4 states it by use, so the tokens are named by use
+   * and the t-shirt sizes are aliases.
    * ------------------------------------------------------------------ */
+  --jg-radius-input: 2px;
+  --jg-radius-card: 4px;
+  --jg-radius-panel: 8px;
+  --jg-radius-dialog: 12px;
+  --jg-radius-badge: 9999px;
+
   --jg-radius-none: 0;
-  --jg-radius-sm: 0.125rem;
-  --jg-radius-md: 0.25rem;
-  --jg-radius-lg: 0.5rem;
-  --jg-radius-xl: 0.75rem;
-  --jg-radius-full: 9999px;
+  --jg-radius-sm: var(--jg-radius-input);
+  --jg-radius-md: var(--jg-radius-card);
+  --jg-radius-lg: var(--jg-radius-panel);
+  --jg-radius-xl: var(--jg-radius-dialog);
+  --jg-radius-full: var(--jg-radius-badge);
 
   --jg-border-width: 1px;
   --jg-border-width-thick: 2px;
 
   /* ---------------------------------------------------------------------
-   * Motion. Every duration is behind a token so that
-   * `prefers-reduced-motion` can zero all of them in one place (AC-U9).
+   * Motion. Section 4.4: three durations and one easing. Every duration is
+   * behind a token so `prefers-reduced-motion` can zero all of them in one
+   * place; a component that hard-coded 200ms would not respect it, which is
+   * the other reason durations are tokens.
    * ------------------------------------------------------------------ */
+  --jg-duration-micro: 120ms;
+  --jg-duration-standard: 200ms;
+  --jg-duration-large: 320ms;
+
   --jg-duration-instant: 0ms;
-  --jg-duration-fast: 120ms;
-  --jg-duration-normal: 200ms;
-  --jg-duration-slow: 320ms;
+  --jg-duration-fast: var(--jg-duration-micro);
+  --jg-duration-normal: var(--jg-duration-standard);
+  --jg-duration-slow: var(--jg-duration-large);
 
   --jg-ease-standard: cubic-bezier(0.2, 0, 0, 1);
-  --jg-ease-enter: cubic-bezier(0, 0, 0, 1);
-  --jg-ease-exit: cubic-bezier(0.3, 0, 1, 1);
+
+  /* ---------------------------------------------------------------------
+   * Elevation. Section 4.4: three levels only.
+   * ------------------------------------------------------------------ */
+  --jg-elevation-flat: none;
 
   /* ---------------------------------------------------------------------
    * Focus. One ring, everywhere, at a width and offset that stays visible
@@ -104,198 +172,210 @@
   --jg-z-tooltip: 500;
 
   /* ---------------------------------------------------------------------
-   * Light ramp. The default.
+   * The light theme. The default.
    *
-   * Contrast against `--jg-surface` (#ffffff):
-   *   text          #16191d  16.9:1
-   *   text-muted    #4b5563   8.0:1
-   *   text-subtle   #5f6b7a   5.6:1
-   *   accent        #0b5cad   6.5:1
-   *   danger        #a01722   7.1:1
-   *   success       #0f6b3f   5.4:1
-   *   warning-text  #6b4708   6.4:1
+   * Section 4.1 gives ink the purpose "text, surfaces, chrome, borders", so
+   * the surfaces are its two lightest steps over a white page, and the text
+   * weights are its three darkest.
    * ------------------------------------------------------------------ */
-  --jg-surface: #ffffff;
-  --jg-surface-raised: #f7f8fa;
-  --jg-surface-sunken: #eef0f4;
-  --jg-surface-overlay: #ffffff;
-  --jg-surface-inverse: #16191d;
-  --jg-scrim: rgb(22 25 29 / 55%);
+  --jg-surface: var(--jg-light-base);
+  --jg-surface-raised: var(--jg-ink-50);
+  --jg-surface-sunken: var(--jg-ink-100);
+  --jg-surface-overlay: var(--jg-light-base);
+  --jg-surface-inverse: var(--jg-ink-900);
+  --jg-scrim: rgb(14 26 43 / 55%);
 
-  --jg-text: #16191d;
-  --jg-text-muted: #4b5563;
-  --jg-text-subtle: #5f6b7a;
-  --jg-text-inverse: #ffffff;
-  --jg-text-on-accent: #ffffff;
+  --jg-text: var(--jg-ink-900);
+  --jg-text-muted: var(--jg-ink-700);
+  --jg-text-subtle: var(--jg-ink-600);
+  --jg-text-inverse: var(--jg-ink-50);
+  --jg-text-on-accent: var(--jg-light-base);
 
   /*
    * `--jg-border` draws the edge of every input, select, table and card, so
    * WCAG 1.4.11 applies to it: 3:1 against the surface behind it, or a
-   * low-vision user cannot see where the control is. It was #cbd2dc, which is
-   * 1.5:1 and fails; the contrast test in tokens.test.ts is what found it.
+   * low-vision user cannot see where the control is. ink 400 is the step that
+   * looks right and it is 2.88:1 against the sunken surface, so the border is
+   * ink 600 and the shortfall is recorded rather than papered over.
    * `--jg-border-subtle` divides content that is legible without the divider
    * and is deliberately below the threshold.
    */
-  --jg-border: #848b96;
-  --jg-border-strong: #6f7681;
-  --jg-border-subtle: #d5dae2;
+  --jg-border: var(--jg-ink-600);
+  --jg-border-strong: var(--jg-ink-700);
+  --jg-border-subtle: var(--jg-ink-300);
 
-  --jg-accent: #0b5cad;
-  --jg-accent-hover: #094a8c;
-  --jg-accent-active: #073a6e;
-  --jg-accent-subtle: #e8f1fb;
-  --jg-accent-border: #7aa9dc;
+  /*
+   * Accent. forge 800 is the one step of the forge ramp that carries white
+   * text at 4.5:1, so it is the accent for both text and fills. Hover and
+   * active are that step mixed toward ink 900 rather than two new ambers:
+   * a derived value composes specified ones, where a new hex would not be in
+   * section 4.1 at all.
+   */
+  --jg-accent: var(--jg-forge-800);
+  --jg-accent-hover: color-mix(in srgb, var(--jg-forge-800) 88%, var(--jg-ink-900));
+  --jg-accent-active: color-mix(in srgb, var(--jg-forge-800) 76%, var(--jg-ink-900));
+  --jg-accent-subtle: var(--jg-forge-50);
+  --jg-accent-border: var(--jg-forge-800);
 
-  --jg-danger: #a01722;
-  --jg-danger-hover: #85131c;
-  --jg-danger-subtle: #fdecee;
-  --jg-danger-border: #e2a3a9;
+  --jg-danger: var(--jg-danger-500);
+  --jg-danger-hover: color-mix(in srgb, var(--jg-danger-500) 88%, var(--jg-ink-900));
+  --jg-danger-subtle: var(--jg-danger-50);
+  --jg-danger-border: var(--jg-danger-800);
 
-  --jg-warning: #6b4708;
-  --jg-warning-subtle: #fdf3e0;
-  --jg-warning-border: #dcb96a;
+  /*
+   * warning 500 and success 500 are the ramp's signal colours and neither
+   * carries body text on a light surface: 2.68:1 and 4.25:1. The 800 step of
+   * each does, so text and borders take the 800 and the 500 keeps its job as
+   * the state marker in `state.css`.
+   */
+  --jg-warning: var(--jg-warning-800);
+  --jg-warning-subtle: var(--jg-warning-50);
+  --jg-warning-border: var(--jg-warning-800);
 
-  --jg-success: #0f6b3f;
-  --jg-success-subtle: #e7f5ee;
-  --jg-success-border: #7bbd9a;
+  --jg-success: var(--jg-success-800);
+  --jg-success-subtle: var(--jg-success-50);
+  --jg-success-border: var(--jg-success-800);
 
-  --jg-info: #0b5cad;
-  --jg-info-subtle: #e8f1fb;
-  --jg-info-border: #7aa9dc;
+  --jg-info: var(--jg-info-800);
+  --jg-info-subtle: var(--jg-info-50);
+  --jg-info-border: var(--jg-info-800);
 
-  --jg-focus-ring: #0b5cad;
+  --jg-focus-ring: var(--jg-forge-800);
 
-  --jg-elevation-1: 0 1px 2px rgb(22 25 29 / 8%);
-  --jg-elevation-2: 0 2px 8px rgb(22 25 29 / 12%);
-  --jg-elevation-3: 0 8px 24px rgb(22 25 29 / 16%);
+  --jg-elevation-card: 0 1px 2px rgb(14 26 43 / 10%);
+  --jg-elevation-overlay: 0 8px 24px rgb(14 26 43 / 18%);
+
+  --jg-elevation-1: var(--jg-elevation-card);
+  --jg-elevation-2: var(--jg-elevation-card);
+  --jg-elevation-3: var(--jg-elevation-overlay);
 }
 
 /*
- * Dark ramp.
+ * The dark theme.
  *
  * Applied by an explicit `data-jg-theme="dark"`, and by the media query when
  * nothing explicit is set. The explicit attribute wins in both directions so
- * that a user choosing light on a dark system gets light -- a theme toggle
- * that only works one way is a toggle that half the users find broken.
+ * that a user choosing light on a dark system gets light: a theme toggle that
+ * only works one way is a toggle half the users find broken.
  *
- * Contrast against `--jg-surface` (#14171b):
- *   text          #e8eaee  14.5:1
- *   text-muted    #a8b1bd   7.4:1
- *   text-subtle   #929cab   5.7:1
- *   accent        #6fb2f5   7.4:1
- *   danger        #f3969e   7.2:1
- *   success       #6dcb9b   8.5:1
- *   warning       #e0b566   8.5:1
+ * Section 4.1: "Accent and semantic ramps shift one step lighter in dark theme
+ * to hold contrast." That is the rule applied below -- 800 becomes 500 or 300,
+ * and the text that sits on a filled accent becomes ink 900 rather than white.
+ *
+ * The block is written twice, once under the media query and once under the
+ * attribute, because the attribute has to win in both directions and CSS has
+ * no way to say that once. Two copies drift, so the token test compares them
+ * and fails the build when a change lands in one and not the other.
  */
 @media (prefers-color-scheme: dark) {
   :root:not([data-jg-theme='light']) {
-    --jg-surface: #14171b;
-    --jg-surface-raised: #1c2026;
-    --jg-surface-sunken: #0f1114;
-    --jg-surface-overlay: #1c2026;
-    --jg-surface-inverse: #e8eaee;
-    --jg-scrim: rgb(0 0 0 / 65%);
+    --jg-surface: var(--jg-dark-base);
+    --jg-surface-raised: var(--jg-dark-raised);
+    --jg-surface-sunken: var(--jg-dark-base);
+    --jg-surface-overlay: var(--jg-dark-overlay);
+    --jg-surface-inverse: var(--jg-ink-100);
+    --jg-scrim: rgb(11 20 32 / 65%);
 
-    --jg-text: #e8eaee;
-    --jg-text-muted: #a8b1bd;
-    --jg-text-subtle: #929cab;
-    --jg-text-inverse: #14171b;
-    --jg-text-on-accent: #08121d;
+    --jg-text: var(--jg-ink-100);
+    --jg-text-muted: var(--jg-ink-300);
+    --jg-text-subtle: var(--jg-ink-400);
+    --jg-text-inverse: var(--jg-ink-900);
+    --jg-text-on-accent: var(--jg-ink-900);
 
-    --jg-border: #646b76;
-    --jg-border-strong: #7d848f;
-    --jg-border-subtle: #2f353d;
+    --jg-border: var(--jg-ink-400);
+    --jg-border-strong: var(--jg-ink-300);
+    --jg-border-subtle: color-mix(in srgb, var(--jg-ink-400) 34%, var(--jg-dark-base));
 
-    --jg-accent: #6fb2f5;
-    --jg-accent-hover: #8cc3f8;
-    --jg-accent-active: #a5d0fa;
-    --jg-accent-subtle: #16283c;
-    --jg-accent-border: #35648f;
+    --jg-accent: var(--jg-forge-300);
+    --jg-accent-hover: color-mix(in srgb, var(--jg-forge-300) 84%, var(--jg-ink-50));
+    --jg-accent-active: var(--jg-forge-500);
+    --jg-accent-subtle: color-mix(in srgb, var(--jg-forge-500) 18%, var(--jg-dark-base));
+    --jg-accent-border: var(--jg-forge-500);
 
-    --jg-danger: #f3969e;
-    --jg-danger-hover: #f7b0b6;
-    --jg-danger-subtle: #35191c;
-    --jg-danger-border: #7d3b42;
+    --jg-danger: var(--jg-danger-300);
+    --jg-danger-hover: color-mix(in srgb, var(--jg-danger-300) 84%, var(--jg-ink-50));
+    --jg-danger-subtle: color-mix(in srgb, var(--jg-danger-500) 22%, var(--jg-dark-base));
+    --jg-danger-border: var(--jg-danger-300);
 
-    --jg-warning: #e0b566;
-    --jg-warning-subtle: #2e2413;
-    --jg-warning-border: #6f5828;
+    --jg-warning: var(--jg-warning-300);
+    --jg-warning-subtle: color-mix(in srgb, var(--jg-warning-500) 20%, var(--jg-dark-base));
+    --jg-warning-border: var(--jg-warning-500);
 
-    --jg-success: #6dcb9b;
-    --jg-success-subtle: #12281e;
-    --jg-success-border: #2f6247;
+    --jg-success: var(--jg-success-300);
+    --jg-success-subtle: color-mix(in srgb, var(--jg-success-500) 22%, var(--jg-dark-base));
+    --jg-success-border: var(--jg-success-500);
 
-    --jg-info: #6fb2f5;
-    --jg-info-subtle: #16283c;
-    --jg-info-border: #35648f;
+    --jg-info: var(--jg-info-300);
+    --jg-info-subtle: color-mix(in srgb, var(--jg-info-500) 22%, var(--jg-dark-base));
+    --jg-info-border: var(--jg-info-500);
 
-    --jg-focus-ring: #8cc3f8;
+    --jg-focus-ring: var(--jg-forge-300);
 
-    --jg-elevation-1: 0 1px 2px rgb(0 0 0 / 40%);
-    --jg-elevation-2: 0 2px 8px rgb(0 0 0 / 48%);
-    --jg-elevation-3: 0 8px 24px rgb(0 0 0 / 56%);
+    --jg-elevation-card: 0 1px 2px rgb(0 0 0 / 45%);
+    --jg-elevation-overlay: 0 8px 24px rgb(0 0 0 / 58%);
   }
 }
 
 :root[data-jg-theme='dark'] {
-  --jg-surface: #14171b;
-  --jg-surface-raised: #1c2026;
-  --jg-surface-sunken: #0f1114;
-  --jg-surface-overlay: #1c2026;
-  --jg-surface-inverse: #e8eaee;
-  --jg-scrim: rgb(0 0 0 / 65%);
+  --jg-surface: var(--jg-dark-base);
+  --jg-surface-raised: var(--jg-dark-raised);
+  --jg-surface-sunken: var(--jg-dark-base);
+  --jg-surface-overlay: var(--jg-dark-overlay);
+  --jg-surface-inverse: var(--jg-ink-100);
+  --jg-scrim: rgb(11 20 32 / 65%);
 
-  --jg-text: #e8eaee;
-  --jg-text-muted: #a8b1bd;
-  --jg-text-subtle: #929cab;
-  --jg-text-inverse: #14171b;
-  --jg-text-on-accent: #08121d;
+  --jg-text: var(--jg-ink-100);
+  --jg-text-muted: var(--jg-ink-300);
+  --jg-text-subtle: var(--jg-ink-400);
+  --jg-text-inverse: var(--jg-ink-900);
+  --jg-text-on-accent: var(--jg-ink-900);
 
-  --jg-border: #646b76;
-  --jg-border-strong: #7d848f;
-  --jg-border-subtle: #2f353d;
+  --jg-border: var(--jg-ink-400);
+  --jg-border-strong: var(--jg-ink-300);
+  --jg-border-subtle: color-mix(in srgb, var(--jg-ink-400) 34%, var(--jg-dark-base));
 
-  --jg-accent: #6fb2f5;
-  --jg-accent-hover: #8cc3f8;
-  --jg-accent-active: #a5d0fa;
-  --jg-accent-subtle: #16283c;
-  --jg-accent-border: #35648f;
+  --jg-accent: var(--jg-forge-300);
+  --jg-accent-hover: color-mix(in srgb, var(--jg-forge-300) 84%, var(--jg-ink-50));
+  --jg-accent-active: var(--jg-forge-500);
+  --jg-accent-subtle: color-mix(in srgb, var(--jg-forge-500) 18%, var(--jg-dark-base));
+  --jg-accent-border: var(--jg-forge-500);
 
-  --jg-danger: #f3969e;
-  --jg-danger-hover: #f7b0b6;
-  --jg-danger-subtle: #35191c;
-  --jg-danger-border: #7d3b42;
+  --jg-danger: var(--jg-danger-300);
+  --jg-danger-hover: color-mix(in srgb, var(--jg-danger-300) 84%, var(--jg-ink-50));
+  --jg-danger-subtle: color-mix(in srgb, var(--jg-danger-500) 22%, var(--jg-dark-base));
+  --jg-danger-border: var(--jg-danger-300);
 
-  --jg-warning: #e0b566;
-  --jg-warning-subtle: #2e2413;
-  --jg-warning-border: #6f5828;
+  --jg-warning: var(--jg-warning-300);
+  --jg-warning-subtle: color-mix(in srgb, var(--jg-warning-500) 20%, var(--jg-dark-base));
+  --jg-warning-border: var(--jg-warning-500);
 
-  --jg-success: #6dcb9b;
-  --jg-success-subtle: #12281e;
-  --jg-success-border: #2f6247;
+  --jg-success: var(--jg-success-300);
+  --jg-success-subtle: color-mix(in srgb, var(--jg-success-500) 22%, var(--jg-dark-base));
+  --jg-success-border: var(--jg-success-500);
 
-  --jg-info: #6fb2f5;
-  --jg-info-subtle: #16283c;
-  --jg-info-border: #35648f;
+  --jg-info: var(--jg-info-300);
+  --jg-info-subtle: color-mix(in srgb, var(--jg-info-500) 22%, var(--jg-dark-base));
+  --jg-info-border: var(--jg-info-500);
 
-  --jg-focus-ring: #8cc3f8;
+  --jg-focus-ring: var(--jg-forge-300);
 
-  --jg-elevation-1: 0 1px 2px rgb(0 0 0 / 40%);
-  --jg-elevation-2: 0 2px 8px rgb(0 0 0 / 48%);
-  --jg-elevation-3: 0 8px 24px rgb(0 0 0 / 56%);
+  --jg-elevation-card: 0 1px 2px rgb(0 0 0 / 45%);
+  --jg-elevation-overlay: 0 8px 24px rgb(0 0 0 / 58%);
 }
 
 /*
- * AC-U9. Every duration token collapses to zero in one place, so a component
- * that uses a duration token respects the preference without knowing it
- * exists. A component that hard-coded `200ms` would not, which is the other
- * reason durations are tokens.
+ * Section 4.4: all motion "suppressed under `prefers-reduced-motion`", which is
+ * AC-U9 in the SAD's set. Every duration token collapses to zero in one place, so a component that uses a
+ * duration token respects the preference without knowing it exists.
  *
  * `!important` because a component may legitimately set a longer duration
  * inline for a specific interaction, and the preference must still win.
  */
 @media (prefers-reduced-motion: reduce) {
   :root {
+    --jg-duration-micro: 0ms;
+    --jg-duration-standard: 0ms;
+    --jg-duration-large: 0ms;
     --jg-duration-instant: 0ms;
     --jg-duration-fast: 0ms;
     --jg-duration-normal: 0ms;
@@ -320,8 +400,8 @@
   background: var(--jg-surface);
   color: var(--jg-text);
   font-family: var(--jg-font-sans);
-  font-size: var(--jg-text-md);
-  line-height: var(--jg-leading-normal);
+  font-size: var(--jg-text-body);
+  line-height: var(--jg-text-body-line);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -334,7 +414,7 @@
 .jg-root :focus-visible {
   outline: var(--jg-focus-width) solid var(--jg-focus-ring);
   outline-offset: var(--jg-focus-offset);
-  border-radius: var(--jg-radius-sm);
+  border-radius: var(--jg-radius-input);
 }
 
 /* Visually hidden, still announced. For labels a sighted user gets from

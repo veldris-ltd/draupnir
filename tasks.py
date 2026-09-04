@@ -315,6 +315,11 @@ def lint_web() -> int:
     # whose only defence is a contribution guideline drifts within a release.
     say("token-lint")
     pnpm("run", "lint:tokens")
+    # AC-V6. Every token pair the components actually make, at 4.5:1 for text
+    # and 3:1 for a boundary, in both themes. A dark theme nobody measured is
+    # the usual way a design system claims AA and delivers it in one theme.
+    say("contrast-lint")
+    pnpm("run", "lint:contrast")
     say("tsc --noEmit")
     pnpm("run", "typecheck")
     return 0

@@ -272,7 +272,7 @@ export function RunDetail({ runId }: { runId: string }): JSX.Element {
             <RunCard
               runId={data.id}
               model={data.name}
-              runState={data.state as never}
+              runState={data.state}
               startedAt={
                 data.createdAt == null ? 'not started' : new Date(data.createdAt).toLocaleString()
               }

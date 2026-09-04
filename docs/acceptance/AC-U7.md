@@ -19,7 +19,6 @@ make test-frontend
 - `web/.storybook/preview.ts`
 - `web/packages/jarngreipr/src/components.test.tsx`
 - `web/packages/jarngreipr/src/composites/index.tsx`
-- `web/packages/jarngreipr/src/tokens/tokens.test.ts`
 
 ---
 

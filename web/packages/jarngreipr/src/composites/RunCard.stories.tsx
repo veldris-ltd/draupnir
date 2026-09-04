@@ -15,7 +15,7 @@ const stories = stateStories((state) => (
   <RunCard
     runId="01a06244-ad82-7b67-af4d-8df67b2095e8"
     model="CIM-014 Gaelic"
-    runState="RUNNING"
+    runState="TRAINING"
     step={42_000}
     totalSteps={120_000}
     startedAt="2026-09-02 09:14 UTC"

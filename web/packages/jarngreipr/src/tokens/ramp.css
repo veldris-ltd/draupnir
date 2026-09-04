@@ -1,0 +1,85 @@
+/*
+ * The ramp. VLD-UX-DRAUPNIR-001 section 4.1, transcribed and not adjusted.
+ *
+ * Seven ramps, and every value here is the value in the specification. Nothing
+ * in this file is a judgement: it is the palette as issued, so that a reader
+ * comparing this file against section 4.1 can do it line by line and find them
+ * identical. Where a specified value could not be used as issued, the decision
+ * is recorded in `docs/design/tokens.md` and made in the *semantic* layer
+ * next door, never by editing a number here.
+ *
+ * A ramp is a palette, not a theme, so these are the same in light and dark.
+ * What changes between themes is which step fills which role, and that is
+ * `tokens.css`.
+ *
+ * No component may name a ramp step. A component names a role -- surface,
+ * text, border, accent -- and the theme decides what that is. `--jg-ink-700`
+ * appearing in a component is the same defect as a hex appearing there, and
+ * the token linter treats it as one.
+ */
+
+:root {
+  /* ink: text, surfaces, chrome, borders */
+  --jg-ink-900: #0e1a2b;
+  --jg-ink-800: #1f3350;
+  --jg-ink-700: #2a4a6b;
+  --jg-ink-600: #3e5c82;
+  --jg-ink-400: #7e8fa3;
+  --jg-ink-300: #b9c6d4;
+  --jg-ink-100: #e9f0f7;
+  --jg-ink-50: #f5f8fb;
+
+  /* forge: accent, primary action, active navigation, training state */
+  --jg-forge-800: #8a5a08;
+  --jg-forge-700: #c6851c;
+  --jg-forge-500: #e0a030;
+  --jg-forge-300: #efc272;
+  --jg-forge-100: #fbefd6;
+  --jg-forge-50: #fdf7ec;
+
+  /* success: passed gates, released, healthy */
+  --jg-success-800: #1b5e3a;
+  --jg-success-500: #2e8b57;
+  --jg-success-300: #7cc49b;
+  --jg-success-50: #eaf4ee;
+
+  /* warning: margin breach, sole approver notice, attention */
+  --jg-warning-800: #8a5a08;
+  --jg-warning-500: #d98e04;
+  --jg-warning-300: #f0c15c;
+  --jg-warning-50: #fbf3e0;
+
+  /* danger: failure, rejection, destructive action */
+  --jg-danger-800: #7a2a1f;
+  --jg-danger-500: #b3402f;
+  --jg-danger-300: #dc8c80;
+  --jg-danger-50: #fbf2f0;
+
+  /* info: network, fabric, informational */
+  --jg-info-800: #0f5760;
+  --jg-info-500: #177e89;
+  --jg-info-300: #7dbfc6;
+  --jg-info-50: #f2fafb;
+
+  /* merge: reweighting, merged artefacts, partition state */
+  --jg-merge-500: #6c5b9e;
+  --jg-merge-100: #e8e2f5;
+  --jg-merge-50: #f4f1fa;
+
+  /*
+   * Dark theme surfaces, section 4.1. Named as the specification names them
+   * rather than as roles, because that is what they are: three surfaces, and
+   * the semantic layer decides which is the page and which is the well.
+   */
+  --jg-dark-base: #0b1420;
+  --jg-dark-raised: #14202f;
+  --jg-dark-overlay: #1d2c3e;
+
+  /*
+   * The light theme's page surface. Section 4.1 specifies the dark surfaces
+   * and does not specify the light ones; ink 50 and ink 100 are the ramp's
+   * surface steps and white is the page beneath them. Recorded in
+   * `docs/design/tokens.md` as an assumption rather than left implicit.
+   */
+  --jg-light-base: #ffffff;
+}

@@ -41,8 +41,15 @@ import { fileURLToPath } from 'node:url';
  */
 const WEB = process.argv[2] ?? fileURLToPath(new URL('..', import.meta.url));
 
-/** The single file allowed to state raw visual values: the ramp itself. */
-const TOKEN_SOURCE = join('packages', 'jarngreipr', 'src', 'tokens', 'tokens.css');
+/**
+ * The one directory allowed to state raw visual values: the token layer.
+ *
+ * It was one file. It is now four -- the ramp of section 4.1, the semantic
+ * roles, the run states of section 4.2 and the density modes of section 4.5 --
+ * because a single file holding all four made the ramp hard to compare against
+ * the specification line by line, which is the thing a reader most needs to do.
+ */
+const TOKEN_SOURCE = join('packages', 'jarngreipr', 'src', 'tokens') + sep;
 
 const SKIP_DIRECTORIES = new Set([
   'node_modules',
@@ -317,7 +324,7 @@ const failures = [];
 
 for (const file of files) {
   const rel = relative(WEB, file);
-  if (rel === TOKEN_SOURCE || rel.split(sep).join('/') === TOKEN_SOURCE.split(sep).join('/')) {
+  if (rel.startsWith(TOKEN_SOURCE)) {
     continue;
   }
   if (file.endsWith('.css')) {

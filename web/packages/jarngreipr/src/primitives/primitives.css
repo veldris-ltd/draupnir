@@ -436,7 +436,7 @@
   z-index: var(--jg-z-drawer);
   display: flex;
   flex-direction: column;
-  transition: transform var(--jg-duration-normal) var(--jg-ease-enter);
+  transition: transform var(--jg-duration-normal) var(--jg-ease-standard);
 }
 
 .jg-drawer__header {
