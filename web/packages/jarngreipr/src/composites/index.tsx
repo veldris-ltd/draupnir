@@ -1,9 +1,8 @@
 import type { JSX, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { StateSurface, type StateProps } from '../state/states';
-import { RunStatePill } from '../tokens/RunStatePill';
 import { type RunState } from '../tokens';
-import { Badge, Button, type Tone } from '../primitives';
+import { Badge, Button, Pill, type Tone } from '../primitives';
 import './composites.css';
 
 /**
@@ -76,7 +75,7 @@ export function RunCard({
         stateMessage={stateMessage}
         problem={problem}
         label={`Run ${runId}`}
-        minHeight="10rem"
+        reserve="md"
       >
         <div className="jg-card__head">
           <div>
@@ -85,7 +84,7 @@ export function RunCard({
             </h3>
             <p className="jg-card__subtitle">{runId}</p>
           </div>
-          <RunStatePill state={runState} />
+          <Pill runState={runState} />
         </div>
 
         <dl className="jg-facts">
@@ -223,7 +222,7 @@ export function GateCard({
         stateMessage={stateMessage}
         problem={problem}
         label={`Gate ${gate}`}
-        minHeight="12rem"
+        reserve="lg"
       >
         <div className="jg-card__head">
           <div>
@@ -474,7 +473,7 @@ export function LineageTree({
         stateMessage={stateMessage}
         problem={problem}
         label={label}
-        minHeight="10rem"
+        reserve="md"
       >
         {renderNodes(shown, 1)}
       </StateSurface>
@@ -568,7 +567,7 @@ export function SweepMatrix({
       stateMessage={stateMessage}
       problem={problem}
       label={caption}
-      minHeight="12rem"
+      reserve="lg"
     >
       <div className="jg-matrix-wrap">
         <table className="jg-matrix">
@@ -689,7 +688,7 @@ export function LogViewer({
         stateMessage={stateMessage}
         problem={problem}
         label={label}
-        minHeight="20rem"
+        reserve="xl"
       >
         <div className="jg-log__bar">
           <span>{label}</span>
@@ -797,7 +796,7 @@ export function CapacityGauge({
         stateMessage={stateMessage}
         problem={problem}
         label={label}
-        minHeight="6rem"
+        reserve="sm"
       >
         <div className="jg-gauge__head">
           <span className="jg-gauge__label">{label}</span>
@@ -893,7 +892,7 @@ export function LedgerEntryViewer({
         stateMessage={stateMessage}
         problem={problem}
         label={`Ledger entry ${String(entry.sequence)}`}
-        minHeight="14rem"
+        reserve="lg"
       >
         <div className="jg-card__head">
           <div>
@@ -1012,7 +1011,7 @@ export function DiffViewer({
         stateMessage={stateMessage}
         problem={problem}
         label={`Difference between ${fromLabel} and ${toLabel}`}
-        minHeight="12rem"
+        reserve="lg"
       >
         <div className="jg-diff__head">
           <span>

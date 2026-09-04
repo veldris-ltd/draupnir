@@ -266,7 +266,7 @@ export function RunDetail({ runId }: { runId: string }): JSX.Element {
     <>
       <PageHeading title={data?.name ?? 'Run'} subtitle={runId} />
 
-      <StateSurface state={run.state} problem={run.problem} label="Run detail" minHeight="16rem">
+      <StateSurface state={run.state} problem={run.problem} label="Run detail" reserve="xl">
         {data ? (
           <>
             <RunCard

@@ -156,7 +156,7 @@ export function SweepComparison({ runId }: { runId: string }): JSX.Element {
         state={sweep.state}
         problem={sweep.problem}
         label="Sweep comparison"
-        minHeight="16rem"
+        reserve="xl"
       >
         {data === undefined ? null : (
           <>

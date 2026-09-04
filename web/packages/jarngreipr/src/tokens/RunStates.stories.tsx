@@ -1,7 +1,7 @@
 import type { JSX } from 'react';
 import type { Meta } from '@storybook/react';
 import { RUN_STATES } from './index';
-import { RunStatePill } from './RunStatePill';
+import { Pill } from '../primitives';
 
 /**
  * The run state tokens of section 4.2, all fourteen, in one place.
@@ -30,7 +30,7 @@ function Row({ theme }: { theme: 'light' | 'dark' }): JSX.Element {
       <p style={{ margin: 0, color: 'var(--jg-text-muted)' }}>{theme}</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--jg-space-2)' }}>
         {RUN_STATES.map((state) => (
-          <RunStatePill key={state} state={state} />
+          <Pill key={state} runState={state} />
         ))}
       </div>
     </div>

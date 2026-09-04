@@ -1,6 +1,6 @@
 {
   "criterion": "AC-U5",
-  "performedAt": "2026-09-04T01:03:30.053Z",
+  "performedAt": "2026-09-04T01:49:40.608Z",
   "method": "Keyboard events only. No click() and no focus() anywhere in the spec; every stop is reached by Tab and read from document.activeElement.",
   "routes": [
     {
@@ -270,6 +270,15 @@
           "tag": "a",
           "role": "",
           "name": "Register a source",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 15,
+          "tag": "tr",
+          "role": "",
+          "name": "https://example-aggregator.invalid/fr-corpus\tFRA\tLicenseRef-",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -605,6 +614,15 @@
         },
         {
           "index": 16,
+          "tag": "tr",
+          "role": "",
+          "name": "cim-gbr-v1.0\tGBR\tadapter\tAWAITING_APPROVAL\tlocalhost\t9/3/202",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 17,
           "tag": "a",
           "role": "",
           "name": "cim-gbr-v1.0",
@@ -613,7 +631,7 @@
           "disabled": false
         },
         {
-          "index": 17,
+          "index": 18,
           "tag": "a",
           "role": "",
           "name": "cim-irl-v0.2",
@@ -889,9 +907,9 @@
         },
         {
           "index": 11,
-          "tag": "a",
+          "tag": "tr",
           "role": "",
-          "name": "cim-gbr-v0.1",
+          "name": "cim-gbr-v0.1\tGBR\tquantised\treleased and anchored\tapprover@ve",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -900,7 +918,7 @@
           "index": 12,
           "tag": "a",
           "role": "",
-          "name": "cim-aus-v0.1",
+          "name": "cim-gbr-v0.1",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -909,7 +927,7 @@
           "index": 13,
           "tag": "a",
           "role": "",
-          "name": "cim-irl-v0.1",
+          "name": "cim-aus-v0.1",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -918,13 +936,22 @@
           "index": 14,
           "tag": "a",
           "role": "",
-          "name": "cim-gbr-v0.2",
+          "name": "cim-irl-v0.1",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
         },
         {
           "index": 15,
+          "tag": "a",
+          "role": "",
+          "name": "cim-gbr-v0.2",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 16,
           "tag": "a",
           "role": "",
           "name": "cim-gbr-v0.3",
@@ -1040,6 +1067,15 @@
         },
         {
           "index": 11,
+          "tag": "tr",
+          "role": "",
+          "name": "cim-aus-v0.1\t5 of 6 met, 1 not\tcurator@veldris.internal\t182 ",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 12,
           "tag": "a",
           "role": "",
           "name": "cim-aus-v0.1",
@@ -1048,7 +1084,7 @@
           "disabled": false
         },
         {
-          "index": 12,
+          "index": 13,
           "tag": "a",
           "role": "",
           "name": "cim-gbr-v1.0",
@@ -1164,9 +1200,9 @@
         },
         {
           "index": 11,
-          "tag": "a",
+          "tag": "tr",
           "role": "",
-          "name": "cd1d60ac1968…",
+          "name": "330\t9/4/2026, 12:09:35 AM\toperator@veldris.internal\tvault\tva",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1175,7 +1211,7 @@
           "index": 12,
           "tag": "a",
           "role": "",
-          "name": "e82c705225dc…",
+          "name": "cd1d60ac1968…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1184,7 +1220,7 @@
           "index": 13,
           "tag": "a",
           "role": "",
-          "name": "f44527639302…",
+          "name": "e82c705225dc…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1193,7 +1229,7 @@
           "index": 14,
           "tag": "a",
           "role": "",
-          "name": "08606449c170…",
+          "name": "f44527639302…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1202,7 +1238,7 @@
           "index": 15,
           "tag": "a",
           "role": "",
-          "name": "ca8f2b5cab95…",
+          "name": "08606449c170…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1211,7 +1247,7 @@
           "index": 16,
           "tag": "a",
           "role": "",
-          "name": "81647b0240ba…",
+          "name": "ca8f2b5cab95…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1220,7 +1256,7 @@
           "index": 17,
           "tag": "a",
           "role": "",
-          "name": "5a7b4a6573d9…",
+          "name": "81647b0240ba…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1229,7 +1265,7 @@
           "index": 18,
           "tag": "a",
           "role": "",
-          "name": "60edcb4c953d…",
+          "name": "5a7b4a6573d9…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1238,7 +1274,7 @@
           "index": 19,
           "tag": "a",
           "role": "",
-          "name": "fa535e92fc96…",
+          "name": "60edcb4c953d…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1247,7 +1283,7 @@
           "index": 20,
           "tag": "a",
           "role": "",
-          "name": "87e459f0f57b…",
+          "name": "fa535e92fc96…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1256,7 +1292,7 @@
           "index": 21,
           "tag": "a",
           "role": "",
-          "name": "f2ed1dd3e1f1…",
+          "name": "87e459f0f57b…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1265,7 +1301,7 @@
           "index": 22,
           "tag": "a",
           "role": "",
-          "name": "2f12808a00cf…",
+          "name": "f2ed1dd3e1f1…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1274,7 +1310,7 @@
           "index": 23,
           "tag": "a",
           "role": "",
-          "name": "d2586e5f9092…",
+          "name": "2f12808a00cf…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1283,7 +1319,7 @@
           "index": 24,
           "tag": "a",
           "role": "",
-          "name": "046cb1721b09…",
+          "name": "d2586e5f9092…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1292,7 +1328,7 @@
           "index": 25,
           "tag": "a",
           "role": "",
-          "name": "f7c558602467…",
+          "name": "046cb1721b09…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1301,7 +1337,7 @@
           "index": 26,
           "tag": "a",
           "role": "",
-          "name": "80fa24cb70ea…",
+          "name": "f7c558602467…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1310,7 +1346,7 @@
           "index": 27,
           "tag": "a",
           "role": "",
-          "name": "4de1c71590b5…",
+          "name": "80fa24cb70ea…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1319,7 +1355,7 @@
           "index": 28,
           "tag": "a",
           "role": "",
-          "name": "3bcb6b77c9b0…",
+          "name": "4de1c71590b5…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1328,7 +1364,7 @@
           "index": 29,
           "tag": "a",
           "role": "",
-          "name": "a465647b99fd…",
+          "name": "3bcb6b77c9b0…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1337,7 +1373,7 @@
           "index": 30,
           "tag": "a",
           "role": "",
-          "name": "abc9faa03937…",
+          "name": "a465647b99fd…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1346,7 +1382,7 @@
           "index": 31,
           "tag": "a",
           "role": "",
-          "name": "2cab6b6d4226…",
+          "name": "abc9faa03937…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1355,7 +1391,7 @@
           "index": 32,
           "tag": "a",
           "role": "",
-          "name": "97b23393b3e3…",
+          "name": "2cab6b6d4226…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1364,7 +1400,7 @@
           "index": 33,
           "tag": "a",
           "role": "",
-          "name": "5bf08837c155…",
+          "name": "97b23393b3e3…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1373,7 +1409,7 @@
           "index": 34,
           "tag": "a",
           "role": "",
-          "name": "1c39e151e055…",
+          "name": "5bf08837c155…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1382,7 +1418,7 @@
           "index": 35,
           "tag": "a",
           "role": "",
-          "name": "8cdd11d2de62…",
+          "name": "1c39e151e055…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1391,7 +1427,7 @@
           "index": 36,
           "tag": "a",
           "role": "",
-          "name": "1a039c56fa1c…",
+          "name": "8cdd11d2de62…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1400,7 +1436,7 @@
           "index": 37,
           "tag": "a",
           "role": "",
-          "name": "969eba6f2024…",
+          "name": "1a039c56fa1c…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1409,7 +1445,7 @@
           "index": 38,
           "tag": "a",
           "role": "",
-          "name": "3e017508ae1b…",
+          "name": "969eba6f2024…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1418,7 +1454,7 @@
           "index": 39,
           "tag": "a",
           "role": "",
-          "name": "b257498c0522…",
+          "name": "3e017508ae1b…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1427,7 +1463,7 @@
           "index": 40,
           "tag": "a",
           "role": "",
-          "name": "f6d80197df3d…",
+          "name": "b257498c0522…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1436,7 +1472,7 @@
           "index": 41,
           "tag": "a",
           "role": "",
-          "name": "fe357eb87f33…",
+          "name": "f6d80197df3d…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1445,7 +1481,7 @@
           "index": 42,
           "tag": "a",
           "role": "",
-          "name": "d47af0a09eb8…",
+          "name": "fe357eb87f33…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1454,7 +1490,7 @@
           "index": 43,
           "tag": "a",
           "role": "",
-          "name": "4da363b0da0d…",
+          "name": "d47af0a09eb8…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1463,7 +1499,7 @@
           "index": 44,
           "tag": "a",
           "role": "",
-          "name": "101b8b292665…",
+          "name": "4da363b0da0d…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1472,7 +1508,7 @@
           "index": 45,
           "tag": "a",
           "role": "",
-          "name": "a7209c8f789f…",
+          "name": "101b8b292665…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1481,7 +1517,7 @@
           "index": 46,
           "tag": "a",
           "role": "",
-          "name": "89a108dcd5f1…",
+          "name": "a7209c8f789f…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1490,7 +1526,7 @@
           "index": 47,
           "tag": "a",
           "role": "",
-          "name": "dac7c4e223cf…",
+          "name": "89a108dcd5f1…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1499,7 +1535,7 @@
           "index": 48,
           "tag": "a",
           "role": "",
-          "name": "4ce1f0a92286…",
+          "name": "dac7c4e223cf…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1508,7 +1544,7 @@
           "index": 49,
           "tag": "a",
           "role": "",
-          "name": "5a66ea817dde…",
+          "name": "4ce1f0a92286…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1517,7 +1553,7 @@
           "index": 50,
           "tag": "a",
           "role": "",
-          "name": "fcdca131b141…",
+          "name": "5a66ea817dde…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1526,7 +1562,7 @@
           "index": 51,
           "tag": "a",
           "role": "",
-          "name": "f7edaf81168a…",
+          "name": "fcdca131b141…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1535,7 +1571,7 @@
           "index": 52,
           "tag": "a",
           "role": "",
-          "name": "d388cc7f79e4…",
+          "name": "f7edaf81168a…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1544,7 +1580,7 @@
           "index": 53,
           "tag": "a",
           "role": "",
-          "name": "335f084c34bc…",
+          "name": "d388cc7f79e4…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1553,7 +1589,7 @@
           "index": 54,
           "tag": "a",
           "role": "",
-          "name": "0f50602bf553…",
+          "name": "335f084c34bc…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1562,7 +1598,7 @@
           "index": 55,
           "tag": "a",
           "role": "",
-          "name": "89a2d2dff3e9…",
+          "name": "0f50602bf553…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1571,7 +1607,7 @@
           "index": 56,
           "tag": "a",
           "role": "",
-          "name": "30f4c7696f37…",
+          "name": "89a2d2dff3e9…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1580,7 +1616,7 @@
           "index": 57,
           "tag": "a",
           "role": "",
-          "name": "66b8a24822cd…",
+          "name": "30f4c7696f37…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1589,7 +1625,7 @@
           "index": 58,
           "tag": "a",
           "role": "",
-          "name": "24cc45f4f291…",
+          "name": "66b8a24822cd…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1598,7 +1634,7 @@
           "index": 59,
           "tag": "a",
           "role": "",
-          "name": "96b358078623…",
+          "name": "24cc45f4f291…",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1621,9 +1657,9 @@
         },
         {
           "index": 1,
-          "tag": "button",
+          "tag": "a",
           "role": "",
-          "name": "Search or command",
+          "name": "Brokkr\nFederation anchor state:\nunanchored",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1632,16 +1668,16 @@
           "index": 2,
           "tag": "a",
           "role": "",
-          "name": "Overview",
+          "name": "Sindri\nFederation anchor state:\nanchored",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
         },
         {
           "index": 3,
-          "tag": "a",
+          "tag": "button",
           "role": "",
-          "name": "Corpora",
+          "name": "Search or command",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1650,7 +1686,7 @@
           "index": 4,
           "tag": "a",
           "role": "",
-          "name": "Runs",
+          "name": "Overview",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1659,7 +1695,7 @@
           "index": 5,
           "tag": "a",
           "role": "",
-          "name": "Models",
+          "name": "Corpora",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1668,7 +1704,7 @@
           "index": 6,
           "tag": "a",
           "role": "",
-          "name": "Gates",
+          "name": "Runs",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1677,7 +1713,7 @@
           "index": 7,
           "tag": "a",
           "role": "",
-          "name": "Audit",
+          "name": "Models",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1686,7 +1722,7 @@
           "index": 8,
           "tag": "a",
           "role": "",
-          "name": "Admin",
+          "name": "Gates",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1695,7 +1731,7 @@
           "index": 9,
           "tag": "a",
           "role": "",
-          "name": "Sites",
+          "name": "Audit",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1704,7 +1740,7 @@
           "index": 10,
           "tag": "a",
           "role": "",
-          "name": "Plug-ins",
+          "name": "Admin",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1713,7 +1749,7 @@
           "index": 11,
           "tag": "a",
           "role": "",
-          "name": "Policy",
+          "name": "Sites",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1722,7 +1758,34 @@
           "index": 12,
           "tag": "a",
           "role": "",
+          "name": "Plug-ins",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 13,
+          "tag": "a",
+          "role": "",
+          "name": "Policy",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 14,
+          "tag": "a",
+          "role": "",
           "name": "Roles",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 15,
+          "tag": "tr",
+          "role": "",
+          "name": "Brokkr\tNuneaton, United Kingdom\tUNANCHORED\tnever\thttps://alv",
           "placeholderOnly": false,
           "focusVisible": true,
           "disabled": false
@@ -1871,6 +1934,15 @@
         },
         {
           "index": 15,
+          "tag": "tr",
+          "role": "",
+          "name": "personal-data-requires-approval\tREQUIRES APPROVAL\ta source h",
+          "placeholderOnly": false,
+          "focusVisible": true,
+          "disabled": false
+        },
+        {
+          "index": 16,
           "tag": "div",
           "role": "group",
           "name": "Unified difference between gleipnir-licence/2025.11 and glei",

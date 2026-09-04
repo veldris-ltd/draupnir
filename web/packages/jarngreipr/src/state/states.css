@@ -145,3 +145,27 @@
   border: var(--jg-border-width) solid var(--jg-border-subtle);
   border-radius: var(--jg-radius-md);
 }
+
+/*
+ * How much room a replacing state holds.
+ *
+ * Multiples of the space scale rather than four new lengths: prompt UX-2 rules
+ * out a visual value inside a component, and a skeleton's height is a visual
+ * value like any other. `--jg-space-16` is 64px, so these are 3, 6, 9 and 15
+ * of it -- a toast, a card, a table, a log viewer.
+ */
+.jg-state[data-jg-reserve='sm'] {
+  min-block-size: calc(var(--jg-space-16) * 1.5);
+}
+
+.jg-state[data-jg-reserve='md'] {
+  min-block-size: calc(var(--jg-space-16) * 3);
+}
+
+.jg-state[data-jg-reserve='lg'] {
+  min-block-size: calc(var(--jg-space-16) * 4.5);
+}
+
+.jg-state[data-jg-reserve='xl'] {
+  min-block-size: calc(var(--jg-space-16) * 7.5);
+}

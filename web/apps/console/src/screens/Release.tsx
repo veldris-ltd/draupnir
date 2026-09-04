@@ -95,7 +95,7 @@ export function ModelDetail({ artefact }: { artefact: string }): JSX.Element {
     <>
       <PageHeading title={data?.name ?? 'Model'} subtitle={artefact} />
 
-      <StateSurface state={model.state} problem={model.problem} label="Model" minHeight="18rem">
+      <StateSurface state={model.state} problem={model.problem} label="Model" reserve="xl">
         {data === undefined ? null : (
           <>
             <dl className="jg-facts">
@@ -182,7 +182,7 @@ export function ReleasePackage({ artefact }: { artefact: string }): JSX.Element 
         state={release.state}
         problem={release.problem}
         label="Release package"
-        minHeight="18rem"
+        reserve="xl"
         stateMessage={
           release.state === 'error'
             ? 'This artefact has no release record. An artefact that exists and is unreleased is not an error.'
@@ -295,7 +295,7 @@ export function AttestationExport({ artefact }: { artefact: string }): JSX.Eleme
         state={attestation.state}
         problem={attestation.problem}
         label="Attestation"
-        minHeight="18rem"
+        reserve="xl"
       >
         {data === undefined ? null : (
           <>
@@ -373,12 +373,7 @@ export function LedgerEntryDetail({ entryHash }: { entryHash: string }): JSX.Ele
         subtitle={entryHash}
       />
 
-      <StateSurface
-        state={entry.state}
-        problem={entry.problem}
-        label="Ledger entry"
-        minHeight="18rem"
-      >
+      <StateSurface state={entry.state} problem={entry.problem} label="Ledger entry" reserve="xl">
         {data === undefined ? null : (
           <>
             <p className="cn-chain" data-jg-verified={String(data.verified)} role="status">

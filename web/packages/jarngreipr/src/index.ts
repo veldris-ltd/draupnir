@@ -6,7 +6,7 @@
  *   tokens      the only source of visual values (AC-U3, enforced by
  *               `scripts/token-lint.mjs`, not by convention)
  *   state       the six states every component ships (AC-U2)
- *   primitives  the sixteen controls of SAD 11F.1
+ *   primitives  the eighteen controls of VLD-UX-DRAUPNIR-001 section 5.1
  *   composites  the eight DRAUPNIR-shaped assemblies of SAD 11F.1
  *
  * The state layer sits under the components rather than beside them because
@@ -75,8 +75,6 @@ export type {
   TypeTokens,
 } from './tokens';
 
-export { RunStatePill } from './tokens/RunStatePill';
-export type { RunStatePillProps } from './tokens/RunStatePill';
 export { ThemeProvider, readStoredChoice, resolveTheme, useTheme } from './theme/ThemeProvider';
 export type { ThemeContextValue, ThemeProviderProps } from './theme/ThemeProvider';
 export { DensityProvider, readStoredDensity, useDensity } from './theme/DensityProvider';
@@ -89,25 +87,36 @@ export {
   isInert,
   replacesContent,
 } from './state/states';
-export type { ComponentState, ProblemSummary, StateProps, StateSurfaceProps } from './state/states';
+export type {
+  ComponentState,
+  ProblemSummary,
+  Reserve,
+  StateProps,
+  StateSurfaceProps,
+} from './state/states';
 
 export {
   Badge,
   Breadcrumb,
   Button,
+  COMBOBOX_THRESHOLD,
   Checkbox,
+  Combobox,
   Dialog,
   Drawer,
   Input,
   Pagination,
+  Pill,
   Radio,
   Select,
   Table,
   Tabs,
   Tag,
+  TextArea,
   Toast,
   Toggle,
   Tooltip,
+  wantsCombobox,
 } from './primitives';
 export type {
   BadgeProps,
@@ -116,19 +125,25 @@ export type {
   ButtonVariant,
   CheckboxProps,
   Column,
+  ComboboxProps,
   Crumb,
   DialogProps,
   DrawerProps,
   InputProps,
   PaginationProps,
+  PillProps,
   RadioProps,
   SelectOption,
   SelectProps,
   TabItem,
+  Sort,
+  SortDirection,
   TableProps,
   TabsProps,
   TagProps,
+  TextAreaProps,
   ToastProps,
+  ToastTone,
   ToggleProps,
   Tone,
   TooltipProps,

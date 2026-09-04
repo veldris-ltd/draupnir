@@ -39,10 +39,15 @@ function exportedComponents(layer: 'primitives' | 'composites'): string[] {
   const index = readSource('packages/jarngreipr/src/index.ts');
   const block = new RegExp(`export \\{([^}]*)\\} from '\\./${layer}';`).exec(index);
   expect(block, `index.ts has no value export block for ./${layer}`).not.toBeNull();
-  return (block?.[1] ?? '')
-    .split(',')
-    .map((name) => name.trim())
-    .filter((name) => /^[A-Z]/.test(name));
+  return (
+    (block?.[1] ?? '')
+      .split(',')
+      .map((name) => name.trim())
+      // A component, not a constant. `COMBOBOX_THRESHOLD` is exported from the
+      // same block and is a number: SCREAMING_SNAKE_CASE is how the codebase
+      // spells a constant, so that is what the filter excludes.
+      .filter((name) => /^[A-Z]/.test(name) && !/^[A-Z0-9_]+$/.test(name))
+  );
 }
 
 function storyFiles(layer: 'primitives' | 'composites'): string[] {

@@ -82,7 +82,7 @@ export function KioskDashboard(): JSX.Element {
         state={runs.state === 'ready' ? 'ready' : runs.state}
         problem={runs.problem}
         label="Operations dashboard"
-        minHeight="24rem"
+        reserve="xl"
       >
         {dashboard === 'thermal' ? <Thermal runs={items} /> : null}
         {dashboard === 'fabric' ? <Fabric anchorState={here?.anchorState} /> : null}

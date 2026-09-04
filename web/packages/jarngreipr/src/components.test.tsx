@@ -1,4 +1,5 @@
 import type { JSX } from 'react';
+import { useState } from 'react';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -8,18 +9,22 @@ import {
   Breadcrumb,
   Button,
   Checkbox,
+  Combobox,
   Dialog,
   Drawer,
   Input,
   Pagination,
+  Pill,
   Radio,
   Select,
   Table,
   Tabs,
   Tag,
+  TextArea,
   Toast,
   Toggle,
   Tooltip,
+  wantsCombobox,
 } from './primitives';
 import {
   CapacityGauge,
@@ -77,6 +82,17 @@ const COMPONENTS: [name: string, render: Renderer][] = [
       <Select label="Tier" options={[{ value: 'a', label: 'Tier A' }]} value="a" state={state} />
     ),
   ],
+  ['TextArea', (state) => <TextArea label="Requeue reason" state={state} />],
+  [
+    'Combobox',
+    (state) => (
+      <Combobox
+        label="Jurisdiction"
+        options={[{ value: 'gbr', label: 'United Kingdom' }]}
+        state={state}
+      />
+    ),
+  ],
   ['Checkbox', (state) => <Checkbox label="Publish the card" state={state} />],
   ['Radio', (state) => <Radio name="site" value="edi" label="Edinburgh" state={state} />],
   ['Toggle', (state) => <Toggle label="Continue while partitioned" state={state} />],
@@ -94,6 +110,7 @@ const COMPONENTS: [name: string, render: Renderer][] = [
     ),
   ],
   ['Badge', (state) => <Badge state={state}>RELEASED</Badge>],
+  ['Pill', (state) => <Pill runState="TRAINING" state={state} />],
   ['Tag', (state) => <Tag state={state}>tier-a</Tag>],
   [
     'Tooltip',
@@ -553,5 +570,383 @@ describe('Dialog', () => {
       </Dialog>,
     );
     expect(screen.getByText('The run cannot be resumed.')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 5.1's notes, which are requirements
+// ---------------------------------------------------------------------------
+
+describe('every field', () => {
+  /**
+   * Section 5.1: "label always visible. Placeholder never substitutes for a
+   * label." Both halves are checked, because the second is the one a rushed
+   * screen breaks: a placeholder disappears when somebody types, so a field
+   * labelled by one leaves the user unable to check their own answer, and most
+   * screen readers do not announce it at all.
+   */
+  const FIELDS: [name: string, element: JSX.Element][] = [
+    ['Input', <Input key="i" label="Run name" placeholder="cim-gbr-v1.0" />],
+    ['TextArea', <TextArea key="t" label="Requeue reason" placeholder="E1 margin" />],
+    [
+      'Select',
+      <Select key="s" label="Tier" options={[{ value: 'a', label: 'Tier A' }]} value="a" />,
+    ],
+    [
+      'Combobox',
+      <Combobox
+        key="c"
+        label="Jurisdiction"
+        placeholder="Type to filter"
+        options={[{ value: 'gbr', label: 'United Kingdom' }]}
+      />,
+    ],
+  ];
+
+  it.each(FIELDS)('%s renders a visible label bound to its control', (name, element) => {
+    const { container } = render(element);
+    const control = container.querySelector('input, textarea, select');
+    expect(control, `${name} rendered no control`).not.toBeNull();
+
+    const label = container.querySelector('label');
+    expect(label, `${name} rendered no visible label`).not.toBeNull();
+    // Visible, not merely present. A label in `.jg-sr-only` would pass an
+    // accessible-name check and fail the requirement.
+    expect(label?.className ?? '', `${name} hid its label`).not.toContain('sr-only');
+    expect(label?.getAttribute('for')).toBe(control?.getAttribute('id'));
+    expect((label?.textContent ?? '').trim().length).toBeGreaterThan(0);
+  });
+
+  it.each(FIELDS)('%s keeps the label when the placeholder is gone', (name, element) => {
+    const { container } = render(element);
+    const control = container.querySelector<HTMLInputElement>('input, textarea, select');
+    const placeholder = control?.getAttribute('placeholder') ?? '';
+    const label = container.querySelector('label')?.textContent ?? '';
+    // The two say different things. A placeholder that repeats the label is
+    // the cosmetic version of the same mistake.
+    if (placeholder !== '') {
+      expect(placeholder.toLowerCase(), `${name} used its label as a placeholder`).not.toBe(
+        label.trim().toLowerCase(),
+      );
+    }
+  });
+});
+
+describe('Combobox', () => {
+  const OPTIONS = ['Australia', 'Canada', 'Ghana', 'Kenya', 'United Kingdom'].map((label) => ({
+    value: label.toLowerCase(),
+    label,
+  }));
+
+  it('is the ARIA combobox pattern, not a text box beside a list', () => {
+    render(<Combobox label="Jurisdiction" options={OPTIONS} />);
+    const input = screen.getByRole('combobox', { name: /jurisdiction/i });
+    expect(input).toHaveAttribute('aria-expanded', 'false');
+    expect(input).toHaveAttribute('aria-controls');
+    expect(input).toHaveAttribute('aria-autocomplete', 'list');
+  });
+
+  it('filters as you type and keeps focus in the input', async () => {
+    const user = userEvent.setup();
+    render(<Combobox label="Jurisdiction" options={OPTIONS} />);
+    const input = screen.getByRole('combobox', { name: /jurisdiction/i });
+
+    await user.click(input);
+    await user.keyboard('ken');
+
+    const list = screen.getByRole('listbox', { name: /jurisdiction/i });
+    expect(within(list).getAllByRole('option')).toHaveLength(1);
+    expect(within(list).getByRole('option', { name: 'Kenya' })).toBeInTheDocument();
+    // Focus never leaves the input; the arrow keys move `aria-activedescendant`
+    // instead. That is what lets somebody keep typing to narrow the list.
+    expect(document.activeElement).toBe(input);
+  });
+
+  it('chooses with the keyboard alone', async () => {
+    const chosen: string[] = [];
+    const user = userEvent.setup();
+    render(
+      <Combobox
+        label="Jurisdiction"
+        options={OPTIONS}
+        onChange={(value) => {
+          chosen.push(value);
+        }}
+      />,
+    );
+
+    const input = screen.getByRole('combobox', { name: /jurisdiction/i });
+    await user.click(input);
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}');
+
+    expect(chosen).toEqual(['canada']);
+  });
+
+  it('says what would be here when the filter matches nothing', async () => {
+    const user = userEvent.setup();
+    render(
+      <Combobox
+        label="Jurisdiction"
+        options={OPTIONS}
+        emptyMessage="No jurisdiction matches that."
+      />,
+    );
+    await user.click(screen.getByRole('combobox', { name: /jurisdiction/i }));
+    await user.keyboard('zzz');
+    expect(screen.getByText(/no jurisdiction matches that/i)).toBeInTheDocument();
+  });
+
+  it('knows when an option set is long enough to need one', () => {
+    // Section 5.1: native select below twelve options, combobox above.
+    expect(wantsCombobox(new Array(12).fill(0))).toBe(false);
+    expect(wantsCombobox(new Array(13).fill(0))).toBe(true);
+  });
+});
+
+describe('Dialog focus (AC-X4)', () => {
+  function Harness({ destructive }: { destructive: boolean }): JSX.Element {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(true);
+          }}
+        >
+          Open
+        </button>
+        {open ? (
+          <Dialog
+            title="Cancel this run?"
+            {...(destructive ? { consequence: 'The run cannot be resumed.' } : {})}
+            onDismiss={() => {
+              setOpen(false);
+            }}
+          >
+            <p>Run 01a06244.</p>
+          </Dialog>
+        ) : null}
+      </>
+    );
+  }
+
+  it('moves focus into the dialog when it opens', async () => {
+    const user = userEvent.setup();
+    render(<Harness destructive={false} />);
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
+  it('wraps at the ends rather than escaping to the page behind', async () => {
+    const user = userEvent.setup();
+    render(<Harness destructive={false} />);
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+
+    const dialog = screen.getByRole('dialog');
+    // Enough presses to walk past the end of any dialog this size. Focus is
+    // still inside: that is the whole of what a trap means.
+    for (let press = 0; press < 8; press += 1) {
+      await user.tab();
+      expect(dialog.contains(document.activeElement)).toBe(true);
+    }
+  });
+
+  it('restores focus to the control that opened it', async () => {
+    const user = userEvent.setup();
+    render(<Harness destructive={false} />);
+    const opener = screen.getByRole('button', { name: 'Open' });
+
+    await user.click(opener);
+    await user.click(screen.getByRole('button', { name: /cancel/i }));
+
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('closes on escape, and does not when the action is destructive', async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<Harness destructive={false} />);
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    unmount();
+
+    render(<Harness destructive />);
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+    await user.keyboard('{Escape}');
+    // Still there. A key pressed by accident must not dismiss the surface that
+    // exists to slow somebody down; cancel still closes it, and it says so.
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText(/escape does not close this dialog/i)).toBeInTheDocument();
+  });
+});
+
+describe('Table keyboard (section 5.1)', () => {
+  const ROWS = [
+    { id: '01a06244', node: 'dvalin' },
+    { id: '01a06245', node: 'durin' },
+    { id: '01a06246', node: 'dain' },
+  ];
+
+  function grid(): JSX.Element {
+    return (
+      <Table
+        caption="Runs"
+        columns={[
+          { key: 'id', header: 'Run', render: (row: (typeof ROWS)[number]) => row.id },
+          {
+            key: 'node',
+            header: 'Appliance',
+            render: (row: (typeof ROWS)[number]) => row.node,
+            sortKey: (row: (typeof ROWS)[number]) => row.node,
+          },
+        ]}
+        rows={ROWS}
+        rowKey={(row) => row.id}
+      />
+    );
+  }
+
+  it('gives every header cell a scope', () => {
+    render(grid());
+    for (const header of screen.getAllByRole('columnheader')) {
+      expect(header).toHaveAttribute('scope', 'col');
+    }
+  });
+
+  it('is one tab stop, and the arrow keys move within it', async () => {
+    const user = userEvent.setup();
+    render(grid());
+
+    const rows = screen.getAllByRole('row').slice(1);
+    // A roving tabindex: exactly one row is reachable by Tab, so the table
+    // does not cost a keyboard user one press per row.
+    expect(rows.filter((row) => row.getAttribute('tabindex') === '0')).toHaveLength(1);
+
+    rows[0]?.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(document.activeElement).toBe(rows[1]);
+    await user.keyboard('{End}');
+    expect(document.activeElement).toBe(rows[2]);
+    await user.keyboard('{Home}');
+    expect(document.activeElement).toBe(rows[0]);
+  });
+
+  it('jumps to a row by typing', async () => {
+    const user = userEvent.setup();
+    render(grid());
+    const rows = screen.getAllByRole('row').slice(1);
+
+    rows[0]?.focus();
+    await user.keyboard('du');
+    expect(document.activeElement).toBe(rows[1]);
+  });
+
+  it('announces its sort on the header, not only in a glyph', async () => {
+    const user = userEvent.setup();
+    render(grid());
+
+    const header = screen.getByRole('columnheader', { name: /appliance/i });
+    expect(header).toHaveAttribute('aria-sort', 'none');
+
+    await user.click(within(header).getByRole('button'));
+    expect(header).toHaveAttribute('aria-sort', 'ascending');
+    // Sorted, not merely marked.
+    expect(screen.getAllByRole('row')[1]?.textContent).toContain('dain');
+
+    await user.click(within(header).getByRole('button'));
+    expect(header).toHaveAttribute('aria-sort', 'descending');
+  });
+});
+
+describe('Toast (section 5.1)', () => {
+  it('is a polite status, never an alert', () => {
+    // "Transient confirmations only. Never an error that requires action." A
+    // toast that disappears is the worst carrier for something a user has to
+    // do, so there is nothing assertive in here by construction. The `danger`
+    // tone is excluded in the type, which is why this only has to check what
+    // is rendered.
+    const { container } = render(<Toast title="Run submitted" />);
+    const toast = container.querySelector('.jg-toast');
+    expect(toast).toHaveAttribute('role', 'status');
+    expect(toast).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('carries no action beyond dismissing itself', () => {
+    render(<Toast title="Run submitted" detail="01a06244 is queued." />);
+    const buttons = screen.getAllByRole('button');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toHaveAccessibleName(/dismiss/i);
+  });
+});
+
+describe('Tooltip (section 5.1)', () => {
+  it('is never the sole carrier of what it says', () => {
+    // Closed. The text is still in the accessibility tree, so a screen reader
+    // user and a touch user -- neither of whom can hover -- get it anyway.
+    const { container } = render(
+      <Tooltip content="The digest the gate was measured on">
+        <span>Evidence</span>
+      </Tooltip>,
+    );
+    expect(container.textContent).toContain('The digest the gate was measured on');
+  });
+
+  it('describes its trigger rather than naming it', () => {
+    render(
+      <Tooltip content="The digest the gate was measured on">
+        <button type="button">Evidence</button>
+      </Tooltip>,
+    );
+    // A tooltip that replaced the accessible name would leave the control
+    // unnamed the moment the tooltip closed.
+    expect(screen.getByRole('button')).toHaveAccessibleName('Evidence');
+  });
+});
+
+describe('Pagination (section 5.1)', () => {
+  it('is cursor based, with no page numbers', () => {
+    render(<Pagination label="Runs" shown={25} nextCursor="abc" hasPrevious />);
+    const names = screen.getAllByRole('button').map((button) => button.textContent);
+    expect(names.some((name) => /^\s*\d+\s*$/.test(name))).toBe(false);
+    expect(names.join(' ')).toMatch(/previous/i);
+    expect(names.join(' ')).toMatch(/next/i);
+  });
+});
+
+describe('icon-bearing controls (AC-V10)', () => {
+  it('an icon-only button takes its name from its children', () => {
+    render(
+      <Button iconOnly icon={<svg aria-hidden="true" />}>
+        Copy the run identifier
+      </Button>,
+    );
+    // The glyph is decoration; the name is the sentence. `iconOnly` without a
+    // string child does not compile, which is where the rule is really kept.
+    expect(screen.getByRole('button')).toHaveAccessibleName('Copy the run identifier');
+  });
+
+  it('an icon beside a label is hidden from the accessibility tree', () => {
+    const { container } = render(<Button icon={<svg data-testid="glyph" />}>Retry</Button>);
+    expect(container.querySelector('.jg-button__icon')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByRole('button')).toHaveAccessibleName('Retry');
+  });
+});
+
+describe('Pill (AC-V4, AC-V5)', () => {
+  it('names the state in text as well as in colour', () => {
+    render(<Pill runState="AWAITING_APPROVAL" />);
+    expect(screen.getByText(/awaiting approval/i)).toBeInTheDocument();
+  });
+
+  it('takes its colour from the token layer rather than deciding one', () => {
+    const { container } = render(<Pill runState="TRAINING" />);
+    const pill = container.querySelector('.jg-state-pill');
+    expect(pill).toHaveAttribute('data-jg-run-state', 'TRAINING');
+    // No inline style: the attribute is the whole of what the component says
+    // about appearance, and `state.css` says the rest.
+    expect(pill?.getAttribute('style')).toBeNull();
   });
 });

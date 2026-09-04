@@ -146,7 +146,7 @@ export function ApprovalDetail({ gateId }: { gateId: string }): JSX.Element {
         state={queue.state === 'ready' && approval === null ? 'empty' : queue.state}
         problem={queue.problem}
         label="Approval detail"
-        minHeight="20rem"
+        reserve="xl"
       >
         {approval === null ? null : (
           <>

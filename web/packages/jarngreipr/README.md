@@ -1,6 +1,6 @@
 # JARNGREIPR
 
-The DRAUPNIR design system: tokens, sixteen primitives, eight composites, and
+The DRAUPNIR design system: tokens, eighteen primitives, eight composites, and
 the six states every one of them ships.
 
 Named for the iron gloves without which Mjölnir cannot be held. The console is
@@ -254,7 +254,7 @@ src/
   tokens/tokens.css       the ramp; the only raw visual values in the workspace
   state/states.tsx        ComponentState, StateProps, StateSurface
   state/stories.tsx       stateStories(), COMPONENT_META, SAMPLE_PROBLEM
-  primitives/index.tsx    the sixteen controls
+  primitives/index.tsx    the eighteen controls
   composites/index.tsx    the eight DRAUPNIR-shaped assemblies
   styles.css              the whole system as one stylesheet
   index.ts                the public surface

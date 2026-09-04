@@ -118,12 +118,7 @@ export function LineageExplorer({ artefact }: { artefact: string }): JSX.Element
     <>
       <PageHeading title="Lineage" subtitle={artefact} />
 
-      <StateSurface
-        state={lineage.state}
-        problem={lineage.problem}
-        label="Lineage"
-        minHeight="20rem"
-      >
+      <StateSurface state={lineage.state} problem={lineage.problem} label="Lineage" reserve="xl">
         {data === undefined ? null : (
           <>
             <p

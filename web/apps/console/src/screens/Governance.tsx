@@ -75,7 +75,7 @@ export function PolicyScreen(): JSX.Element {
         subtitle={data?.current.version ?? 'The licence policy in force'}
       />
 
-      <StateSurface state={policy.state} problem={policy.problem} label="Policy" minHeight="16rem">
+      <StateSurface state={policy.state} problem={policy.problem} label="Policy" reserve="xl">
         {data === undefined ? null : (
           <>
             <p className="cn-note">
@@ -225,7 +225,7 @@ export function RolesScreen(): JSX.Element {
     <>
       <PageHeading title="Roles" subtitle="What each role may do, and what each route requires." />
 
-      <StateSurface state={roles.state} problem={roles.problem} label="Roles" minHeight="16rem">
+      <StateSurface state={roles.state} problem={roles.problem} label="Roles" reserve="xl">
         {data === undefined ? null : (
           <>
             <p className="cn-separation" data-testid="separation-of-duty">

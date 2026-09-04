@@ -130,13 +130,24 @@ const GLYPH: Record<Exclude<ComponentState, 'ready'>, string> = {
   partitioned: '⇸',
 };
 
+/** The four heights a replacing state may hold. See `reserve`. */
+export type Reserve = 'sm' | 'md' | 'lg' | 'xl';
+
 export interface StateSurfaceProps extends StateProps {
   /** What this component is, for the accessible label. */
   label: string;
   /** Rendered when the state is `ready` or `readOnly`. */
   children: ReactNode;
-  /** Minimum height, so a state swap does not collapse the layout. */
-  minHeight?: string | undefined;
+  /**
+   * How much room to hold while a replacing state is shown, so the layout does
+   * not collapse and then jump when the content arrives.
+   *
+   * A name from a small set rather than a length, because a length here is a
+   * visual value in a component and prompt UX-2 rules those out: every one of
+   * these resolves to a multiple of the space scale in `states.css`. Four
+   * sizes cover everything the system has -- a toast, a card, a table, a log.
+   */
+  reserve?: Reserve | undefined;
 }
 
 /**
@@ -157,7 +168,7 @@ export function StateSurface({
   problem,
   label,
   children,
-  minHeight,
+  reserve,
 }: StateSurfaceProps): JSX.Element {
   if (state === 'ready' || state === 'readOnly') {
     return (
@@ -182,7 +193,7 @@ export function StateSurface({
     <div
       className="jg-state"
       data-jg-state={state}
-      style={minHeight === undefined ? undefined : { minHeight }}
+      data-jg-reserve={reserve}
       role="status"
       aria-live="polite"
       aria-label={`${label}: ${title}`}

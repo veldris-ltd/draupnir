@@ -59,7 +59,7 @@ export function PoolStatus({
         stateMessage={stateMessage}
         problem={problem}
         label={label}
-        minHeight="6rem"
+        reserve="sm"
       >
         <h3 className="jg-pool-status__label">{label}</h3>
         <ul className="jg-pool-status__list" aria-label={label}>

@@ -62,17 +62,17 @@
  * lose the floor by being more specific than it.
  */
 :where(.jg-root) :where(.jg-button, .jg-select, .jg-input, .jg-toggle),
-:where(.jg-root) :where(.jg-tabs__tab, .jg-pagination__page, .jg-choice) {
+:where(.jg-root) :where(.jg-tabs__tab, .jg-choice) {
   min-block-size: var(--jg-touch-target);
 }
 
 /*
  * Width as well, for the controls whose label does not give them one: a
- * checkbox, a radio, a pagination page number, an icon-only button. A wide
+ * checkbox, a radio, an icon-only button. A wide
  * button already clears 44 px across and forcing a minimum on it would leave
  * a short label floating in the middle of a square.
  */
-:where(.jg-root) :where(.jg-pagination__page, .jg-choice, [data-jg-icon-only='true']) {
+:where(.jg-root) :where(.jg-choice, [data-jg-icon-only='true']) {
   min-inline-size: var(--jg-touch-target);
 }
 

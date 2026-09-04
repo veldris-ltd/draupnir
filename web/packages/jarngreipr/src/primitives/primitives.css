@@ -603,3 +603,123 @@
   display: flex;
   gap: var(--jg-space-2);
 }
+
+/* ---------------------------------------------------------------------------
+ * Textarea and combobox
+ * ------------------------------------------------------------------------ */
+
+.jg-textarea {
+  min-block-size: var(--jg-space-16);
+  resize: vertical;
+  font-family: inherit;
+}
+
+.jg-combobox {
+  position: relative;
+}
+
+/*
+ * The list is `hidden` when closed rather than removed, so the `aria-controls`
+ * on the input always resolves to an element. A reference to nothing is
+ * reported by some screen readers as a broken control rather than a closed one.
+ */
+.jg-combobox__list {
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline: 0;
+  z-index: var(--jg-z-drawer);
+  margin: var(--jg-space-1) 0 0;
+  padding: var(--jg-space-1);
+  max-block-size: 16rem;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--jg-surface-overlay);
+  border: var(--jg-border-width) solid var(--jg-border);
+  border-radius: var(--jg-radius-card);
+  box-shadow: var(--jg-elevation-overlay);
+}
+
+.jg-combobox__option {
+  padding: var(--jg-space-1) var(--jg-space-2);
+  border-radius: var(--jg-radius-input);
+  cursor: pointer;
+}
+
+/*
+ * The active option is the one `aria-activedescendant` points at. Focus stays
+ * in the input, so this is the only thing telling a sighted user where the
+ * arrow keys have got to -- which is why it is a background and a border and
+ * not a background alone.
+ */
+.jg-combobox__option[data-jg-active='true'] {
+  background: var(--jg-accent-subtle);
+  outline: var(--jg-border-width) solid var(--jg-accent-border);
+}
+
+.jg-combobox__option[aria-selected='true']::after {
+  content: ' ✓';
+}
+
+.jg-combobox__empty {
+  padding: var(--jg-space-1) var(--jg-space-2);
+  color: var(--jg-text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+ * Table: sorting, sticky header, density
+ * ------------------------------------------------------------------------ */
+
+.jg-table thead th {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: var(--jg-z-sticky);
+  background: var(--jg-surface-sunken);
+}
+
+.jg-table__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--jg-space-1);
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.jg-table__sort-glyph {
+  color: var(--jg-text-subtle);
+}
+
+/*
+ * Row height from the density token, so compact is a density choice rather
+ * than a second table. The cells set it rather than the row, because a table
+ * row's height is the tallest cell in it.
+ */
+.jg-table tbody td {
+  block-size: var(--jg-row-height);
+}
+
+/*
+ * The focused row of the roving tabindex. An outline rather than a background,
+ * so it reads as focus and not as selection, and `outline-offset` negative so
+ * it stays inside the row's own box.
+ */
+.jg-table tbody tr:focus-visible {
+  outline: var(--jg-focus-width) solid var(--jg-focus-ring);
+  outline-offset: calc(var(--jg-focus-width) * -1);
+}
+
+/* ---------------------------------------------------------------------------
+ * Icon-only button
+ * ------------------------------------------------------------------------ */
+
+.jg-button__icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.jg-button[data-jg-icon-only='true'] {
+  padding-inline: var(--jg-space-2);
+}
