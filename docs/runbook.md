@@ -34,6 +34,7 @@ make test-degraded          # every row of SAD 11.2, faults injected for real
 | Runs stuck in QUEUED, nothing dispatching | [2](#2-slurm-controller-on-regin-unavailable) | no | running jobs, yes |
 | Array running two at a time, ring runs refused | [3](#3-one-appliance-lost) | no | yes, at reduced concurrency |
 | "vault is not mounted", new runs refuse to plan | [4](#4-hodd-vault-unavailable) | yes | running jobs, yes |
+| Vault back, artefacts not in it | [4](#4-hodd-vault-unavailable) | until reconciled | yes |
 | API returns 503 on every `/v1` path | [5](#5-postgresql-unavailable) | yes | yes |
 | Chain verification alarm | [6](#6-ledger-chain-verification-fails) | **yes, read only** | yes |
 | Anchor queue growing, release refused | [7](#7-wide-area-network-to-megingjord-lost) | yes | yes |
@@ -160,27 +161,59 @@ recovery.
 
 **What you do.**
 
-1. `mount | grep hodd`, then restore the NFS mount.
-2. Stage what the running jobs wrote to local scratch, into the vault.
-   **This is a manual step today.** SAD 11.2 says "restore NFS, run
-   reconciliation"; the reconciliation command is NOT BUILT, and it is recorded
-   as such in `docs/acceptance/imhotep-reconciliation.md`. Until it exists,
-   copy each job's scratch output into the vault and ingest it through HODD,
-   which hashes what arrives.
-3. Re-hash before believing anything. An artefact is registered by the digest
-   of the bytes that arrived, never by what the job said it wrote (AC-S8).
+```bash
+make vault-status                                  # is it back, and is it the vault?
+make reconcile-vault                               # what would be staged. Changes nothing
+python scripts/vault_admin.py reconcile --apply    # stage it, and record that you did
+```
 
-**How you know it is over.** `free_bytes()` answers, a `stat` on a known
-artefact returns `exists`, and a dry run plans.
+1. `mount | grep hodd`, then restore the NFS mount.
+2. `make vault-status`. Three answers, and they need different things:
+   - `NOT MOUNTED` — the mount has not come back. Nothing else will work.
+   - `PRESENT BUT NOT A VAULT` — there is a directory where the vault should
+     be, holding no `.hodd-vault` marker. Somebody created the mount point.
+     Remove it before mounting over it; see the warning below.
+   - `MOUNTED` — go on.
+3. `make reconcile-vault`. It reads the chain for every artefact digest a run
+   recorded, looks for each in the vault and then in the worker's scratch, and
+   reports. It changes nothing. Read it.
+4. `python scripts/vault_admin.py reconcile --apply` when the report is what
+   you expected. It stages each scratch artefact through HODD — hashed, given
+   a manifest, sealed — removes the staging trees a crash left behind, and
+   records what it staged in the ledger.
+
+**What it will not do, and what to do about each.**
+
+| It reports | It means | You |
+|---|---|---|
+| `UNSTAGEABLE` | scratch does not hash to what the chain recorded | decide which is authentic. It is not the artefact that address promises, so it was not staged (AC-S8) |
+| `DIVERGED` | the vault holds those bytes and they are not the recorded ones | investigate before anything else. An artefact is immutable once registered, so nothing was overwritten |
+| `MISSING` | in neither place | only a rerun produces the bytes. The digest is still in the chain, so lineage still resolves |
+| `ORPHAN` | a sealed artefact no source record names | left alone. An ingest that crashed after the rename produces one; removing it is a decision, not a cleanup |
+
+The command exits 0 when the vault is consistent with the chain, and 2 while
+anything above is still outstanding. A reconciliation that exited 0 with a
+diverged artefact in it would be a green light over the one finding that has to
+be read.
+
+**How you know it is over.** `make vault-status` reports `MOUNTED` with a
+capacity figure, `make reconcile-vault` exits 0, and a dry run plans.
 
 **Do not** create the mount point by hand to "unblock" planning. An empty
 directory where the vault should be is the failure mode this refusal exists to
-prevent.
+prevent, and it is worse than the outage: the refusal disappears, runs plan,
+and everything they write lands on the control plane's local disk under a path
+the real mount will shadow the moment it returns. The `.hodd-vault` marker
+exists to tell the two apart — `vault_admin.py initialise` writes it, once, on
+the real mount, by whoever commissioned it.
 
 **Demonstrated by**
 `test_an_unmounted_vault_refuses_to_resolve_rather_than_inventing_a_path`,
 which removes the directory and then asserts that a write is refused and that
-the vault was not recreated.
+the vault was not recreated, and by
+`test_reconciliation_stages_what_a_running_job_wrote_and_records_it`, which
+takes the vault away, restores it, and runs the recovery end to end against a
+real ledger.
 
 ---
 

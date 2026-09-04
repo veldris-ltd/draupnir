@@ -62,8 +62,8 @@ ought to work.
 | 15 Decisions | 14 | 13 | 1 | 0 |
 | 16A Custody | 1 | 1 | 0 | 0 |
 
-Two items are **NOT BUILT**; both are named in the sections below and
-repeated at the end.
+One item is **NOT BUILT**; it is named in the section below and repeated at
+the end.
 
 ---
 
@@ -133,6 +133,10 @@ Two things are stronger than the specification asked for, and one weaker:
 - The three constraints of SAD 11C are enforced by the **database**: an
   append-only trigger, a foreign key and NOT NULL on `release.approval_id`, and
   row level security with `FORCE` on every scoped table.
+- Vault reconciliation is `scripts/vault_admin.py reconcile`. It stages what a
+  running job wrote to scratch only when those bytes hash to the digest the
+  chain recorded, reports everything else, and deletes nothing but an abandoned
+  staging tree.
 - Retention is swept daily by the worker, which reads the 24 month rule out of
   the chain — a corpus, the runs that consumed it, and the last release derived
   from it — and records a proposal against any corpus past it. It never
@@ -338,16 +342,9 @@ concentration is auditable even though it is not reduced.
 
 ---
 
-## The two that are not built
+## The one that is not built
 
-### NOT BUILT 1 — Vault reconciliation
-
-SAD 11.2 row 4's recovery is "restore NFS, run reconciliation". There is no
-reconciliation command: after a vault outage, staging what running jobs wrote
-to local scratch is manual. The runbook says so where an operator will read it
-rather than leaving them to discover it.
-
-### NOT BUILT 2 — Three non-functional targets are unmeasured
+### NOT BUILT 1 — Three non-functional targets are unmeasured
 
 AC-N1 (control plane overhead on ALVISS), AC-N2 (step time within one per cent)
 and AC-N11 (anchor round trip over WireGuard) are measurements on hardware that
@@ -359,7 +356,7 @@ measurement.
 
 ## What this reconciliation changed
 
-Six items moved from NOT BUILT to IMPLEMENTED, because reading the
+Seven items moved from NOT BUILT to IMPLEMENTED, because reading the
 specification against the code is what found them:
 
 1. **The mutating endpoints did not write.** Recorded here as a NOT BUILT and
@@ -382,6 +379,16 @@ specification against the code is what found them:
    and performs the periodic duties of SAD 11.3. Building it closed the
    retention sweep and the fabric probe with it, because those were missing for
    the same reason — nothing owned a clock.
+7. **Vault reconciliation.** SAD 11.2 row 4's recovery column reads "restore
+   NFS, run reconciliation" and there was no reconciliation, so staging what
+   running jobs wrote to scratch was a manual copy. It is
+   `draupnir/hodd/reconcile.py` and `scripts/vault_admin.py`. Building it found
+   a second instance of the defect that row already carried: `total_bytes`
+   created the vault root in order to measure it, so an unmounted vault
+   reported the control plane's own disk capacity and every quota check passed
+   (AC-S10). It also produced the `.hodd-vault` marker, which tells a dropped
+   mount apart from a directory somebody created on the mount point — the state
+   the runbook warns against and nothing could previously detect.
 
 And one defect was found by injecting a failure rather than by reading:
 **an unmounted HODD vault was silently recreated on the control plane's local

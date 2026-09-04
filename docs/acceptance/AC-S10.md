@@ -20,6 +20,7 @@ make test-unit
 - `draupnir/hodd/stores.py`
 - `tests/integration/test_degraded_modes.py`
 - `tests/unit/test_hodd_quota_and_retention.py`
+- `tests/unit/test_hodd_reconcile.py`
 
 ---
 

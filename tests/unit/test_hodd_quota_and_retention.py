@@ -135,7 +135,15 @@ def test_usable_space_never_goes_negative() -> None:
 
 
 def test_a_real_vault_reports_its_capacity(tmp_path: Path) -> None:
-    store = PosixStoreDriver(root=tmp_path / "vault", local_site="sindri")
+    # The vault is created here rather than by the call. It used to pass
+    # without this line, because `total_bytes` created the root in order to
+    # measure it and `free_bytes` then found what it had made -- so an
+    # unmounted vault reported the control plane's own disk and every quota
+    # check passed. `total_bytes` now refuses like everything else, which makes
+    # this test say what its name claims: a *real* vault reports its capacity.
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    store = PosixStoreDriver(root=vault, local_site="sindri")
     assert store.total_bytes() > 0
     assert store.free_bytes() > 0
     assert store.free_bytes() <= store.total_bytes()

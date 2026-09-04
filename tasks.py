@@ -572,6 +572,21 @@ def worker_once() -> int:
     return 0
 
 
+@task("vault-status", "Is the HODD vault mounted, is it the vault, and how full?")
+def vault_status() -> int:
+    uv_run("python", "scripts/vault_admin.py", "status")
+    return 0
+
+
+@task("reconcile-vault", "Reconcile the vault after an outage (SAD 11.2, row 4)")
+def reconcile_vault() -> int:
+    # A dry run. Staging is `python scripts/vault_admin.py reconcile --apply`,
+    # spelled out rather than given a target: the moment after an outage is the
+    # moment to read what happened before changing it.
+    uv_run("python", "scripts/vault_admin.py", "reconcile")
+    return 0
+
+
 @task("verify-chain", "Verify a site's ledger chain (SAD 11.2, row 6)")
 def verify_chain() -> int:
     uv_run("python", "scripts/ledger_admin.py", "verify")

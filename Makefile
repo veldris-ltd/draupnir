@@ -7,7 +7,7 @@
 PYTHON ?= python3
 
 .DEFAULT_GOAL := help
-.PHONY: help bootstrap hooks format lint typecheck lint-web imports secrets audit sbom crypto-inventory openapi clients clients-check openapi-diff migrate-dry migrate reset-db seed test-unit test-property test-contract test-skills test-degraded test-integration procedure worker worker-once verify-chain rebuild-projection module-readmes acceptance test-frontend test-e2e test-a11y test-visual test images build-web up down logs api web dev smoke static ci clean
+.PHONY: help bootstrap hooks format lint typecheck lint-web imports secrets audit sbom crypto-inventory openapi clients clients-check openapi-diff migrate-dry migrate reset-db seed test-unit test-property test-contract test-skills test-degraded test-integration procedure worker worker-once vault-status reconcile-vault verify-chain rebuild-projection module-readmes acceptance test-frontend test-e2e test-a11y test-visual test images build-web up down logs api web dev smoke static ci clean
 
 help:
 	@$(PYTHON) tasks.py --list
@@ -92,6 +92,12 @@ worker:
 
 worker-once:
 	@$(PYTHON) tasks.py worker-once
+
+vault-status:
+	@$(PYTHON) tasks.py vault-status
+
+reconcile-vault:
+	@$(PYTHON) tasks.py reconcile-vault
 
 verify-chain:
 	@$(PYTHON) tasks.py verify-chain

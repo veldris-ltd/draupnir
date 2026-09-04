@@ -122,7 +122,10 @@ def test_the_reconciliation_marks_every_item_in_the_vocabulary_ac_d4_asks_for() 
     for (number, title), body in zip(headings, sections, strict=True):
         assert len(body.split()) > 30, f"NOT BUILT {number} ({title}) says too little"
 
-    stated = re.search(r"(\w+) items are \*\*NOT BUILT\*\*", text)
+    # Singular as well as plural. The count is meant to fall to one and then to
+    # none, and a check that only parsed "N items are" would fail on the
+    # sentence a document with one item left has to write.
+    stated = re.search(r"(\w+) items? (?:are|is) \*\*NOT BUILT\*\*", text)
     assert stated is not None, "the summary does not say how many items are not built"
     words = {"One": 1, "Two": 2, "Three": 3, "Four": 4, "Five": 5, "Six": 6}
     assert words[stated.group(1)] == len(headings), (

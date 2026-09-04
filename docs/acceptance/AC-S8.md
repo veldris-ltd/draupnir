@@ -21,12 +21,16 @@ make test-unit
 - `draupnir/core/domain/evidence.py`
 - `draupnir/hodd/ingest.py`
 - `draupnir/hodd/manifest.py`
+- `draupnir/hodd/reconcile.py`
 - `draupnir/procedures/sindri.py`
 - `draupnir/raun/baselines.py`
 - `draupnir/skidbladnir/publish.py`
+- `scripts/vault_admin.py`
 - `skills/cim-release/scripts/preflight.py`
+- `tests/integration/test_vault_reconciliation.py`
 - `tests/unit/test_evidence.py`
 - `tests/unit/test_hodd_ingest.py`
+- `tests/unit/test_hodd_reconcile.py`
 - `tests/unit/test_skidbladnir.py`
 - `web/packages/api-client/src/generated/schema.d.ts`
 

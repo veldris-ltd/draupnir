@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://draupnir:draupnir@127.0.0.1:5432/draupnir"
     database_url_sync: str = "postgresql+psycopg://draupnir:draupnir@127.0.0.1:5432/draupnir"
 
+    # Where the HODD vault is mounted. Empty means this installation has none,
+    # which is the honest answer for a control plane without an estate: the
+    # vault checks are then skipped rather than alarming hourly about an NFS
+    # export that was never there.
+    vault_root: str = ""
+
     object_store_endpoint: str = "127.0.0.1:9000"
     object_store_access_key: str = "draupnir"
     object_store_secret_key: str = "draupnir-dev-secret"  # noqa: S105

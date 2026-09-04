@@ -18,6 +18,7 @@ make test-degraded
 
 - `docs/runbook.md`
 - `.github/workflows/ci.yaml`
+- `draupnir/hodd/reconcile.py`
 - `tests/integration/test_degraded_modes.py`
 - `tests/unit/test_documentation.py`
 

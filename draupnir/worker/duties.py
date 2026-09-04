@@ -42,7 +42,7 @@ from draupnir.core.domain.ledger import LedgerEntry
 from draupnir.core.domain.states import RunState
 from draupnir.gullinbursti.agent import ANCHOR_INTERVAL
 from draupnir.hodd.retention import RETENTION, due_at
-from draupnir.hodd.stores import VaultUnavailableError
+from draupnir.hodd.stores import StoreError
 from draupnir.interfaces.types import JobPlan, ResourceRequest
 from draupnir.motsognir import execution
 
@@ -327,12 +327,17 @@ def probe(
 
 
 def capacity(vault: Vault, *, ceiling: float = VAULT_CEILING) -> Finding:
-    """Read the vault's fill, and alarm at the ceiling. SAD 11.3."""
+    """Read the vault's fill, and alarm at the ceiling. SAD 11.3.
+
+    Any `StoreError` is an alarm, not an exception: a vault that has dropped
+    and a directory somebody created where the vault should be are both states
+    an operator has to know about, and both are refusals rather than numbers.
+    """
     try:
         free = vault.free_bytes()
         total = vault.total_bytes()
-    except VaultUnavailableError as unavailable:
-        return Finding(Duty.VAULT, True, f"the vault is not mounted: {unavailable}")
+    except StoreError as unavailable:
+        return Finding(Duty.VAULT, True, f"the vault cannot be read: {unavailable}")
 
     if total <= 0:
         return Finding(Duty.VAULT, False, "the store reports no capacity to fill")

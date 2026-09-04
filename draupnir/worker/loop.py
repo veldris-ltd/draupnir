@@ -52,6 +52,8 @@ from draupnir.core.domain.states import (
 from draupnir.core.infrastructure.config import get_settings
 from draupnir.core.infrastructure.orchestration import for_connection
 from draupnir.core.infrastructure.repositories import LedgerRepository, SiteRepository
+from draupnir.hodd.reconcile import require_vault
+from draupnir.hodd.stores import PosixStoreDriver
 from draupnir.motsognir import execution
 from draupnir.motsognir.placement import Estate
 from draupnir.motsognir.supply import Action, SupplyMonitor, read_status_file
@@ -115,6 +117,10 @@ class WorkerSettings:
     fabric_baseline_gbps: float = DEFAULT_FABRIC_BASELINE_GBPS
     #: Where the supply daemon writes its status block, if one is fitted.
     supply_status: Path | None = None
+    #: Where the HODD vault is mounted. None means this installation has none,
+    #: and the capacity duty is skipped rather than alarming every quarter hour
+    #: about an NFS export that was never there.
+    vault_root: Path | None = None
     #: Set false to run the runs and skip the periodic duties, which is what a
     #: second worker on the same site should do: one of them verifies.
     perform_duties: bool = True
@@ -130,6 +136,7 @@ class WorkerSettings:
         source = os.environ if environ is None else environ
         shared = get_settings()
         supply = source.get("DRAUPNIR_WORKER_SUPPLY_STATUS", "").strip()
+        vault = source.get("DRAUPNIR_VAULT_ROOT", shared.vault_root).strip()
         return cls(
             site_id=source.get("DRAUPNIR_SITE_ID", shared.site_id),
             actor=source.get("DRAUPNIR_WORKER_ACTOR", DEFAULT_ACTOR),
@@ -145,6 +152,7 @@ class WorkerSettings:
                 )
             ),
             supply_status=Path(supply) if supply else None,
+            vault_root=Path(vault) if vault else None,
             perform_duties=source.get("DRAUPNIR_WORKER_DUTIES", "1").strip()
             not in {"0", "false", "FALSE", "no"},
         )
@@ -219,6 +227,29 @@ def tick(orchestrator: Orchestrator, context: Context) -> tuple[Outcome, ...]:
 # ---------------------------------------------------------------------------
 # The periodic duties
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class CheckedVault:
+    """A vault that establishes it is the vault before reporting capacity.
+
+    The store driver refuses when its root is absent, which catches a dropped
+    mount. It cannot catch the other one: a directory an operator created on
+    the mount point answers every capacity question with the control plane's
+    own local disk. `require_vault` reads the marker, so the duty alarms on
+    both rather than on the loud one.
+    """
+
+    store: PosixStoreDriver
+
+    def free_bytes(self) -> int:
+        """Bytes available, once the vault has been established as the vault."""
+        require_vault(self.store)
+        return self.store.free_bytes()
+
+    def total_bytes(self) -> int:
+        """Total capacity."""
+        return self.store.total_bytes()
 
 
 @dataclass
@@ -502,11 +533,19 @@ class Worker:
         )
         return Maintenance(
             chain=LedgerRepository(connection, scope),
+            vault=self._vault(),
             scheduler=self.scheduler,
             workdir=self.settings.scratch / "probe",
             last_anchored_at=site.last_anchored_at if site else None,
             fabric_baseline_gbps=self.settings.fabric_baseline_gbps,
         )
+
+    def _vault(self) -> CheckedVault | None:
+        """The vault the capacity duty reads, if this installation has one."""
+        root = self.settings.vault_root
+        if root is None:
+            return None
+        return CheckedVault(PosixStoreDriver(root=root, local_site=self.settings.site_id))
 
     def _observe_supply(
         self, now: datetime, placements: Mapping[UUID, dict[str, Any] | None]
@@ -572,6 +611,7 @@ class Worker:
 __all__ = [
     "ORDER",
     "SUPPLY_TRANSFER",
+    "CheckedVault",
     "Maintenance",
     "TickReport",
     "Worker",

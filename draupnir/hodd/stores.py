@@ -94,6 +94,41 @@ class Address:
         return f"{SCHEME}://{self.site_id}/{self.path}"
 
 
+#: Where each artefact kind of SAD 7.1 lives under a site. Spelled out rather
+#: than pluralised by rule, because "merged" and "quantised" are adjectives and
+#: `mergeds/` is not a directory anybody should have to look at.
+ARTEFACT_DIRECTORIES: dict[str, str] = {
+    "substrate": "substrates",
+    "adapter": "adapters",
+    "merged": "merged",
+    "quantised": "quantised",
+    "corpus": "corpora",
+    "release": "releases",
+}
+
+
+def artefact_uri(site_id: str, kind: str, run_id: str, name: str = "") -> str:
+    """The address a run's artefact of this kind is held at. SAD 7.4's layout.
+
+    The other half of `parse`, and here rather than at each caller because
+    "object and file layout" is HODD's to own. A worker or a reconciliation
+    that chose its own address would be a second layout, and the two would
+    disagree the first time one of them was changed.
+
+    Keyed by run rather than by digest: an operator looking for what a run
+    produced has the run identifier and does not have the hash, and the digest
+    is in the manifest beside the bytes either way.
+
+    `name` distinguishes several artefacts of one kind from one run -- the
+    three release formats of SAD 6.2 -- and is a further address rather than a
+    filename. An ingested artefact is a tree holding its own manifest, so the
+    URI names the tree and the file sits inside it.
+    """
+    directory = ARTEFACT_DIRECTORIES.get(kind, kind)
+    stem = f"{directory}/{run_id}"
+    return f"{SCHEME}://{site_id}/{stem}/{name}" if name else f"{SCHEME}://{site_id}/{stem}"
+
+
 def parse(uri: str, *, local_site: str, sites: Iterable[str] = ()) -> Address:
     """Parse a `hodd://` URI, resolving an omitted authority to the local site.
 
@@ -289,7 +324,12 @@ class PosixStoreDriver:
 
     def total_bytes(self) -> int:
         """Total capacity of the vault."""
-        self.root.mkdir(parents=True, exist_ok=True)
+        # This used to `mkdir` the root, which is the same defect `free_bytes`
+        # carries a comment about: creating the vault in order to measure it
+        # recreates a dropped mount point on the control plane's local disk,
+        # and then reports that disk's capacity as the vault's. A quota check
+        # against that number passes every run.
+        self._require_mounted()
         return shutil.disk_usage(self.root).total
 
 
