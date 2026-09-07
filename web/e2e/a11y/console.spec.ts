@@ -173,7 +173,33 @@ test.describe('AC-U8, zoom and reflow', () => {
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
-    expect(overflow).toBeLessThanOrEqual(1);
+    // Name the box that did it. A bare number sends the next person hunting
+    // through a whole page for a width that only appears on a runner's fonts,
+    // which is most of what this criterion has cost so far.
+    const culprits =
+      overflow > 1
+        ? await page.evaluate(() => {
+            const vw = document.documentElement.clientWidth;
+            return Array.from(document.querySelectorAll('body *'))
+              .map((el) => ({ el, r: el.getBoundingClientRect() }))
+              .filter(({ r }) => r.right > vw + 1 && (r.width > 0 || r.height > 0))
+              .sort((a, b) => b.r.right - a.r.right)
+              .slice(0, 5)
+              .map(({ el, r }) => {
+                const cls =
+                  typeof el.className === 'string' && el.className.trim()
+                    ? `.${el.className.trim().split(/\s+/).join('.')}`
+                    : '';
+                return `${el.tagName.toLowerCase()}${cls} right=${String(Math.round(r.right))} w=${String(Math.round(r.width))}`;
+              })
+              .join(' | ');
+          })
+        : '';
+
+    expect(
+      overflow,
+      `the page scrolls sideways by ${String(overflow)}px at 320. Widest boxes: ${culprits}`,
+    ).toBeLessThanOrEqual(1);
   });
 
   test('is usable at 200 per cent zoom', async ({ page }) => {
