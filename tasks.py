@@ -389,16 +389,23 @@ def audit() -> int:
             str(requirements),
         ]
     )
-    # `--no-deps` because the file is a fully pinned export: without it
-    # pip-audit builds a throwaway virtualenv to re-resolve the requirements,
-    # and `ensurepip` is absent from the uv-managed standalone CPython that
-    # CI runs on, so it dies with exit 127 before auditing anything. Resolving
-    # would also be wrong here -- the lockfile is the thing under audit, and
-    # re-resolving it could audit a set the project never installs.
+    # `--disable-pip` is the flag that matters: pip-audit otherwise builds a
+    # throwaway virtualenv and pip-installs the requirements to resolve them,
+    # and the uv-managed standalone CPython that CI runs on has no working
+    # `ensurepip`, so venv creation dies with exit 127 before auditing
+    # anything. `--no-deps` alone does not avoid that -- it only tells
+    # pip-audit the set is complete, and pip-audit still builds the venv.
+    # `--disable-pip` takes the pre-resolved path instead, and it is accepted
+    # only alongside `--no-deps` or a hashed file, so the two travel together.
+    #
+    # Resolving would also be the wrong gate here: the file is a fully pinned
+    # `uv export`, so the lockfile is the artefact under audit, and
+    # re-resolving could audit a set the project never installs.
     uv_run(
         "pip-audit",
         "--strict",
         "--no-deps",
+        "--disable-pip",
         "--progress-spinner",
         "off",
         "-r",
