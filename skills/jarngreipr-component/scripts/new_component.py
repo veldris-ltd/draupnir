@@ -113,7 +113,7 @@ export function {name}({{
         stateMessage={{stateMessage}}
         problem={{problem}}
         label={{label}}
-        minHeight="6rem"
+        reserve="sm"
       >
         <h3 className="jg-{slug}__label">{{label}}</h3>
         <ul className="jg-{slug}__list" aria-label={{label}}>
