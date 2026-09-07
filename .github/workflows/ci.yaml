@@ -86,11 +86,14 @@ jobs:
       - name: "1.3b import-linter (SAD 11B inward-only rule)"
         run: python tasks.py imports
 
+      # gitleaks-action requires a paid licence for organisation-owned repos,
+      # and veldris-ltd is one, so the action refused to scan at all rather
+      # than scanning and finding nothing. gitleaks itself is MIT: only the
+      # action wrapper is licensed. `tasks.py secrets` runs the pinned CLI
+      # over the working tree and the full history, which is the gate AC-Q3
+      # actually asks for, and matches how every other step here is invoked.
       - name: "1.4 secret scan (gitleaks)"
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITLEAKS_CONFIG: .gitleaks.toml
-          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+        run: python tasks.py secrets
 
       - name: "1.5a dependency audit"
         run: python tasks.py audit
