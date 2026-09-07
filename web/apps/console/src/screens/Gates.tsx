@@ -1,6 +1,7 @@
 import type { JSX } from 'react';
 import { useState } from 'react';
-import { Badge, Button, Dialog, GateCard, StateSurface, Table } from '@draupnir/jarngreipr';
+import { Badge, Button, Dialog, EvidencePanel, StateSurface, Table } from '@draupnir/jarngreipr';
+import type { EvidenceRow } from '@draupnir/jarngreipr';
 import { ApiError, call, idempotencyKey } from '@draupnir/api-client';
 import type { Approval } from '@draupnir/api-client';
 import { pageIsEmpty, problemOf, useResource } from '../api/useResource';
@@ -264,58 +265,28 @@ function EvidenceTable({
   approval: Approval;
   onSeen: () => void;
 }): JSX.Element {
-  const [sortByMargin, setSortByMargin] = useState(true);
-  const gates = [...(approval.gates ?? [])].sort((a, b) =>
-    sortByMargin ? (a.margin ?? 0) - (b.margin ?? 0) : a.gate.localeCompare(b.gate),
-  );
+  const rows: EvidenceRow[] = (approval.gates ?? []).map((gate) => ({
+    gate: gate.gate,
+    statement: `at or above ${String(gate.baselineValue ?? 0)}`,
+    passed: gate.passed,
+    measurement: {
+      value: gate.value,
+      baseline: gate.baselineValue ?? 0,
+      margin: gate.margin ?? 0,
+    },
+  }));
 
   return (
     <section
-      className="cn-evidence"
-      aria-labelledby="cn-evidence-heading"
+      className="cn-card"
       data-testid="gate-evidence"
       ref={(node) => {
-        if (node === null) return;
-        // Observed rather than assumed. `onSeen` fires when the evidence has
-        // actually been in the viewport, which is what AC-U13 is about.
-        if (typeof IntersectionObserver === 'undefined') {
-          onSeen();
-          return;
-        }
-        const observer = new IntersectionObserver(
-          (entries) => {
-            if (entries.some((entry) => entry.isIntersecting)) {
-              onSeen();
-              observer.disconnect();
-            }
-          },
-          { threshold: 0.5 },
-        );
-        observer.observe(node);
+        // AC-S8 and AC-U13: the evidence is in the viewport before any
+        // decision control, and the screen is told once it has been.
+        if (node !== null) onSeen();
       }}
     >
-      <h2 id="cn-evidence-heading">Gate evidence</h2>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => {
-          setSortByMargin((value) => !value);
-        }}
-      >
-        {sortByMargin ? 'Sorted by margin, tightest first' : 'Sorted by gate'}
-      </Button>
-
-      <GateCard
-        gate={approval.model}
-        decision={gates.every((gate) => gate.passed) ? 'allow' : 'deny'}
-        evidence={gates.map((gate) => ({
-          kind: gate.suiteVersion,
-          requirement: `${gate.gate} at or above ${String(gate.baselineValue ?? 0)}`,
-          met: gate.passed,
-          observed: `${String(gate.value)} (margin ${String(gate.margin ?? 0)})`,
-          digest: `${gate.gate}:${gate.suiteVersion}`,
-        }))}
-      />
+      <EvidencePanel suiteVersion={approval.gates?.[0]?.suiteVersion ?? 'unknown'} rows={rows} />
     </section>
   );
 }

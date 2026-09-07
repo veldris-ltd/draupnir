@@ -32,7 +32,10 @@ make test-unit
 - `tests/unit/test_hodd_ingest.py`
 - `tests/unit/test_hodd_reconcile.py`
 - `tests/unit/test_skidbladnir.py`
+- `web/apps/console/src/screens/Gates.tsx`
 - `web/packages/api-client/src/generated/schema.d.ts`
+- `web/packages/jarngreipr/src/components.test.tsx`
+- `web/packages/jarngreipr/src/composites/index.tsx`
 
 ---
 

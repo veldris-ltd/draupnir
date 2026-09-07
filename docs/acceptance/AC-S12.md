@@ -17,6 +17,8 @@ make secrets
 ## Evidence
 
 - `draupnir/svalinn/pki.py`
+- `web/packages/jarngreipr/src/components.test.tsx`
+- `web/packages/jarngreipr/src/composites/index.tsx`
 
 ---
 

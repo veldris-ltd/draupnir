@@ -21,6 +21,8 @@ make test-unit
 - `draupnir/svalinn/egress.py`
 - `draupnir/svalinn/sandbox.py`
 - `tests/unit/test_svalinn_security.py`
+- `web/packages/jarngreipr/src/components.test.tsx`
+- `web/packages/jarngreipr/src/composites/index.tsx`
 
 ---
 

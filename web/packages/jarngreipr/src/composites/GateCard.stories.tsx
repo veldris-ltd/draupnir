@@ -37,6 +37,10 @@ const stories = stateStories((state) => (
     gate="release.tier-a"
     decision="deny"
     policyVersion="2026.08.3"
+    // Section 5.2: value, baseline, margin and the result. Never a bare tick,
+    // and a card that failed by 0.004 is a different fact from one that failed
+    // by 0.4.
+    measurement={{ value: 0.7181, baseline: 0.72, margin: -0.0019 }}
     evidence={EVIDENCE}
     state={state}
     problem={SAMPLE_PROBLEM}

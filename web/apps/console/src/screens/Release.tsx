@@ -3,12 +3,12 @@ import { useState } from 'react';
 import {
   Badge,
   Button,
+  EvidencePanel,
   LedgerEntryViewer,
   StateSurface,
   Table,
-  type GateEvidence,
+  type EvidenceRow,
 } from '@draupnir/jarngreipr';
-import { GateCard } from '@draupnir/jarngreipr';
 import { useResource } from '../api/useResource';
 import { linkProps } from '../routing';
 import { PageHeading } from './parts';
@@ -83,12 +83,15 @@ export function ModelDetail({ artefact }: { artefact: string }): JSX.Element {
     },
   ];
 
-  const evidence: GateEvidence[] = (data?.gates ?? []).map((gate) => ({
-    kind: gate.suiteVersion,
-    requirement: `${gate.gate} at or above ${String(gate.baselineValue ?? 0)}`,
-    met: gate.passed,
-    observed: `${String(gate.value)} (margin ${String(gate.margin ?? 0)})`,
-    digest: `${gate.gate}:${gate.suiteVersion}`,
+  const evidence: EvidenceRow[] = (data?.gates ?? []).map((gate) => ({
+    gate: gate.gate,
+    statement: `at or above ${String(gate.baselineValue ?? 0)}`,
+    passed: gate.passed,
+    measurement: {
+      value: gate.value,
+      baseline: gate.baselineValue ?? 0,
+      margin: gate.margin ?? 0,
+    },
   }));
 
   return (
@@ -142,10 +145,9 @@ export function ModelDetail({ artefact }: { artefact: string }): JSX.Element {
                   than a failure.
                 </p>
               ) : (
-                <GateCard
-                  gate={data.name}
-                  decision={evidence.every((item) => item.met) ? 'allow' : 'deny'}
-                  evidence={evidence}
+                <EvidencePanel
+                  suiteVersion={data.gates?.[0]?.suiteVersion ?? 'unknown'}
+                  rows={evidence}
                 />
               )}
             </section>

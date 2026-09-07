@@ -1,8 +1,8 @@
 import type { JSX, KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { useCallback, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { StateSurface, type StateProps } from '../state/states';
 import { type RunState } from '../tokens';
-import { Badge, Button, Pill, type Tone } from '../primitives';
+import { Badge, Button, Pill, Table, TextArea, type Tone } from '../primitives';
 import './composites.css';
 
 /**
@@ -24,6 +24,111 @@ import './composites.css';
 // Run card
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Digest
+// ---------------------------------------------------------------------------
+
+/**
+ * What a digest says instead of a hash, per state.
+ *
+ * A dash on its own is not an explanation. Each of these names the state in
+ * words, so a screen reader user meeting a digest that is not there learns why
+ * rather than reading a punctuation mark.
+ */
+const DIGEST_STATE: Record<string, string> = {
+  loading: 'loading.',
+  empty: 'none was recorded.',
+  error: 'could not be loaded because the last request failed.',
+  denied: 'not permitted: your role does not allow you to see it.',
+  readOnly: 'read only.',
+  partitioned: 'unavailable: the site is partitioned from the federation.',
+};
+
+/** How many characters of a hash are shown. AC-V8 fixes it at eight. */
+export const DIGEST_SHOWN = 8;
+
+export interface DigestProps extends StateProps {
+  /** The full SHA-256, or whatever hash this is. Never pre-truncated. */
+  value: string;
+  /** What it is a digest of, for the accessible name. */
+  of?: string | undefined;
+  /** Copies to the clipboard. Omitted only where there is no clipboard. */
+  onCopy?: ((value: string) => void) | undefined;
+}
+
+/**
+ * A hash, truncated, with a route to the whole of it. AC-V8.
+ *
+ * "Hashes render truncated to eight characters with the full value available
+ * and a copy control. No truncated hash without a route to the whole." Three
+ * routes, because the three kinds of user need different ones: the title
+ * attribute for a mouse, the visually hidden span for a screen reader, and the
+ * copy button for anybody who has to paste it into a ticket.
+ *
+ * Truncation is presentational only. The full value is in the DOM and in the
+ * clipboard, so nothing downstream ever receives eight characters and treats
+ * them as a digest -- which is the failure mode that makes truncation
+ * dangerous rather than merely lossy.
+ */
+export function Digest({
+  value,
+  of,
+  onCopy,
+  state = 'ready',
+  stateMessage,
+}: DigestProps): JSX.Element {
+  const [copied, setCopied] = useState(false);
+  const inert = state !== 'ready';
+  const label = of === undefined ? 'digest' : `${of} digest`;
+  const shown = value.slice(0, DIGEST_SHOWN);
+
+  if (inert) {
+    return (
+      <span className="jg-digest" data-jg-state={state}>
+        <span className="jg-digest__value" aria-hidden="true">
+          —
+        </span>
+        <span>
+          {label}: {stateMessage ?? DIGEST_STATE[state]}
+        </span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="jg-digest">
+      <span className="jg-digest__value" title={value}>
+        {shown}
+        <span aria-hidden="true">…</span>
+      </span>
+      {/* The whole of it, for a screen reader and for a text search of the page. */}
+      <span className="jg-sr-only">
+        {label}, full value {value}
+      </span>
+      <Button
+        iconOnly
+        icon={<span aria-hidden="true">⧉</span>}
+        variant="ghost"
+        size="sm"
+        onClick={() => {
+          onCopy?.(value);
+          setCopied(true);
+        }}
+      >
+        {`Copy the full ${label}`}
+      </Button>
+      {/* Polite, so it does not interrupt: a confirmation, not an alarm. */}
+      <span className="jg-sr-only" aria-live="polite">
+        {copied ? `${label} copied` : ''}
+      </span>
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Run card
+// ---------------------------------------------------------------------------
+
 export interface RunAction {
   label: string;
   onSelect?: (() => void) | undefined;
@@ -39,9 +144,101 @@ export interface RunCardProps extends StateProps {
   step?: number | undefined;
   totalSteps?: number | undefined;
   startedAt?: string | undefined;
+  /** How long it has been running, in seconds. */
+  elapsedSeconds?: number | undefined;
+  /** The appliance it is on. A node, never a site (Decision S12). */
+  node?: string | undefined;
+  /**
+   * Recent step durations in seconds, most recent last.
+   *
+   * The estimate is computed from these rather than supplied, so that the rule
+   * about when not to show one lives in one place. See `estimateRemaining`.
+   */
+  stepSeconds?: readonly number[] | undefined;
   /** Who submitted it. Custody matters (SAD 16A), so it is always on the face. */
   submittedBy?: string | undefined;
   actions?: RunAction[] | undefined;
+}
+
+/**
+ * How many step times are needed before an estimate means anything.
+ *
+ * Fewer than this and the sample is one warm-up step and a bit of noise. Five
+ * is the smallest number from which a spread can be read at all.
+ */
+export const ESTIMATE_MINIMUM_SAMPLES = 5;
+
+/**
+ * How much the step time may vary before it is not stable.
+ *
+ * The coefficient of variation: the standard deviation over the mean. A
+ * threshold on the ratio rather than on the absolute spread, because a run
+ * whose steps take 40 seconds and one whose steps take 4 are equally
+ * predictable at the same ratio.
+ */
+export const ESTIMATE_MAXIMUM_VARIATION = 0.2;
+
+export interface Estimate {
+  /** Seconds remaining, or null when it would be a guess. */
+  seconds: number | null;
+  /** Why there is no estimate. Empty when there is one. */
+  because: string;
+}
+
+/**
+ * Seconds remaining, or a stated refusal to guess. Section 5.2.
+ *
+ * "Estimate is omitted rather than guessed when step time is not yet stable."
+ * Omitted, and *said* -- a card that simply leaves the field out looks like a
+ * card that forgot, and an operator planning around a run needs to know the
+ * difference between "four hours" and "not knowable yet".
+ *
+ * Two ways it is not knowable: too few steps to judge, and steps whose times
+ * disagree too much to extrapolate. The second is the one that matters in
+ * practice, because a run that has just moved to a contended appliance has
+ * plenty of samples and none of them predict the next one.
+ */
+export function estimateRemaining(
+  stepSeconds: readonly number[],
+  step: number,
+  totalSteps: number,
+): Estimate {
+  const remaining = totalSteps - step;
+  if (remaining <= 0) return { seconds: 0, because: '' };
+
+  if (stepSeconds.length < ESTIMATE_MINIMUM_SAMPLES) {
+    return {
+      seconds: null,
+      because: `not enough steps yet: ${String(stepSeconds.length)} of ${String(
+        ESTIMATE_MINIMUM_SAMPLES,
+      )} needed`,
+    };
+  }
+
+  const mean = stepSeconds.reduce((total, value) => total + value, 0) / stepSeconds.length;
+  if (mean <= 0) return { seconds: null, because: 'step time has not been measured' };
+
+  const variance =
+    stepSeconds.reduce((total, value) => total + (value - mean) ** 2, 0) / stepSeconds.length;
+  const variation = Math.sqrt(variance) / mean;
+
+  if (variation > ESTIMATE_MAXIMUM_VARIATION) {
+    return {
+      seconds: null,
+      because: `step time is not stable: it varies by ${(variation * 100).toFixed(0)} per cent`,
+    };
+  }
+
+  return { seconds: Math.round(mean * remaining), because: '' };
+}
+
+/** Seconds as an operator reads them. `4h 12m`, never `15120`. */
+export function duration(seconds: number): string {
+  if (seconds < 60) return `${String(Math.round(seconds))}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${String(minutes)}m`;
+  const hours = Math.floor(minutes / 60);
+  return `${String(hours)}h ${String(minutes % 60)}m`;
 }
 
 /**
@@ -58,6 +255,9 @@ export function RunCard({
   step,
   totalSteps,
   startedAt,
+  elapsedSeconds,
+  node,
+  stepSeconds = [],
   submittedBy,
   actions = [],
   state = 'ready',
@@ -67,6 +267,7 @@ export function RunCard({
   const headingId = useId();
   const hasProgress = step !== undefined && totalSteps !== undefined && totalSteps > 0;
   const pct = hasProgress ? Math.min(100, Math.round((step / totalSteps) * 100)) : 0;
+  const estimate = hasProgress ? estimateRemaining(stepSeconds, step, totalSteps) : undefined;
 
   return (
     <section className="jg-card" aria-labelledby={headingId}>
@@ -92,6 +293,33 @@ export function RunCard({
             <>
               <dt>Started</dt>
               <dd>{startedAt}</dd>
+            </>
+          )}
+          {elapsedSeconds === undefined ? null : (
+            <>
+              <dt>Elapsed</dt>
+              <dd>{duration(elapsedSeconds)}</dd>
+            </>
+          )}
+          {node === undefined ? null : (
+            <>
+              <dt>Appliance</dt>
+              <dd>{node}</dd>
+            </>
+          )}
+          {/*
+           * The estimate, or the reason there is not one. Section 5.2 says
+           * "omitted rather than guessed"; omitting the row entirely would
+           * read as a card that forgot, so the row stays and says why.
+           */}
+          {estimate === undefined ? null : (
+            <>
+              <dt>Remaining</dt>
+              <dd data-jg-estimated={estimate.seconds === null ? 'false' : 'true'}>
+                {estimate.seconds === null
+                  ? `Not estimated — ${estimate.because}`
+                  : `about ${duration(estimate.seconds)}`}
+              </dd>
             </>
           )}
           {submittedBy === undefined ? null : (
@@ -162,15 +390,61 @@ export interface GateEvidence {
   observed?: string | undefined;
 }
 
+/**
+ * One gate's measurement. Section 5.2: "value, baseline, margin and pass or
+ * fail. Never a bare tick."
+ *
+ * All four are required, because the fourth without the first three is the
+ * bare tick the sentence rules out. A gate that says "pass" and nothing else
+ * asks an operator to trust a comparison they cannot see, and the margin is
+ * the number that tells them whether the pass was comfortable or a hair's
+ * breadth -- which is the only thing they can act on.
+ */
+export interface GateMeasurement {
+  /** What was measured on the artefact. */
+  value: number;
+  /** What it was compared against. */
+  baseline: number;
+  /**
+   * Value minus baseline, signed, as the ledger recorded it.
+   *
+   * Carried rather than computed here so the card shows the number the chain
+   * shows. A margin recomputed in the browser is a second implementation of
+   * the arithmetic a release was decided on.
+   */
+  margin: number;
+  unit?: string | undefined;
+}
+
 export interface GateCardProps extends StateProps {
   gate: string;
   decision: GateDecision;
+  /** The measurement behind the decision. Required: see `GateMeasurement`. */
+  measurement: GateMeasurement;
   /** The policy bundle version the decision was taken under. */
   policyVersion?: string | undefined;
   /** Who waived it, when the decision is `waived`. Never blank on a waiver. */
   waivedBy?: string | undefined;
   waiverReason?: string | undefined;
   evidence: GateEvidence[];
+}
+
+/** A measured number, at the precision a gate margin is read at. */
+function number(value: number, unit?: string): string {
+  const text = value.toLocaleString('en-GB', { maximumFractionDigits: 4 });
+  return unit === undefined ? text : `${text} ${unit}`;
+}
+
+/**
+ * The same, with an explicit sign.
+ *
+ * A margin of 0.004 and one of -0.004 are opposite answers, and a minus sign
+ * is easy to miss in a column of numbers. The plus is there so the two are the
+ * same width and read as a pair.
+ */
+function signed(value: number, unit?: string): string {
+  const sign = value > 0 ? '+' : value < 0 ? '−' : '±';
+  return `${sign}${number(Math.abs(value), unit)}`;
 }
 
 const DECISION_GLYPH: Record<GateDecision, string> = {
@@ -204,6 +478,7 @@ const DECISION_TONE: Record<GateDecision, Tone> = {
 export function GateCard({
   gate,
   decision,
+  measurement,
   policyVersion,
   waivedBy,
   waiverReason,
@@ -253,6 +528,26 @@ export function GateCard({
           </span>
         </p>
 
+        {/*
+         * The measurement, always. This is the half of the card section 5.2 is
+         * about: the verdict above is what was decided, and this is what it
+         * was decided from. The margin carries its own sign so that "better"
+         * and "worse" do not depend on knowing the direction of the gate.
+         */}
+        <dl className="jg-gate__measurement">
+          <dt>Value</dt>
+          <dd data-jg-numeric="true">{number(measurement.value, measurement.unit)}</dd>
+          <dt>Baseline</dt>
+          <dd data-jg-numeric="true">{number(measurement.baseline, measurement.unit)}</dd>
+          <dt>Margin</dt>
+          <dd
+            data-jg-numeric="true"
+            data-jg-sign={measurement.margin < 0 ? 'negative' : 'positive'}
+          >
+            {signed(measurement.margin, measurement.unit)}
+          </dd>
+        </dl>
+
         {decision === 'waived' ? (
           <dl className="jg-facts">
             <dt>Waived by</dt>
@@ -283,13 +578,142 @@ export function GateCard({
                   {item.observed === undefined ? null : ` — observed ${item.observed}`}
                 </span>
                 <span className="jg-gate__digest">
-                  <span className="jg-sr-only">{item.kind} digest: </span>
-                  {item.digest}
+                  <Digest value={item.digest} of={item.kind} />
                 </span>
               </li>
             ))}
           </ul>
         )}
+      </StateSurface>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Evidence panel
+// ---------------------------------------------------------------------------
+
+export interface EvidenceRow {
+  gate: string;
+  /** What the gate asks, in words. Shown so the number has a meaning. */
+  statement: string;
+  measurement: GateMeasurement;
+  passed: boolean;
+}
+
+export interface EvidencePanelProps extends StateProps {
+  /** The suite these came from, `name/version`. */
+  suiteVersion: string;
+  rows: EvidenceRow[];
+  /** What the artefact was measured on. Rendered under AC-V8. */
+  artefactDigest?: string | undefined;
+}
+
+/**
+ * The full gate set, above any decision control. Section 5.2, and AC-S8.
+ *
+ * "Sits above any decision control. Sortable by margin so the tightest result
+ * is findable." The second sentence is the interesting one: an approver
+ * scanning six gates does not want them alphabetically, they want to know
+ * which one nearly failed. So margin is the default sort, ascending, and the
+ * tightest result is the first row without anybody having to look for it.
+ *
+ * Signed margins sort by their sign, not their size: a gate that failed by
+ * 0.002 sorts before one that passed by 0.001, which is the order an approver
+ * reads them in.
+ */
+export function EvidencePanel({
+  suiteVersion,
+  rows,
+  artefactDigest,
+  state = 'ready',
+  stateMessage,
+  problem,
+}: EvidencePanelProps): JSX.Element {
+  const headingId = useId();
+  const shown = state === 'empty' ? [] : rows;
+  const tightest = [...shown].sort((a, b) => a.measurement.margin - b.measurement.margin)[0];
+
+  return (
+    <section className="jg-card jg-evidence" aria-labelledby={headingId}>
+      <StateSurface
+        state={state}
+        stateMessage={stateMessage}
+        problem={problem}
+        label="Gate evidence"
+        reserve="lg"
+      >
+        <div className="jg-card__head">
+          <div>
+            <h3 className="jg-card__title" id={headingId}>
+              Gate evidence
+            </h3>
+            <p className="jg-card__subtitle">suite {suiteVersion}</p>
+          </div>
+          {artefactDigest === undefined ? null : <Digest value={artefactDigest} of="artefact" />}
+        </div>
+
+        {/*
+         * The tightest result in a sentence, above the table. The sort makes it
+         * findable; this makes it unmissable, which is what an approver about
+         * to sign actually needs.
+         */}
+        {tightest === undefined ? null : (
+          <p className="jg-evidence__tightest">
+            Tightest result: {tightest.gate} {tightest.passed ? 'passed' : 'failed'} by{' '}
+            {signed(tightest.measurement.margin, tightest.measurement.unit)}.
+          </p>
+        )}
+
+        <Table
+          caption={`Gate results for suite ${suiteVersion}`}
+          rows={shown}
+          rowKey={(row) => row.gate}
+          sort={{ key: 'margin', direction: 'ascending' }}
+          columns={[
+            {
+              key: 'gate',
+              header: 'Gate',
+              render: (row) => row.gate,
+              sortKey: (row) => row.gate,
+            },
+            { key: 'statement', header: 'Requirement', render: (row) => row.statement },
+            {
+              key: 'value',
+              header: 'Value',
+              numeric: true,
+              render: (row) => number(row.measurement.value, row.measurement.unit),
+              sortKey: (row) => row.measurement.value,
+            },
+            {
+              key: 'baseline',
+              header: 'Baseline',
+              numeric: true,
+              render: (row) => number(row.measurement.baseline, row.measurement.unit),
+              sortKey: (row) => row.measurement.baseline,
+            },
+            {
+              key: 'margin',
+              header: 'Margin',
+              numeric: true,
+              render: (row) => signed(row.measurement.margin, row.measurement.unit),
+              sortKey: (row) => row.measurement.margin,
+            },
+            {
+              key: 'result',
+              header: 'Result',
+              // Never a bare tick: the word, and the glyph beside it as
+              // decoration for anybody who reads the shape faster.
+              render: (row) => (
+                <span data-jg-passed={String(row.passed)}>
+                  <span aria-hidden="true">{row.passed ? '✓ ' : '✕ '}</span>
+                  {row.passed ? 'Passed' : 'Failed'}
+                </span>
+              ),
+              sortKey: (row) => (row.passed ? 1 : 0),
+            },
+          ]}
+        />
       </StateSurface>
     </section>
   );
@@ -306,6 +730,19 @@ export interface LineageNode {
   kind: string;
   digest?: string | undefined;
   children?: LineageNode[] | undefined;
+  /**
+   * The identifiers this artefact claims to derive from.
+   *
+   * This is what makes a gap impossible to omit. A node states what it came
+   * from; the tree checks that each of those is present; and anything claimed
+   * and absent is rendered as a gap node saying so. A caller cannot produce a
+   * shorter tree by leaving an ancestor out, because leaving it out is exactly
+   * what the check looks for.
+   *
+   * A node with no claim is a root of the known lineage, not a node whose
+   * ancestry is fine.
+   */
+  derivedFrom?: readonly string[] | undefined;
 }
 
 export interface LineageTreeProps extends StateProps {
@@ -313,6 +750,56 @@ export interface LineageTreeProps extends StateProps {
   roots: LineageNode[];
   selectedId?: string | undefined;
   onSelect?: ((id: string) => void) | undefined;
+}
+
+/** The `kind` a gap node carries. Reserved: a real artefact may not use it. */
+export const GAP_KIND = 'gap';
+
+/**
+ * Insert a marked node wherever a claimed ancestor is missing. AC-S11.
+ *
+ * "Lineage renders a gap as a marked node stating what is missing, never as a
+ * shorter tree." The rule is enforced here rather than asked of the caller,
+ * because a caller that knew to mark its gaps would not have produced one.
+ *
+ * Every `derivedFrom` identifier is looked up across the whole tree, not only
+ * among a node's own children: an artefact may derive from something that
+ * appears elsewhere in the lineage, and that is present rather than missing.
+ * What is left -- claimed by somebody, present nowhere -- becomes a child of
+ * the node that claimed it, labelled with the identifier it could not find.
+ *
+ * The result is that the only way to render a lineage with no gap node is to
+ * supply one with no missing ancestor.
+ */
+export function withGaps(roots: LineageNode[]): LineageNode[] {
+  const present = new Set(collectIds(roots));
+
+  function walk(nodes: LineageNode[]): LineageNode[] {
+    return nodes.map((node) => {
+      const missing = (node.derivedFrom ?? []).filter((id) => !present.has(id));
+      const children = walk(node.children ?? []);
+      const gaps: LineageNode[] = missing.map((id) => ({
+        id: `${node.id}::gap::${id}`,
+        kind: GAP_KIND,
+        label: `Missing: ${id}`,
+        derivedFrom: [],
+      }));
+      // Gaps first, so the thing that is wrong is the first child read rather
+      // than the last one scrolled to.
+      return { ...node, children: [...gaps, ...children] };
+    });
+  }
+
+  return walk(roots);
+}
+
+/** How many gap nodes a lineage holds, at any depth. */
+export function countGaps(nodes: LineageNode[]): number {
+  return nodes.reduce(
+    (total, node) =>
+      total + (node.kind === GAP_KIND ? 1 : 0) + countGaps([...(node.children ?? [])]),
+    0,
+  );
 }
 
 /**
@@ -333,6 +820,11 @@ export function LineageTree({
   stateMessage,
   problem,
 }: LineageTreeProps): JSX.Element {
+  // Derived, not taken. `roots` is what the caller supplied; `complete` is
+  // that with every claimed-and-absent ancestor marked, and it is the only
+  // thing rendered below.
+  const complete = useMemo(() => withGaps(roots), [roots]);
+  const gaps = useMemo(() => countGaps(complete), [complete]);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(collectIds(roots)));
   const [focusId, setFocusId] = useState<string | undefined>(() => roots[0]?.id);
   const treeRef = useRef<HTMLUListElement>(null);
@@ -431,10 +923,29 @@ export function LineageTree({
               aria-setsize={nodes.length}
               aria-posinset={index + 1}
             >
-              <button
-                type="button"
-                className="jg-tree__row"
+              {/*
+               * The treeitem carries the tabindex and the click, rather than a
+               * button inside it.
+               *
+               * It was a button, and that made every digest's copy control a
+               * button inside a button -- which axe reports as
+               * `nested-interactive` and which a screen reader reads as one
+               * control with two names. The ARIA tree pattern does not want a
+               * button here anyway: a treeitem *is* the widget, and the roving
+               * tabindex is what makes it operable.
+               */}
+              {/*
+               * The keyboard listener is on the tree, not on each row: the
+               * whole widget is one key handler and a roving tabindex, which
+               * is the ARIA tree pattern. `jsx-a11y` looks for a listener on
+               * the element it finds the click on and cannot see the one a
+               * level up.
+               */}
+              {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+              <span
+                className="jg-tree__row jg-tree__node"
                 data-jg-node={node.id}
+                data-jg-kind={node.kind}
                 tabIndex={node.id === current ? 0 : -1}
                 onFocus={() => {
                   setFocusId(node.id);
@@ -449,13 +960,16 @@ export function LineageTree({
                 </span>
                 <span className="jg-tree__kind">{node.kind}</span>
                 <span>{node.label}</span>
-                {node.digest === undefined ? null : (
-                  <span className="jg-tree__digest">
-                    <span className="jg-sr-only">digest </span>
-                    {node.digest.slice(0, 12)}…
-                  </span>
-                )}
-              </button>
+              </span>
+              {/*
+               * Outside the row, so the copy control is a sibling of the
+               * treeitem's own hit area rather than a control inside a control.
+               */}
+              {node.digest === undefined ? null : (
+                <span className="jg-tree__digest">
+                  <Digest value={node.digest} of={node.kind} />
+                </span>
+              )}
               {children.length > 0 && open ? renderNodes(children, level + 1) : null}
             </li>
           );
@@ -464,7 +978,7 @@ export function LineageTree({
     );
   }
 
-  const shown = state === 'empty' ? [] : roots;
+  const shown = state === 'empty' ? [] : complete;
 
   return (
     <div className="jg-tree">
@@ -475,6 +989,18 @@ export function LineageTree({
         label={label}
         reserve="md"
       >
+        {/*
+         * Stated above the tree as well as marked within it. A gap six levels
+         * down in a collapsed branch is a gap somebody has to go looking for,
+         * and the whole point of AC-S11 is that they should not have to.
+         */}
+        {gaps > 0 ? (
+          <p className="jg-tree__gaps" role="status">
+            {gaps === 1
+              ? 'One ancestor of this lineage is missing and is marked below.'
+              : `${String(gaps)} ancestors of this lineage are missing and are marked below.`}
+          </p>
+        ) : null}
         {renderNodes(shown, 1)}
       </StateSurface>
     </div>
@@ -529,6 +1055,73 @@ export interface SweepMatrixProps extends StateProps {
   caption: string;
   metrics: SweepMetric[];
   arms: SweepArm[];
+  /** The merge point that was chosen. Highlighted, and explained beneath. */
+  selectedId?: string | undefined;
+}
+
+/**
+ * What choosing this arm cost and what it bought, in a sentence.
+ *
+ * Generated, never written. A hard-coded sentence is a sentence that stops
+ * being true the first time the numbers move, and this one has to be read by
+ * somebody deciding whether to accept a merge. Each metric is compared against
+ * the best arm on that metric: a shortfall is what the choice gave up, and
+ * being the best is what it bought.
+ *
+ * Returns an empty string when nothing was selected, rather than a sentence
+ * about nothing.
+ */
+export function tradeSentence(
+  metrics: SweepMetric[],
+  arms: SweepArm[],
+  selectedId: string | undefined,
+): string {
+  const selected = arms.find((arm) => arm.id === selectedId);
+  if (selected === undefined) return '';
+
+  const gave: string[] = [];
+  const won: string[] = [];
+
+  for (const metric of metrics) {
+    const value = selected.values[metric.key];
+    if (value === undefined) continue;
+
+    const others = arms
+      .filter((arm) => arm.id !== selected.id)
+      .map((arm) => arm.values[metric.key])
+      .filter((candidate): candidate is number => candidate !== undefined);
+    if (others.length === 0) continue;
+
+    const best = metric.higherIsBetter ? Math.max(...others) : Math.min(...others);
+    const behind = metric.higherIsBetter ? best - value : value - best;
+
+    if (behind > 0) {
+      gave.push(`${format(behind)} on ${metric.label}`);
+    } else if (behind < 0) {
+      won.push(`${format(-behind)} on ${metric.label}`);
+    }
+  }
+
+  if (gave.length === 0 && won.length === 0) {
+    return `${selected.label} matches every other point on every metric measured.`;
+  }
+  if (gave.length === 0) {
+    return `${selected.label} is the best point measured, leading by ${list(won)}.`;
+  }
+  if (won.length === 0) {
+    return `${selected.label} gives up ${list(gave)} against the best point, and leads on nothing.`;
+  }
+  return `${selected.label} gives up ${list(gave)} to gain ${list(won)}.`;
+}
+
+function format(value: number): string {
+  return value.toLocaleString('en-GB', { maximumFractionDigits: 4 });
+}
+
+/** `a`, `a and b`, `a, b and c`. British, and readable aloud. */
+function list(parts: string[]): string {
+  if (parts.length <= 1) return parts[0] ?? '';
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1] ?? ''}`;
 }
 
 /**
@@ -543,12 +1136,17 @@ export function SweepMatrix({
   caption,
   metrics,
   arms,
+  selectedId,
   state = 'ready',
   stateMessage,
   problem,
 }: SweepMatrixProps): JSX.Element {
   const shown = useMemo(() => (state === 'empty' ? [] : arms), [state, arms]);
 
+  const trade = useMemo(
+    () => tradeSentence(metrics, arms, selectedId),
+    [metrics, arms, selectedId],
+  );
   const best = useMemo(() => {
     const result = new Map<string, number>();
     for (const metric of metrics) {
@@ -588,8 +1186,16 @@ export function SweepMatrix({
           </thead>
           <tbody>
             {shown.map((arm) => (
-              <tr key={arm.id}>
-                <th scope="row">{arm.label}</th>
+              <tr key={arm.id} data-jg-selected={arm.id === selectedId ? 'true' : undefined}>
+                <th scope="row">
+                  {arm.id === selectedId ? (
+                    <>
+                      <span aria-hidden="true">◆ </span>
+                      <span className="jg-sr-only">Selected: </span>
+                    </>
+                  ) : null}
+                  {arm.label}
+                </th>
                 {metrics.map((metric) => {
                   const value = arm.values[metric.key];
                   const isBest = value !== undefined && best.get(metric.key) === value;
@@ -623,6 +1229,12 @@ export function SweepMatrix({
           </tbody>
         </table>
       </div>
+      {/*
+       * AC-S12: the selected point is marked and the trade is stated in words
+       * beneath the matrix. A matrix on its own asks the reader to do the
+       * comparison; this is the comparison done.
+       */}
+      {trade === '' ? null : <p className="jg-sweep__trade">{trade}</p>}
     </StateSurface>
   );
 }
@@ -674,12 +1286,31 @@ export function LogViewer({
 }: LogViewerProps): JSX.Element {
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(320);
+  /**
+   * AC-X8: on by default, and released by scrolling up.
+   *
+   * Released rather than toggled off, because the gesture that means "stop
+   * moving, I am reading this" is scrolling away from the bottom, and asking
+   * somebody to find a button first is asking them to lose the line they were
+   * looking at.
+   */
+  const [following, setFollowing] = useState(true);
+  const viewport = useRef<HTMLDivElement | null>(null);
   const shown = state === 'empty' ? [] : lines;
 
   const first = Math.max(0, Math.floor(scrollTop / LOG_ROW_HEIGHT) - LOG_OVERSCAN);
   const count = Math.ceil(viewportHeight / LOG_ROW_HEIGHT) + LOG_OVERSCAN * 2;
   const window = shown.slice(first, first + count);
   const last = shown[shown.length - 1];
+
+  // While following, a new line moves the viewport with it. The effect runs on
+  // the line count rather than on every render, so a scroll that is already at
+  // the bottom is not fought over.
+  useEffect(() => {
+    if (!following) return;
+    const node = viewport.current;
+    if (node !== null) node.scrollTop = node.scrollHeight;
+  }, [shown.length, following]);
 
   return (
     <div className="jg-log">
@@ -696,19 +1327,49 @@ export function LogViewer({
             {shown.length.toLocaleString()} lines
             {streaming ? ', still writing' : ''}
           </span>
+          {/*
+           * The state, in words rather than in the position of a scrollbar.
+           * AC-X8 asks for it to be stated; a button that says which way it
+           * currently is states it and offers the way back in one control.
+           */}
+          <span className="jg-log__follow">
+            <span data-jg-following={following ? 'true' : 'false'}>
+              {following ? 'Following the tail' : 'Not following: scrolled back'}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setFollowing(true);
+                const node = viewport.current;
+                if (node !== null) node.scrollTop = node.scrollHeight;
+              }}
+              state={following ? 'readOnly' : 'ready'}
+              stateMessage="Already following the tail."
+            >
+              Follow the tail
+            </Button>
+          </span>
         </div>
         <div
           className="jg-log__viewport"
+          ref={viewport}
           // Focusable because it scrolls: WCAG 2.1.1 requires a keyboard
           // user to be able to reach and scroll this region, and jsx-a11y
           // cannot see that it overflows.
           // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
           tabIndex={0}
           role="log"
-          aria-label={`${label}, ${shown.length.toLocaleString()} lines, showing ${String(first + 1)} to ${String(Math.min(shown.length, first + window.length))}`}
+          aria-label={`${label}, ${shown.length.toLocaleString()} lines, showing ${String(first + 1)} to ${String(Math.min(shown.length, first + window.length))}, ${following ? 'following the tail' : 'not following the tail'}`}
           onScroll={(event) => {
-            setScrollTop(event.currentTarget.scrollTop);
-            setViewportHeight(event.currentTarget.clientHeight);
+            const node = event.currentTarget;
+            setScrollTop(node.scrollTop);
+            setViewportHeight(node.clientHeight);
+            // Within a row of the bottom counts as the bottom: a scroll that
+            // lands a pixel short should not read as "the user scrolled away".
+            const atBottom =
+              node.scrollHeight - node.scrollTop - node.clientHeight <= LOG_ROW_HEIGHT;
+            setFollowing(atBottom);
           }}
         >
           <div
@@ -740,12 +1401,14 @@ export function LogViewer({
           </div>
         </div>
         {/*
-         * Only the tail is announced, and only while streaming. Marking the
-         * whole viewport live would read a million lines at a screen reader
-         * user, which is worse than saying nothing.
+         * Only the tail is announced, only while streaming, and only while
+         * following. Marking the whole viewport live would read a million
+         * lines at a screen reader user; announcing the tail to somebody who
+         * has scrolled back to read something is the same interruption in
+         * miniature.
          */}
         <p className="jg-sr-only" aria-live="polite">
-          {streaming && last !== undefined ? `Latest line: ${last.text}` : ''}
+          {streaming && following && last !== undefined ? `Latest line: ${last.text}` : ''}
         </p>
       </StateSurface>
     </div>
@@ -1060,5 +1723,199 @@ export function DiffViewer({
         </div>
       </StateSurface>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Spec editor
+// ---------------------------------------------------------------------------
+
+/** One thing wrong with the specification, at the place it is wrong. */
+export interface SpecProblem {
+  /** A JSON pointer, `/train/params/rank`, or empty for the document. */
+  pointer: string;
+  message: string;
+}
+
+/**
+ * What validates a specification.
+ *
+ * A function rather than a schema object, so the caller brings the real
+ * validator -- the same compiled JSON Schema the API validates against -- and
+ * the component does not carry a second implementation of the rules. A second
+ * validator is a second opinion, and the one that matters is the server's.
+ */
+export type SpecValidator = (parsed: unknown) => SpecProblem[];
+
+export interface SpecEditorProps extends StateProps {
+  label: string;
+  value: string;
+  onChange?: ((value: string) => void) | undefined;
+  /** Validates the parsed document. See `SpecValidator`. */
+  validate?: SpecValidator | undefined;
+  /** The primary action. Section 5.2: "dry run before submit". */
+  onDryRun?: ((value: string) => void) | undefined;
+  /** The secondary action, and only reachable once a dry run has been done. */
+  onSubmit?: ((value: string) => void) | undefined;
+  /** What the last dry run said. Rendered above the actions. */
+  dryRunResult?: string | undefined;
+}
+
+/**
+ * Compose a run specification. Section 5.2.
+ *
+ * Three rules from the specification's own table, and each is a thing that
+ * goes wrong when it is left out.
+ *
+ * **Validation is inline.** The schema is checked as the operator types, and
+ * every problem names the pointer it is at. A specification rejected by the
+ * API twenty seconds after submission is a specification whose author has
+ * already moved on.
+ *
+ * **It never submits on Enter.** A specification is a multi-line document and
+ * Enter is how you get a new line in one. A form that submits on Enter turns
+ * an ordinary keystroke into an irreversible act -- and this act spends days
+ * of GPU time.
+ *
+ * **Dry run is primary and submit is secondary.** Not a visual preference: the
+ * dry run is what turns a syntactically valid document into one somebody has
+ * seen the consequences of, and submit stays inert until it has been done.
+ */
+export function SpecEditor({
+  label,
+  value,
+  onChange,
+  validate,
+  onDryRun,
+  onSubmit,
+  dryRunResult,
+  state = 'ready',
+  stateMessage,
+  problem,
+}: SpecEditorProps): JSX.Element {
+  const headingId = useId();
+  const [dryRunFor, setDryRunFor] = useState<string | null>(null);
+
+  const problems = useMemo((): SpecProblem[] => {
+    if (value.trim() === '') return [{ pointer: '', message: 'The specification is empty.' }];
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch (error) {
+      // The parser's own message names the offset, which is more use than
+      // "invalid JSON" and is what an editor would show.
+      return [{ pointer: '', message: `Not valid JSON: ${(error as Error).message}` }];
+    }
+    return validate?.(parsed) ?? [];
+  }, [value, validate]);
+
+  const valid = problems.length === 0;
+  // A dry run is spent the moment the document changes: what was checked is
+  // not what would be submitted.
+  const dryRunIsCurrent = dryRunFor === value;
+
+  return (
+    <section className="jg-card jg-spec" aria-labelledby={headingId}>
+      <StateSurface
+        state={state}
+        stateMessage={stateMessage}
+        problem={problem}
+        label={label}
+        reserve="xl"
+      >
+        <h3 className="jg-card__title" id={headingId}>
+          {label}
+        </h3>
+
+        {/*
+         * A form, so the browser's own semantics apply -- and `onSubmit`
+         * prevented, so they do not fire. The two together are what makes
+         * "never submits on Enter" true rather than asserted: a form with no
+         * submit handler still submits, and a div with buttons in it is not a
+         * form to a screen reader.
+         */}
+        <form
+          className="jg-spec__form"
+          onSubmit={(event) => {
+            event.preventDefault();
+          }}
+        >
+          <TextArea
+            label="Specification"
+            hint="JSON. Validated against the run specification schema as you type."
+            value={value}
+            rows={16}
+            state={state}
+            onChange={(next) => {
+              onChange?.(next);
+            }}
+          />
+
+          <div className="jg-spec__problems" role="status" aria-live="polite">
+            {valid ? (
+              <p data-jg-valid="true">
+                <span aria-hidden="true">✓ </span>
+                The specification validates against the schema.
+              </p>
+            ) : (
+              <>
+                <p data-jg-valid="false">
+                  <span aria-hidden="true">✕ </span>
+                  {problems.length === 1
+                    ? 'One problem with the specification:'
+                    : `${String(problems.length)} problems with the specification:`}
+                </p>
+                <ul>
+                  {problems.map((item) => (
+                    <li key={`${item.pointer}:${item.message}`}>
+                      {item.pointer === '' ? null : (
+                        <code className="jg-spec__pointer">{item.pointer}</code>
+                      )}{' '}
+                      {item.message}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+
+          {dryRunResult === undefined || !dryRunIsCurrent ? null : (
+            <p className="jg-spec__dry-run">{dryRunResult}</p>
+          )}
+
+          <div className="jg-card__actions">
+            <Button
+              variant="primary"
+              type="button"
+              state={state === 'ready' && valid ? 'ready' : 'readOnly'}
+              stateMessage={
+                valid ? undefined : 'The specification does not validate, so it cannot be run.'
+              }
+              onClick={() => {
+                setDryRunFor(value);
+                onDryRun?.(value);
+              }}
+            >
+              Dry run
+            </Button>
+            <Button
+              variant="secondary"
+              type="button"
+              state={state === 'ready' && valid && dryRunIsCurrent ? 'ready' : 'readOnly'}
+              stateMessage={
+                valid
+                  ? 'Dry run this specification first. Submit is available once it has been checked.'
+                  : 'The specification does not validate, so it cannot be submitted.'
+              }
+              onClick={() => {
+                onSubmit?.(value);
+              }}
+            >
+              Submit
+            </Button>
+          </div>
+        </form>
+      </StateSurface>
+    </section>
   );
 }

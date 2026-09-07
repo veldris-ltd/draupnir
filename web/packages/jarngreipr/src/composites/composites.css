@@ -541,3 +541,152 @@
     transition: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Digest (AC-V8)
+ * ------------------------------------------------------------------------ */
+
+.jg-digest {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--jg-space-1);
+}
+
+.jg-digest__value {
+  font-family: var(--jg-font-mono);
+  font-size: var(--jg-text-mono);
+  color: var(--jg-text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+ * Gate measurement and evidence panel
+ * ------------------------------------------------------------------------ */
+
+.jg-gate__measurement {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  gap: var(--jg-space-1) var(--jg-space-4);
+  margin: var(--jg-space-2) 0;
+  padding: var(--jg-space-2);
+  background: var(--jg-surface-sunken);
+  border-radius: var(--jg-radius-card);
+}
+
+.jg-gate__measurement dt {
+  font-size: var(--jg-text-caption);
+  color: var(--jg-text-muted);
+  grid-row: 1;
+}
+
+.jg-gate__measurement dd {
+  margin: 0;
+  font-family: var(--jg-font-mono);
+  font-size: var(--jg-text-mono);
+  grid-row: 2;
+}
+
+/*
+ * A negative margin is the number an approver is looking for, so it is the one
+ * that carries a colour. The sign is in the text either way -- the colour is
+ * the second carrier, never the first (AC-V5).
+ */
+.jg-gate__measurement dd[data-jg-sign='negative'] {
+  color: var(--jg-danger);
+}
+
+.jg-evidence__tightest {
+  margin: 0 0 var(--jg-space-2);
+  padding: var(--jg-space-2);
+  background: var(--jg-warning-subtle);
+  border-inline-start: var(--jg-border-width-thick) solid var(--jg-warning-border);
+  border-radius: var(--jg-radius-card);
+}
+
+/* ---------------------------------------------------------------------------
+ * Lineage gaps (AC-S11)
+ * ------------------------------------------------------------------------ */
+
+.jg-tree__gaps {
+  margin: 0 0 var(--jg-space-2);
+  padding: var(--jg-space-2);
+  background: var(--jg-danger-subtle);
+  border-inline-start: var(--jg-border-width-thick) solid var(--jg-danger-border);
+  border-radius: var(--jg-radius-card);
+}
+
+/*
+ * A gap is drawn as a broken link rather than as a faint node: it is the most
+ * important thing in the tree, not the least. The dashed edge is decoration on
+ * top of a label that already reads "Missing: <id>".
+ */
+.jg-tree__node[data-jg-kind='gap'] {
+  color: var(--jg-danger);
+  border: var(--jg-border-width) dashed var(--jg-danger-border);
+  border-radius: var(--jg-radius-card);
+}
+
+/* ---------------------------------------------------------------------------
+ * Sweep selection and the trade sentence (AC-S12)
+ * ------------------------------------------------------------------------ */
+
+.jg-matrix tbody tr[data-jg-selected='true'],
+.jg-sweep tbody tr[data-jg-selected='true'] {
+  background: var(--jg-accent-subtle);
+  outline: var(--jg-border-width) solid var(--jg-accent-border);
+}
+
+.jg-sweep__trade {
+  margin: var(--jg-space-2) 0 0;
+  padding: var(--jg-space-2);
+  background: var(--jg-surface-sunken);
+  border-radius: var(--jg-radius-card);
+}
+
+/* ---------------------------------------------------------------------------
+ * Log follow state (AC-X8)
+ * ------------------------------------------------------------------------ */
+
+.jg-log__follow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--jg-space-2);
+}
+
+.jg-log__follow [data-jg-following='false'] {
+  color: var(--jg-warning);
+}
+
+/* ---------------------------------------------------------------------------
+ * Spec editor
+ * ------------------------------------------------------------------------ */
+
+.jg-spec__form {
+  display: grid;
+  gap: var(--jg-space-3);
+}
+
+.jg-spec__problems ul {
+  margin: var(--jg-space-1) 0 0;
+  padding-inline-start: var(--jg-space-4);
+}
+
+.jg-spec__problems [data-jg-valid='false'] {
+  color: var(--jg-danger);
+}
+
+.jg-spec__problems [data-jg-valid='true'] {
+  color: var(--jg-success);
+}
+
+.jg-spec__pointer {
+  font-family: var(--jg-font-mono);
+  font-size: var(--jg-text-mono);
+}
+
+.jg-spec__dry-run {
+  margin: 0;
+  padding: var(--jg-space-2);
+  background: var(--jg-info-subtle);
+  border-inline-start: var(--jg-border-width-thick) solid var(--jg-info-border);
+  border-radius: var(--jg-radius-card);
+}
