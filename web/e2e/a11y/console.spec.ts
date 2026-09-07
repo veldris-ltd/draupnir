@@ -160,10 +160,27 @@ test.describe('AC-U8, zoom and reflow', () => {
     await expect(page.getByTestId('site-context')).toBeVisible();
 
     // No horizontal scrolling of the page itself.
-    const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-    );
-    expect(overflow).toBeLessThanOrEqual(1);
+    //
+    // Polled rather than measured once. The console is served by the Vite dev
+    // server here, which injects the stylesheet through JavaScript, so under
+    // parallel shards on a loaded runner there is a window where the markup
+    // has rendered and the styles have not: the run table sits at its natural
+    // width, some 600 pixels of it, and a single measurement in that window
+    // reports an overflow the console does not actually have. That is the same
+    // dev-server contention the Storybook server is built statically to avoid.
+    //
+    // AC-U8 is a property of the settled layout, so assert it on the settled
+    // layout. This still fails if the page never reflows, which is the thing
+    // the criterion forbids.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          ),
+        { timeout: 15_000 },
+      )
+      .toBeLessThanOrEqual(1);
   });
 
   test('is usable at 200 per cent zoom', async ({ page }) => {
