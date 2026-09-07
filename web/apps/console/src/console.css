@@ -954,3 +954,36 @@
   font-size: var(--jg-text-sm);
   color: var(--jg-text-muted);
 }
+
+/* ---------------------------------------------------------------------------
+ * Alert tray
+ * ------------------------------------------------------------------------ */
+
+.cn-alerts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--jg-space-3);
+}
+
+.cn-alerts__item {
+  padding: var(--jg-space-3);
+  background: var(--jg-warning-subtle);
+  border-inline-start: var(--jg-border-width-thick) solid var(--jg-warning-border);
+  border-radius: var(--jg-radius-card);
+}
+
+.cn-alerts__item p {
+  margin: 0;
+}
+
+.cn-alerts__duty {
+  font-weight: var(--jg-weight-semibold);
+}
+
+.cn-alerts__meta {
+  margin-block-start: var(--jg-space-1);
+  font-size: var(--jg-text-caption);
+  color: var(--jg-text-muted);
+}

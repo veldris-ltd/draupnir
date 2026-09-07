@@ -18,6 +18,7 @@ from __future__ import annotations
 import ast
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -29,11 +30,15 @@ SOURCE = PACKAGE / "stedi_view"
 pytestmark = pytest.mark.unit
 
 
-def run(*arguments: str) -> subprocess.CompletedProcess[str]:
+def run(*arguments: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     """Run the view in a subprocess with a hostile environment.
 
     A subprocess rather than an import, because "exits zero" is part of what is
     being asserted and a systemd timer or a cron will judge it on exactly that.
+
+    `env` adds to the hostile baseline rather than replacing it, so a test that
+    wants one specific failure -- a refused connection, a dead route -- still
+    gets the rest of the outage around it.
     """
     return subprocess.run(  # noqa: S603 -- this interpreter, a fixed module, literal flags
         [sys.executable, "-m", "stedi_view", *arguments],
@@ -48,6 +53,7 @@ def run(*arguments: str) -> subprocess.CompletedProcess[str]:
             "PYTHONPATH": str(PACKAGE),
             "DRAUPNIR_API_HOST": "127.0.0.1:9",  # discard port: never answers
             "DRAUPNIR_RING_NEIGHBOURS": "",
+            **(env or {}),
         },
     )
 
@@ -98,6 +104,58 @@ def test_the_footer_names_what_is_unreachable() -> None:
     result = run()
     assert "Local readings only" in result.stdout
     assert "Unreachable:" in result.stdout
+
+
+def test_it_renders_against_a_network_that_refuses_the_connection() -> None:
+    """The network down for real, not simulated by an absent fixture.
+
+    The other tests take the API away by not providing it. This one provides an
+    address and closes the door: a port on the loopback interface with nothing
+    listening, which is what a control plane that has stopped looks like to an
+    appliance that can still route to it. The distinction matters because the
+    two fail differently -- one is a name that does not resolve, the other is a
+    connection actively refused -- and CON-A's whole purpose is to keep working
+    through either.
+    """
+    import socket
+
+    # A port the kernel has just told us is free, closed again before the read.
+    # Binding and releasing is how you get a port that is certainly not in use;
+    # picking a number and hoping is how you get a flaky test.
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+
+    result = run(env={"DRAUPNIR_API_HOST": f"127.0.0.1:{port}"})
+
+    assert result.returncode == 0, result.stderr
+    assert "API:" in result.stdout
+    # Named, so the assertion is about the address this test set rather than
+    # about the discard port the baseline environment supplies.
+    assert "unreachable at 127.0.0.1" in result.stdout
+    # And the seven local readings are still there. A view that gave up on the
+    # rest because one line failed would be a view nobody could use during the
+    # outage it exists for.
+    for label in ["GPU", "Throttle", "Fabric", "Ring", "Run", "Vault", "Scheduler"]:
+        assert f"{label}:" in result.stdout, f"{label} went missing when the API refused"
+
+
+def test_it_renders_against_an_address_that_does_not_route() -> None:
+    """The other half of a network failure: packets that go nowhere.
+
+    203.0.113.0/24 is TEST-NET-3 (RFC 5737), reserved for documentation and
+    routed by nobody. A connection to it hangs rather than being refused, so
+    this is also the test that CON-A bounds its wait: a panel that blocked on a
+    dead route would be a panel that never draws during exactly the failure it
+    was built for.
+    """
+    started = time.monotonic()
+    result = run(env={"DRAUPNIR_API_HOST": "203.0.113.1:8000"})
+    elapsed = time.monotonic() - started
+
+    assert result.returncode == 0, result.stderr
+    assert "unreachable at 203.0.113.1" in result.stdout
+    assert elapsed < 30, f"the panel took {elapsed:.0f}s to draw against a dead route"
 
 
 def test_json_mode_is_machine_readable_under_the_same_outage() -> None:

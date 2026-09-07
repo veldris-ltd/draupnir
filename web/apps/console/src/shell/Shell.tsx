@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge, Button } from '@draupnir/jarngreipr';
 import type { Site } from '@draupnir/api-client';
 import { linkProps, useLocation } from '../routing';
+import { AlertTray } from './AlertTray';
 import { CommandPalette, usePaletteShortcut } from './CommandPalette';
 
 /**
@@ -119,6 +120,7 @@ export function Shell({ children, siteId, sites, roles }: ShellProps): JSX.Eleme
         <SiteSwitcher siteId={siteId} sites={sites} />
 
         <div className="cn-header__tools">
+          <AlertTray siteId={siteId} />
           <Button variant="secondary" size="sm" onClick={openPalette}>
             Search or command
           </Button>
