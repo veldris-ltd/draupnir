@@ -227,6 +227,21 @@
 
 .jg-table-wrap {
   overflow-x: auto;
+  /* AC-U8. `overflow-x: auto` makes the table scroll inside this box, but on
+     its own it does not stop the table's width reaching the document: at a
+     320 pixel viewport the console scrolled sideways by 249 pixels, and the
+     page-level scrolling the criterion forbids is exactly that. Clipping the
+     ancestors does not help, because the overflow propagates from here rather
+     than from them -- `overflow-x: clip` on the main region, on the body and
+     on the root all leave the page scrollable.
+
+     `contain: paint` ends the propagation at this box, which is where the
+     wide content actually is. The table keeps its full width and keeps
+     scrolling within the wrapper, so nothing is truncated and no column is
+     lost: the alternative, `table-layout: fixed`, squeezes six columns into
+     296 pixels, and an unreadable table is the loss of function the criterion
+     is about. */
+  contain: paint;
   border: var(--jg-border-width) solid var(--jg-border);
   border-radius: var(--jg-radius-lg);
 }

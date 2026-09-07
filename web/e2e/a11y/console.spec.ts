@@ -159,28 +159,21 @@ test.describe('AC-U8, zoom and reflow', () => {
     await expect(page.getByRole('heading', { name: 'Runs', level: 1 })).toBeVisible();
     await expect(page.getByTestId('site-context')).toBeVisible();
 
-    // No horizontal scrolling of the page itself.
-    //
-    // Polled rather than measured once. The console is served by the Vite dev
-    // server here, which injects the stylesheet through JavaScript, so under
-    // parallel shards on a loaded runner there is a window where the markup
-    // has rendered and the styles have not: the run table sits at its natural
-    // width, some 600 pixels of it, and a single measurement in that window
-    // reports an overflow the console does not actually have. That is the same
-    // dev-server contention the Storybook server is built statically to avoid.
-    //
-    // AC-U8 is a property of the settled layout, so assert it on the settled
-    // layout. This still fails if the page never reflows, which is the thing
-    // the criterion forbids.
-    await expect
-      .poll(
-        () =>
-          page.evaluate(
-            () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-          ),
-        { timeout: 15_000 },
-      )
-      .toBeLessThanOrEqual(1);
+    // The run table is the widest thing on this page and it arrives with the
+    // data, so wait for a row before measuring. Measuring on an empty board
+    // measures a page that has not yet had the chance to overflow, and that
+    // is how this assertion passed for as long as it did while the console
+    // genuinely scrolled sideways at this width.
+    await expect(page.getByRole('table')).toBeVisible();
+    await expect(page.getByRole('row').nth(1)).toBeVisible();
+
+    // No horizontal scrolling of the page itself. The table may scroll inside
+    // its own wrapper -- that is how it keeps every column at this width --
+    // but the page may not, which is what the criterion actually forbids.
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(1);
   });
 
   test('is usable at 200 per cent zoom', async ({ page }) => {
