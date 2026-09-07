@@ -88,10 +88,16 @@ export default defineConfig({
             timeout: 120_000,
           },
           {
-            command: 'pnpm run dev',
+            // Built, then served statically, for the reason the Storybook
+            // entry below gives. The dev server injects the stylesheet through
+            // JavaScript, so parallel shards on a loaded runner can measure a
+            // rendered-but-unstyled page and read it as a broken layout; see
+            // scripts/serve-console.mjs. The built console is also the
+            // artefact the journeys are evidence for.
+            command: 'pnpm run build && pnpm run console:serve',
             url: CONSOLE_URL,
             reuseExistingServer: !process.env.CI,
-            timeout: 120_000,
+            timeout: 300_000,
           },
           {
             // Built, then served statically. The dev server compiles on

@@ -25,6 +25,7 @@
     "test:visual": "playwright test --project=visual",
     "storybook": "storybook dev -p 6006 --no-open",
     "storybook:serve": "node scripts/serve-storybook.mjs",
+    "console:serve": "node scripts/serve-console.mjs",
     "build-storybook": "storybook build --output-dir storybook-static",
     "generate:client": "openapi-typescript ../docs/api/openapi.json --output packages/api-client/src/generated/schema.d.ts",
     "sbom": "npx --yes --package @cyclonedx/cdxgen@11.10.0 -- cdxgen --type pnpm --spec-version 1.6 --output ../sbom/draupnir-web.cdx.json ."
