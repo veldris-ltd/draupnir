@@ -10,7 +10,7 @@
   },
   "scripts": {
     "dev": "pnpm --filter @draupnir/console dev",
-    "build": "pnpm --recursive --filter ./packages/** run build && pnpm --filter @draupnir/console build",
+    "build": "pnpm --recursive --filter \"./packages/**\" run build && pnpm --filter @draupnir/console build",
     "lint": "eslint .",
     "lint:tokens": "node scripts/token-lint.mjs",
     "lint:contrast": "vitest run packages/jarngreipr/src/tokens",
