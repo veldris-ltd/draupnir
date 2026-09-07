@@ -6,9 +6,14 @@ The CIM-56 model factory control plane.
 > equal weight every ninth night. The name is taken for a system whose function
 > is to turn one shared substrate into fifty six derived models.
 
-Architecture: `docs/build/draupnir-sad.md` (VLD-SAD-DRAUPNIR-001).
-Console and design system: `docs/build/draupnir-ux.md` (VLD-UX-DRAUPNIR-001).
-Publishing and distribution naming: [docs/PUBLISHING.md](docs/PUBLISHING.md).
+| Document | For |
+|---|---|
+| `docs/build/draupnir-sad.md` | The architecture (VLD-SAD-DRAUPNIR-001) |
+| `docs/build/draupnir-ux.md` | The console and design system (VLD-UX-DRAUPNIR-001) |
+| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | Setting up a development machine |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Getting this onto the Sindri Forge |
+| [docs/runbook.md](docs/runbook.md) | A running system misbehaving |
+| [docs/PUBLISHING.md](docs/PUBLISHING.md) | Publishing and distribution naming |
 
 > Distributed as **`veldris-draupnir`**. The import name is `draupnir`; the
 > prefix exists because an unrelated project owns `draupnir` on PyPI.
@@ -34,16 +39,25 @@ Windows, `.\make.ps1 dev`. See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
 
 ## Status
 
-Prompts 0 to 7 of SAD section 13 are complete: the repository, the toolchain
-and the delivery pipeline; the core foundation -- the hash-chained ledger, the
-state machine of SAD 6.1, the site registry and the run projection; the
-plug-in system -- the seven interfaces of SAD 8.2, the entry point loader and a
+All twelve prompts of SAD section 13 are built: the repository, toolchain and
+delivery pipeline; the core foundation -- the hash-chained ledger, the state
+machine of SAD 6.1, the site registry and the run projection; the plug-in
+system -- the seven interfaces of SAD 8.2, the entry point loader and a
 conformance suite published for third parties; HODD and GLEIPNIR -- the
 artefact store and the policy gate; MOTSOGNIR and HAMARR -- placement and array
 concurrency, and the training executors; BRISINGAMEN, RAUN and SKIDBLADNIR --
-reweighting, evaluation and release; and SVALINN, GULLINBURSTI and MEGINGJORD
--- the cross-cutting security layer and the federation; and the HTTP surface
-of SAD 8.1, with the conventions of SAD 11E.2 wired to every route.
+reweighting, evaluation and release; SVALINN, GULLINBURSTI and MEGINGJORD --
+the cross-cutting security layer and the federation; the HTTP surface of SAD
+8.1, with the conventions of SAD 11E.2 wired to every route; JARNGREIPR, the
+design system; the console, `draupnirctl` and the local view; the six
+development skills of SAD 11G; and Procedures M1 to M10 end to end.
+
+**What is not built is the estate.** SAD 1.3 puts the hardware in
+VLD-INF-SINDRI-001 and out of scope, so there is no three-appliance ring, no
+Slurm controller on REGIN, no NFS vault and no federation link. Every
+criterion whose evidence is a measurement on that hardware is marked DEVIATED
+or NOT BUILT in [the reconciliation](docs/acceptance/imhotep-reconciliation.md),
+with the reason, rather than marked IMPLEMENTED because it ought to work.
 
 The ledger is the source of truth. `run` is a projection of it, rebuilt from
 sequence 1 by a pure fold, and nothing else writes that table.
@@ -219,6 +233,60 @@ sixty second budget of AC-N5, and a rebuild of the run projection is
 byte-identical to the one before it. AC-N9 is demonstrated end to end: a new
 export format, discovered by entry point, rendered, run through the reference
 scheduler and collected, in 75 lines against a 200 line budget.
+
+## Where it runs
+
+Sindri is a **forge** — a site, a set of machines that together run one estate
+— rather than a host. What deploys at Sindri is the control plane, and SAD
+Decision S3 puts that on ALVISS rather than on an appliance, because the
+appliances are the scarce resource and a control plane on one is a control
+plane that an out-of-memory kill takes with it.
+
+| Host | Runs |
+|---|---|
+| **ALVISS** | `draupnir-api`, `draupnir-worker`, `draupnir-web`, as rootless containers |
+| **ANDVARI** | PostgreSQL 16, MinIO, the HODD vault, the image registry |
+| **REGIN** | Slurm controller, Loki |
+| **DVALIN, DURIN, DAIN** | The three appliances. Executor shims, one container per job |
+| **Veldris_NXT** | MEGINGJORD, the federation registry |
+
+The control plane holds no state. Everything is in PostgreSQL and MinIO on
+ANDVARI, which is why it can be destroyed and rebuilt without losing a run,
+and why a restart interrupts the console and not the training.
+
+## Deploying
+
+```bash
+./deploy/install.sh --check                        # preflight; changes nothing
+./deploy/install.sh --revision <sha> --site sindri # commission a new ALVISS
+```
+
+`install.sh` creates the three units; `rollout.sh` and `rollback.sh` move them
+between revisions and are what the pipeline's stage 4 runs. Full procedure,
+secrets, migrations and rollback in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+The installer does not install PostgreSQL or MinIO. SAD 7.2 puts both on
+ANDVARI as existing instances, so it checks that they answer and stops if they
+do not: an installer that stood up its own database would give the site a
+second one, and the ledger would be in whichever the API happened to reach.
+
+## Repository
+
+| Path | Contents |
+|---|---|
+| `draupnir/` | The application. One package per module of the table below |
+| `web/` | JARNGREIPR and the console. A pnpm workspace |
+| `deploy/` | Commissioning, rollout and rollback for ALVISS |
+| `docker/` | The two images the pipeline builds, and the development stack |
+| `docs/acceptance/` | One file per criterion, generated from the specification and the citations in the tree |
+| `skills/` | The six development skills of SAD 11G |
+| `scripts/` | Operator and build tools that `tasks.py` wraps |
+| `tests/` | `unit`, `property`, `contract`, `integration` — the pipeline's stages 2.1 to 2.4 |
+| `tasks.py` | Every task the pipeline runs. `python tasks.py --list` |
+
+`tasks.py` is the single entry point: the pipeline runs the same commands a
+developer does, so a stage that passes locally and fails in CI is a bug in the
+task rather than a difference between two scripts.
 
 ## Modules
 

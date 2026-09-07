@@ -33,8 +33,13 @@ COMPOSE_PROJECT = "draupnir-dev"
 OPENAPI = ROOT / "docs" / "api" / "openapi.json"
 API_URL = "http://127.0.0.1:8000"
 
-TASKS: dict[str, Callable[[], int]] = {}
+TASKS: dict[str, Callable[..., int]] = {}
 HELP: dict[str, str] = {}
+#: Tasks that forward unrecognised arguments to the tool they wrap. The runbook
+#: documents `verify-chain --site sindri` and the like, and until this existed
+#: those spellings were rejected -- an operator following the runbook during an
+#: incident met an argparse usage message.
+PASSTHROUGH: set[str] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -46,12 +51,22 @@ class Failure(Exception):
     """A task step failed."""
 
 
-def task(name: str, description: str) -> Callable[[Callable[[], int]], Callable[[], int]]:
-    """Register a task under `name`."""
+def task(
+    name: str, description: str, *, passthrough: bool = False
+) -> Callable[[Callable[..., int]], Callable[..., int]]:
+    """Register a task under `name`.
 
-    def register(function: Callable[[], int]) -> Callable[[], int]:
+    `passthrough` lets the task take the arguments the command line did not
+    recognise and hand them to the tool it wraps. It is opt in: a task that
+    does not declare it rejects a stray argument rather than ignoring it, so a
+    mistyped flag is reported instead of silently doing nothing.
+    """
+
+    def register(function: Callable[..., int]) -> Callable[..., int]:
         TASKS[name] = function
         HELP[name] = description
+        if passthrough:
+            PASSTHROUGH.add(name)
         return function
 
     return register
@@ -628,15 +643,15 @@ def reconcile_vault() -> int:
     return 0
 
 
-@task("verify-chain", "Verify a site's ledger chain (SAD 11.2, row 6)")
-def verify_chain() -> int:
-    uv_run("python", "scripts/ledger_admin.py", "verify")
+@task("verify-chain", "Verify a site's ledger chain (SAD 11.2, row 6)", passthrough=True)
+def verify_chain(*args: str) -> int:
+    uv_run("python", "scripts/ledger_admin.py", "verify", *args)
     return 0
 
 
-@task("rebuild-projection", "Replay a site's chain into the run registry")
-def rebuild_projection() -> int:
-    uv_run("python", "scripts/ledger_admin.py", "rebuild")
+@task("rebuild-projection", "Replay a site's chain into the run registry", passthrough=True)
+def rebuild_projection(*args: str) -> int:
+    uv_run("python", "scripts/ledger_admin.py", "rebuild", *args)
     return 0
 
 
@@ -1027,9 +1042,11 @@ def serve() -> int:
     return 0
 
 
-@task("smoke", "healthz, readyz and a ledger chain verification (SAD 11H stage 4)")
-def smoke() -> int:
-    uv_run("python", "scripts/smoke.py")
+@task(
+    "smoke", "healthz, readyz and a ledger chain verification (SAD 11H stage 4)", passthrough=True
+)
+def smoke(*args: str) -> int:
+    uv_run("python", "scripts/smoke.py", *args)
     return 0
 
 
@@ -1096,7 +1113,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, add_help=True)
     parser.add_argument("task", nargs="?", help="Task to run")
     parser.add_argument("--list", action="store_true", help="List every task")
-    args = parser.parse_args(argv)
+    args, forwarded = parser.parse_known_args(argv)
 
     if args.list or not args.task:
         width = max(len(name) for name in TASKS)
@@ -1109,8 +1126,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"unknown task: {args.task}", file=sys.stderr)
         return 2
 
+    if forwarded and args.task not in PASSTHROUGH:
+        print(
+            f"{args.task} takes no arguments; got {' '.join(forwarded)}",
+            file=sys.stderr,
+        )
+        return 2
+
     try:
-        return TASKS[args.task]()
+        return TASKS[args.task](*forwarded) if args.task in PASSTHROUGH else TASKS[args.task]()
     except Failure as failure:
         print(f"\n\033[31m{failure}\033[0m", file=sys.stderr)
         return 1
