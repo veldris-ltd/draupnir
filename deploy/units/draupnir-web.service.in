@@ -1,0 +1,25 @@
+[Unit]
+Description=DRAUPNIR console (control plane, @SITE_ID@)
+Documentation=https://github.com/veldris-ltd/draupnir/blob/main/docs/runbook.md
+# Static assets behind the API (SAD 11 component table). It is deliberately
+# not ordered after draupnir-api: the console renders its own error surface
+# when the API is down (AC-U14), and that is more use to an operator than a
+# console which is simply missing.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=@LIBEXEC@/draupnir-run.sh draupnir-web
+ExecStop=@PODMAN@ stop --ignore --time=20 draupnir-web
+ExecStopPost=@PODMAN@ rm --ignore --force draupnir-web
+# The container is removed on start as well as on stop: a unit killed hard
+# leaves the name taken, and the next start then fails on a name clash rather
+# than on whatever caused the kill.
+ExecStartPre=-@PODMAN@ rm --ignore --force draupnir-web
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=default.target

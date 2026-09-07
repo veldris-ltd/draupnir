@@ -9,13 +9,16 @@ set -euo pipefail
 
 PREVIOUS="${1:?usage: rollback.sh <revision>}"
 REGISTRY="${DRAUPNIR_REGISTRY:-registry.veldris.internal}"
-UNITS=("draupnir-api" "draupnir-worker" "draupnir-web")
+
+# shellcheck source=deploy/lib.sh
+source "$(dirname -- "${BASH_SOURCE[0]}")/lib.sh"
+UNITS=("${DRAUPNIR_UNITS[@]}")
 
 echo "==> rolling back to ${PREVIOUS}"
 
 for unit in "${UNITS[@]}"; do
-  image="${REGISTRY}/${unit}:${PREVIOUS}"
-  systemctl --user set-environment "DRAUPNIR_IMAGE_${unit//-/_}=${image}"
+  image="$(draupnir_image_for "${unit}" "${PREVIOUS}" "${REGISTRY}")"
+  systemctl --user set-environment "$(draupnir_image_var "${unit}")=${image}"
 done
 
 for unit in "${UNITS[@]}"; do

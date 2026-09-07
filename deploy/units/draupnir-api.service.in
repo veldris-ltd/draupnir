@@ -1,0 +1,26 @@
+[Unit]
+Description=DRAUPNIR API (control plane, @SITE_ID@)
+Documentation=https://github.com/veldris-ltd/draupnir/blob/main/docs/runbook.md
+# The API answers from the ledger and reconstructs its view on start, so it has
+# no ordering requirement on PostgreSQL beyond the network being up. A hard
+# dependency here would turn a slow database into a unit that refuses to start,
+# which is the failure the runbook's section 5 is written to avoid: the API
+# should come up and report 503 on /readyz, not be absent.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=@LIBEXEC@/draupnir-run.sh draupnir-api
+ExecStop=@PODMAN@ stop --ignore --time=20 draupnir-api
+ExecStopPost=@PODMAN@ rm --ignore --force draupnir-api
+# The container is removed on start as well as on stop: a unit killed hard
+# leaves the name taken, and the next start then fails on a name clash rather
+# than on whatever caused the kill.
+ExecStartPre=-@PODMAN@ rm --ignore --force draupnir-api
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=default.target

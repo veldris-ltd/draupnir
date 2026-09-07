@@ -10,15 +10,21 @@ set -euo pipefail
 
 REVISION="${1:?usage: rollout.sh <revision>}"
 REGISTRY="${DRAUPNIR_REGISTRY:-registry.veldris.internal}"
-UNITS=("draupnir-api" "draupnir-worker" "draupnir-web")
+
+# The units and the image each one runs, in one place: this script used to
+# resolve `draupnir-worker` to an image of that name, which the pipeline does
+# not build, so the pull failed before anything was rolled anywhere.
+# shellcheck source=deploy/lib.sh
+source "$(dirname -- "${BASH_SOURCE[0]}")/lib.sh"
+UNITS=("${DRAUPNIR_UNITS[@]}")
 
 echo "==> rolling out ${REVISION}"
 
 for unit in "${UNITS[@]}"; do
-  image="${REGISTRY}/${unit}:${REVISION}"
+  image="$(draupnir_image_for "${unit}" "${REVISION}" "${REGISTRY}")"
   echo "    ${unit} <- ${image}"
   podman pull "${image}"
-  systemctl --user set-environment "DRAUPNIR_IMAGE_${unit//-/_}=${image}"
+  systemctl --user set-environment "$(draupnir_image_var "${unit}")=${image}"
 done
 
 for unit in "${UNITS[@]}"; do

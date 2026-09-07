@@ -1,0 +1,25 @@
+[Unit]
+Description=DRAUPNIR worker (control plane, @SITE_ID@)
+Documentation=https://github.com/veldris-ltd/draupnir/blob/main/docs/runbook.md
+# The worker holds nothing between ticks by design, so it needs no ordering
+# against the API and no graceful handover: one killed mid-tick loses at most
+# that tick, and the job it placed keeps running on the appliance. See the
+# runbook, "Running the worker".
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=@LIBEXEC@/draupnir-run.sh draupnir-worker
+ExecStop=@PODMAN@ stop --ignore --time=20 draupnir-worker
+ExecStopPost=@PODMAN@ rm --ignore --force draupnir-worker
+# The container is removed on start as well as on stop: a unit killed hard
+# leaves the name taken, and the next start then fails on a name clash rather
+# than on whatever caused the kill.
+ExecStartPre=-@PODMAN@ rm --ignore --force draupnir-worker
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=default.target

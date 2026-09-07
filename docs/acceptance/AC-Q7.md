@@ -19,6 +19,7 @@ make images
 ## Evidence
 
 - `tasks.py`
+- `tests/contract/test_deploy.py`
 
 ---
 
