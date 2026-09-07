@@ -95,6 +95,12 @@
 .cn-site {
   display: flex;
   align-items: center;
+  /* AC-U8. Without this the switcher is one unwrappable line, and at a 320
+     pixel viewport it is the box that scrolls the page sideways -- 26 pixels
+     of it on a runner, whose fonts are wider than any developer's. Wrapping
+     keeps every site reachable, which is the half of the criterion that
+     hiding them would fail. */
+  flex-wrap: wrap;
   gap: var(--jg-space-2);
   margin: 0;
   font-size: var(--jg-text-sm);
@@ -110,6 +116,7 @@
 
 .cn-site__list {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--jg-space-2);
   list-style: none;
   margin: 0;
