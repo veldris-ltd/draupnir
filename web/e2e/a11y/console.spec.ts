@@ -173,24 +173,43 @@ test.describe('AC-U8, zoom and reflow', () => {
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
-    // Name the box that did it. A bare number sends the next person hunting
-    // through a whole page for a width that only appears on a runner's fonts,
-    // which is most of what this criterion has cost so far.
+    // Name the box that did it, and only the boxes that actually did it.
+    // A box inside a scroller or a containment box overflows that box, not
+    // the page: the run table's own rectangle runs hundreds of pixels past
+    // the viewport at this width and contributes nothing, so reporting on
+    // rectangle alone just names the table every time and buries the cause.
+    // Walk the ancestors and skip anything already contained.
     const culprits =
       overflow > 1
         ? await page.evaluate(() => {
             const vw = document.documentElement.clientWidth;
+            const contained = (el: Element): boolean => {
+              for (let a = el.parentElement; a; a = a.parentElement) {
+                const cs = getComputedStyle(a);
+                // `auto` and `scroll` are deliberately not in this list.
+                // A scroller lets its content scroll, and the page still
+                // grows by that content -- which is the whole reason this
+                // criterion regressed unnoticed. Only these truly clip.
+                if (cs.overflowX === 'hidden' || cs.overflowX === 'clip') return true;
+                if (/paint|strict|content/.test(cs.contain)) return true;
+              }
+              return false;
+            };
             return Array.from(document.querySelectorAll('body *'))
               .map((el) => ({ el, r: el.getBoundingClientRect() }))
-              .filter(({ r }) => r.right > vw + 1 && (r.width > 0 || r.height > 0))
+              .filter(({ el, r }) => r.right > vw + 1 && r.width + r.height > 0 && !contained(el))
               .sort((a, b) => b.r.right - a.r.right)
-              .slice(0, 5)
+              .slice(0, 6)
               .map(({ el, r }) => {
                 const cls =
                   typeof el.className === 'string' && el.className.trim()
                     ? `.${el.className.trim().split(/\s+/).join('.')}`
                     : '';
-                return `${el.tagName.toLowerCase()}${cls} right=${String(Math.round(r.right))} w=${String(Math.round(r.width))}`;
+                const id = el.getAttribute('data-testid');
+                return (
+                  `${el.tagName.toLowerCase()}${cls}${id ? `[${id}]` : ''}` +
+                  ` right=${String(Math.round(r.right))} w=${String(Math.round(r.width))}`
+                );
               })
               .join(' | ');
           })
