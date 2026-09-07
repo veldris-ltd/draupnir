@@ -389,7 +389,21 @@ def audit() -> int:
             str(requirements),
         ]
     )
-    uv_run("pip-audit", "--strict", "--progress-spinner", "off", "-r", str(requirements))
+    # `--no-deps` because the file is a fully pinned export: without it
+    # pip-audit builds a throwaway virtualenv to re-resolve the requirements,
+    # and `ensurepip` is absent from the uv-managed standalone CPython that
+    # CI runs on, so it dies with exit 127 before auditing anything. Resolving
+    # would also be wrong here -- the lockfile is the thing under audit, and
+    # re-resolving it could audit a set the project never installs.
+    uv_run(
+        "pip-audit",
+        "--strict",
+        "--no-deps",
+        "--progress-spinner",
+        "off",
+        "-r",
+        str(requirements),
+    )
     say("pnpm audit")
     pnpm("audit", "--audit-level", "high")
     return 0
