@@ -307,7 +307,7 @@ def typecheck() -> int:
     return 0
 
 
-@task("lint-web", "eslint, the token linter and tsc --noEmit")
+@task("lint-web", "prettier, eslint, the token linter and tsc --noEmit")
 def lint_web() -> int:
     # JARNGREIPR resolves through `dist-types/`, and `dist-types/` is build
     # output, so it is gitignored and a clean checkout does not have it. Skip
@@ -318,6 +318,12 @@ def lint_web() -> int:
     # directory behind, which is exactly the gap that let this reach CI.
     say("build workspace packages")
     pnpm("--recursive", "--filter", "./packages/**", "run", "build")
+    # The counterpart of `ruff format --check` in stage 1.1: formatting is
+    # checked, never applied, so the build states the drift rather than
+    # quietly rewriting the tree under a developer. Cheap, so it runs first
+    # and a misformatted file is reported before a slower gate hides it.
+    say("prettier --check")
+    pnpm("run", "format:check")
     say("eslint")
     pnpm("run", "lint")
     # AC-U3. Tokens are the only source of visual values, and a design system
