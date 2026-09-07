@@ -309,6 +309,15 @@ def typecheck() -> int:
 
 @task("lint-web", "eslint, the token linter and tsc --noEmit")
 def lint_web() -> int:
+    # JARNGREIPR resolves through `dist-types/`, and `dist-types/` is build
+    # output, so it is gitignored and a clean checkout does not have it. Skip
+    # this and type-aware eslint cannot resolve `@draupnir/jarngreipr` at all:
+    # every import from it becomes an `error` type and the `no-unsafe-*` rules
+    # report the cascade, ~106 of them, in files that are perfectly fine. It
+    # passes on a developer machine only because a previous build left the
+    # directory behind, which is exactly the gap that let this reach CI.
+    say("build workspace packages")
+    pnpm("--recursive", "--filter", "./packages/**", "run", "build")
     say("eslint")
     pnpm("run", "lint")
     # AC-U3. Tokens are the only source of visual values, and a design system
