@@ -17,6 +17,7 @@ make clients-check
 ## Evidence
 
 - `draupnir/api/schemas.py`
+- `scripts/openapi_diff.py`
 - `skills/draupnir-endpoint/scripts/new_endpoint.py`
 - `tests/contract/test_api_surface.py`
 - `tests/contract/test_skills.py`

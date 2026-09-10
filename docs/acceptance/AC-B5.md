@@ -7,7 +7,7 @@
 
 ## How it is demonstrated
 
-The diff gate compares the exported document against the released baseline and fails a build on a breaking change within /v1.
+The diff gate compares the exported document against the released baseline and fails a build on a breaking change within /v1. It says so accurately as of RF-21: `docs/api/openapi.released.json` had never been committed, so the gate had nothing to compare against and passed on every build from the first commit. A missing baseline is now a failure unless --first-release says otherwise, and a parameter's own schema is compared -- a path parameter losing `format: uuid` widens what the server accepts and changes the type of the generated client, and went through unremarked.
 
 
 ```bash

@@ -716,6 +716,56 @@ thing asking rather than of the thing running here.
 `rollback.sh` now refuses anything that is not an image tag, naming what it
 received, before it changes anything.
 
+### Releasing a version of the API
+
+`docs/api/openapi.released.json` is the contract this forge has promised.
+`docs/api/openapi.json` is what the current build serves. Between releases the
+second may run ahead of the first, and the gate's whole job is to insist it only
+ever does so **additively**:
+
+```bash
+python tasks.py openapi-diff
+```
+
+That compares the two and fails on a breaking change — a withdrawn operation, a
+response field that is gone, a parameter whose type or format changed under a
+client that was generated from it. SAD 11E.2 puts it plainly: additive changes
+only within a version. A breaking change needs `/v2`, not an edit to `/v1`.
+
+**Promote the baseline when a version ships, and not before.**
+
+```bash
+cp docs/api/openapi.json docs/api/openapi.released.json
+git add docs/api/openapi.released.json
+git commit -m "Release the API contract at <version>"
+```
+
+The timing is the whole point and it is easy to get backwards. Promoting on
+every change that touches a route makes the gate compare each build against
+itself, which passes unconditionally — the same nothing it was doing before
+RF-21, arrived at by a different route. The baseline is meant to lag: it is
+what somebody's client was built against, and it should not move until that
+client has been told to expect something new.
+
+**If the gate fails**, read what it names. Each finding says the operation, the
+rule and what changed. Three questions, in order:
+
+1. Was the change intended? A field renamed in a Pydantic model changes the
+   published document without anybody deciding to change the contract.
+2. If it was, does it need a new version? A withdrawn response field does. An
+   added optional parameter does not, and will not have failed.
+3. If it genuinely is the first release and there is no baseline yet, say so
+   explicitly:
+
+   ```bash
+   python scripts/openapi_diff.py docs/api/openapi.released.json \
+       docs/api/openapi.json --first-release
+   ```
+
+   A missing baseline is otherwise a **failure**. It used to be a pass, which
+   is why the gate ran green from the first commit to RF-21 without ever having
+   anything to compare against.
+
 ### Getting a certificate
 
 **The installer will not commission a host without one.** SAD 9.5 is "TLS 1.3

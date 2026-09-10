@@ -8,6 +8,11 @@ demanding something new of a client breaks it. A response schema is covariant:
 withdrawing something a client was promised breaks it. Everything else is
 additive and passes.
 
+`format` is the exception, and is judged in both directions (RF-21). It is a
+promise to both sides at once: the server validates on it, so removing it
+changes what reaches a handler, and the typed client is generated from it, so
+changing it changes a signature somebody has already compiled against.
+
 The implementation is local rather than a third party differ so that the gate
 has no toolchain of its own, is unit tested in `tests/unit/test_openapi_diff.py`,
 and states its rules where an architect can read them.
@@ -131,6 +136,25 @@ def _compare_schema(
         findings.append(
             Finding(location, "type-changed", f"type changed from {old_type} to {new_type}")
         )
+
+    # `format` is the one keyword that is a promise in both directions at once,
+    # so unlike everything else here it is not judged by direction (RF-21).
+    #
+    # The server validates on it: `format: uuid` on a path parameter is why
+    # `/v1/runs/not-a-uuid` is a 422 rather than reaching a handler. Dropping it
+    # is a *widening* -- the server accepts more -- and widening a request is
+    # ordinarily additive, which is why this gate let it through.
+    #
+    # But the typed client is generated from this document (AC-N10) and types
+    # its argument from the format. A console compiled against `UUID` no longer
+    # matches a signature that says `string`, and a client that parsed a
+    # response field as a date gets a plain string with no announcement. Both
+    # directions break somebody, so both are reported.
+    old_format, new_format = old_schema.get("format"), new_schema.get("format")
+    if old_format != new_format and (isinstance(old_format, str) or isinstance(new_format, str)):
+        was = old_format if isinstance(old_format, str) else "none"
+        now = new_format if isinstance(new_format, str) else "none"
+        findings.append(Finding(location, "format-changed", f"format changed from {was} to {now}"))
 
     old_enum, new_enum = old_schema.get("enum"), new_schema.get("enum")
     if isinstance(old_enum, list) and isinstance(new_enum, list):
@@ -257,6 +281,26 @@ def diff(old: Document, new: Document) -> list[Finding]:
                         f"the {where} parameter became required",
                     )
                 )
+            # And the parameter's own schema, which nothing compared (RF-21).
+            # A path parameter changing from a UUID to a plain string, or a
+            # query parameter losing an accepted value, passed this gate
+            # silently -- and both change the typed client generated from this
+            # document (AC-N10), so a console built against the old one stops
+            # compiling against the new.
+            #
+            # Request direction: what the caller must send. A withdrawn enum
+            # value is a client's call refused; a changed type is a signature
+            # a generated client no longer matches.
+            _compare_schema(
+                old,
+                new,
+                old_params[name, where].get("schema"),
+                new_params[name, where].get("schema"),
+                f"{location} ?{name}",
+                "request",
+                findings,
+                set(),
+            )
 
         old_body = _schema_of(old, old_op.get("requestBody"))
         new_body = _schema_of(new, new_op.get("requestBody"))
@@ -301,15 +345,47 @@ def diff(old: Document, new: Document) -> list[Finding]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Compare two OpenAPI documents and fail on a breaking change."""
+    """Compare two OpenAPI documents and fail on a breaking change.
+
+    An absent baseline is a **failure** unless `--first-release` says otherwise
+    (RF-21). It used to be a pass, and `docs/api/openapi.released.json` had
+    never been committed -- so the gate SAD 11E.2 relies on had nothing to
+    compare against and could not fail, on any build, ever. A gate that always
+    passes is worse than no gate: it appears in the pipeline, it appears in the
+    evidence pack, and it is read as an assurance nobody is providing.
+
+    The flag makes the first release a deliberate statement. Somebody types it
+    once, into a shell, on the build that establishes the contract; nothing
+    types it by accident, and nothing types it twice.
+    """
     parser = argparse.ArgumentParser(description="OpenAPI breaking change gate")
     parser.add_argument("baseline", type=Path, help="The previously released document")
     parser.add_argument("candidate", type=Path, help="The document produced by this build")
+    parser.add_argument(
+        "--first-release",
+        action="store_true",
+        help=(
+            "there is no released contract yet, and that is deliberate. Without "
+            "this, a missing baseline fails the build."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if not args.baseline.exists():
-        print(f"no baseline at {args.baseline}; treating this build as the first release")
-        return 0
+        if args.first_release:
+            print(f"no baseline at {args.baseline}, and --first-release says so. Nothing to check.")
+            return 0
+        print(
+            f"no baseline at {args.baseline}.\n\n"
+            "This gate enforces SAD 11E.2's 'additive changes only within a version', "
+            "and it cannot do that without the released contract to compare against. "
+            "A missing baseline is not a pass.\n\n"
+            "Either promote the current document -- "
+            "`cp docs/api/openapi.json docs/api/openapi.released.json`, which is a "
+            "release step and belongs in docs/DEPLOYMENT.md -- or pass --first-release "
+            "if this build really is establishing the contract."
+        )
+        return 1
 
     old = json.loads(args.baseline.read_text(encoding="utf-8"))
     new = json.loads(args.candidate.read_text(encoding="utf-8"))

@@ -7,11 +7,15 @@ through.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-from scripts.openapi_diff import Finding, diff
+from scripts.openapi_diff import Finding, diff, main
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def document(paths: dict[str, Any], components: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -348,6 +352,201 @@ def test_enum_changes_are_judged_by_direction(direction: str) -> None:
     else:
         assert narrowed == []
         assert rules(widened) == {"enum-widened"}
+
+
+# ---------------------------------------------------------------------------
+# `format`, which is judged in both directions. RF-21.
+# ---------------------------------------------------------------------------
+
+
+def test_widening_a_path_parameter_breaks() -> None:
+    """The register's example, and the one that slipped through.
+
+    `format: uuid` on a path parameter is why `/v1/runs/not-a-uuid` is a 422
+    rather than a request that reaches a handler. Dropping it widens what the
+    server accepts -- ordinarily additive for a request -- while changing the
+    argument type of the client generated from this document.
+    """
+
+    def with_schema(schema: dict[str, Any]) -> dict[str, Any]:
+        return document(
+            {
+                "/v1/runs/{run_id}": {
+                    "get": operation(
+                        "getRun",
+                        parameters=[
+                            {"name": "run_id", "in": "path", "required": True, "schema": schema}
+                        ],
+                    )
+                }
+            }
+        )
+
+    old = with_schema({"type": "string", "format": "uuid"})
+    new = with_schema({"type": "string"})
+
+    assert "format-changed" in rules(diff(old, new))
+
+
+def test_narrowing_a_query_parameters_accepted_values_breaks() -> None:
+    """A caller's request refused by a build that changed nothing it can see.
+
+    Nothing compared a parameter's schema at all before RF-21, so this and the
+    widening above both passed.
+    """
+
+    def with_states(values: list[str]) -> dict[str, Any]:
+        return document(
+            {
+                "/v1/gates": {
+                    "get": operation(
+                        "listGates",
+                        parameters=[{"name": "state", "in": "query", "schema": {"enum": values}}],
+                    )
+                }
+            }
+        )
+
+    old = with_states(["pending", "decided", "all"])
+    new = with_states(["pending", "decided"])
+
+    assert "enum-narrowed" in rules(diff(old, new))
+
+
+def test_a_response_field_losing_its_format_breaks() -> None:
+    """A client parsing a date gets a plain string, with no announcement."""
+
+    def with_schema(schema: dict[str, Any]) -> dict[str, Any]:
+        return document(
+            {
+                "/v1/runs": {
+                    "get": operation(
+                        responses=json_response(
+                            {"type": "object", "properties": {"startedAt": schema}}
+                        )
+                    )
+                }
+            }
+        )
+
+    old = with_schema({"type": "string", "format": "date-time"})
+    new = with_schema({"type": "string"})
+
+    assert "format-changed" in rules(diff(old, new))
+
+
+def test_an_unchanged_format_is_additive() -> None:
+    """The rule fires on a change, not on the presence of a format."""
+    same = document(
+        {
+            "/v1/runs/{run_id}": {
+                "get": operation(
+                    "getRun",
+                    parameters=[
+                        {
+                            "name": "run_id",
+                            "in": "path",
+                            "schema": {"type": "string", "format": "uuid"},
+                        }
+                    ],
+                )
+            }
+        }
+    )
+
+    assert diff(same, same) == []
+
+
+# ---------------------------------------------------------------------------
+# The gate itself: what it does with a baseline, and without one. RF-21.
+# ---------------------------------------------------------------------------
+
+
+def test_a_missing_baseline_fails_the_build(tmp_path: Path) -> None:
+    """It used to pass, and `openapi.released.json` had never been committed.
+
+    So the gate SAD 11E.2 relies on had nothing to compare against and could
+    not fail on any build, ever -- while appearing in the pipeline and in the
+    evidence pack as an assurance nobody was providing.
+    """
+    candidate = tmp_path / "openapi.json"
+    candidate.write_text(json.dumps(document({})), encoding="utf-8")
+
+    assert main([str(tmp_path / "absent.json"), str(candidate)]) == 1
+
+
+def test_a_missing_baseline_passes_when_it_is_said_to_be_the_first_release(
+    tmp_path: Path,
+) -> None:
+    """A deliberate statement, typed once, rather than the default answer."""
+    candidate = tmp_path / "openapi.json"
+    candidate.write_text(json.dumps(document({})), encoding="utf-8")
+
+    assert main([str(tmp_path / "absent.json"), str(candidate), "--first-release"]) == 0
+
+
+def test_the_gate_fails_on_a_breaking_change_between_two_files(tmp_path: Path) -> None:
+    """End to end, because `diff` being right is only half of it.
+
+    Everything above tests the rules. This tests that the gate reads two files,
+    applies them and returns a code a pipeline will act on.
+    """
+    baseline = tmp_path / "released.json"
+    candidate = tmp_path / "openapi.json"
+    baseline.write_text(json.dumps(document({"/v1/runs": {"get": operation()}})), encoding="utf-8")
+    candidate.write_text(json.dumps(document({})), encoding="utf-8")
+
+    assert main([str(baseline), str(candidate)]) == 1
+
+
+def test_the_gate_passes_on_an_additive_change_between_two_files(tmp_path: Path) -> None:
+    baseline = tmp_path / "released.json"
+    candidate = tmp_path / "openapi.json"
+    baseline.write_text(json.dumps(document({"/v1/runs": {"get": operation()}})), encoding="utf-8")
+    candidate.write_text(
+        json.dumps(
+            document(
+                {
+                    "/v1/runs": {"get": operation()},
+                    "/v1/gates": {"get": operation("listGates")},
+                }
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    assert main([str(baseline), str(candidate)]) == 0
+
+
+# ---------------------------------------------------------------------------
+# The baseline this repository actually carries
+# ---------------------------------------------------------------------------
+
+
+def test_the_released_contract_is_committed() -> None:
+    """`docs/api/` held only `openapi.json`, so the gate had no other operand."""
+    assert (REPO_ROOT / "docs/api/openapi.released.json").is_file(), (
+        "the released contract is missing, so the breaking change gate has "
+        "nothing to compare against and cannot fail"
+    )
+
+
+def test_the_current_document_does_not_break_the_released_one() -> None:
+    """The gate, run against this repository's own two documents.
+
+    Equality is deliberately *not* asserted: the point of a released baseline
+    is that the current document may run ahead of it, additively, between
+    releases. What must never happen is the current document breaking it -- and
+    that is a claim about every commit rather than about release day.
+    """
+    released = json.loads(
+        (REPO_ROOT / "docs/api/openapi.released.json").read_text(encoding="utf-8")
+    )
+    current = json.loads((REPO_ROOT / "docs/api/openapi.json").read_text(encoding="utf-8"))
+
+    findings = diff(released, current)
+
+    assert findings == [], "\n".join(str(finding) for finding in findings)
 
 
 def test_a_finding_renders_for_a_build_log() -> None:

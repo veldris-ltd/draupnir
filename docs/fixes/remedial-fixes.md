@@ -2658,6 +2658,60 @@ version" is unenforced.
 - `docs/api/openapi.released.json` exists and matches the current document.
 - Gated in stage 2.5.
 
+> **Status: done.**
+>
+> **The baseline exists.** Nothing has been released — no tags, version 0.1.0 —
+> so the current document *is* the contract to establish, and
+> `docs/api/openapi.released.json` is committed as it.
+>
+> **A missing baseline is a failure now.** It was a pass, and the file had
+> never existed, so the gate ran green on every build from the first commit
+> without once having anything to compare against. That is worse than no gate:
+> it appears in the pipeline, it appears in the evidence pack, and it reads as
+> an assurance nobody was providing. `--first-release` makes the empty case a
+> deliberate statement somebody types once, into a shell, on the build that
+> establishes the contract.
+>
+> **Found while implementing: a parameter's schema was never compared.** The
+> gate compared whether a parameter was *required* and nothing else — so the
+> register's own example, a widened path parameter, went through unremarked
+> along with a query parameter losing an accepted value. `_compare_schema` now
+> runs over parameter schemas in the request direction, which brings the
+> existing type and enum rules with it.
+>
+> **And that exposed a rule the gate did not have.** `run_id` is
+> `{"type": "string", "format": "uuid"}`; widening it drops the *format*, not
+> the type, so even with the schema comparison in place the planted change
+> still passed. `format` is now judged in both directions, which is the one
+> place this module is deliberately not asymmetric — and it is worth saying
+> why. The server validates on it, so `/v1/runs/not-a-uuid` being a 422 rather
+> than a request reaching a handler is a consequence of that keyword; and the
+> typed client is generated from this document (AC-N10), so a console compiled
+> against a `UUID` argument no longer matches a signature that says `string`.
+> Dropping it widens what the server accepts, which for a request is
+> ordinarily additive; it breaks somebody anyway, in the other direction.
+>
+> **The gate's own entry point had no tests.** Every existing test called
+> `diff` directly, so `main` — the argument parsing, the file reading, the exit
+> code a pipeline acts on — was exercised by nothing, which is precisely where
+> the defect was. There are now tests for a missing baseline with and without
+> the flag, and for a breaking and an additive change between two real files.
+>
+> **The promotion is a release step and `docs/DEPLOYMENT.md` says so.** The
+> timing is the whole point and it is easy to get backwards: promoting on every
+> change that touches a route makes the gate compare each build against itself,
+> which passes unconditionally — the same nothing it was doing before, reached
+> by a different route. The baseline is meant to lag, because it is what
+> somebody's client was built against.
+>
+> The suite asserts the two documents this repository carries, and asserts the
+> weaker of the two things it could: that the current document does not *break*
+> the released one, rather than that they are equal. Equality would forbid the
+> additive change the versioning policy exists to permit.
+>
+> AC-B5 said the gate "compares the exported document against the released
+> baseline". It now does.
+
 ---
 
 ### RF-22 — P5 — The visual regression gate never gates in CI
@@ -3111,7 +3165,7 @@ diff of.
 | RF-18 | P4 | `/metrics` exposes no DRAUPNIR metric; traces go nowhere — **done**; two worker-side metrics await a scrape surface on the worker |
 | RF-19 | P5 | Eleven coverage targets collect nothing — **done**; floors raised to 91/87/81 |
 | RF-20 | P5 | HODD and GLEIPNIR are under no coverage floor — **done**; every shipped module is measured, floors 90/87/77 |
-| RF-21 | P5 | The breaking-change gate has no baseline |
+| RF-21 | P5 | The breaking-change gate has no baseline — **done**; a parameter's schema was never compared either |
 | RF-22 | P5 | The visual regression gate never gates in CI |
 | RF-23 | P5 | `clients-check` fails on any CRLF checkout |
 | RF-24 | P5 | `tasks.py ci` is not the pipeline |
