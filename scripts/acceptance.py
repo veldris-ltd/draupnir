@@ -395,7 +395,10 @@ REGISTER: dict[str, Entry] = {
     "AC-S16": Entry(
         IMPLEMENTED,
         "The inventory is generated from the code that uses each algorithm, and every "
-        "entry maps to NCSC guidance or an ISO/IEC standard.",
+        "entry maps to NCSC guidance or an ISO/IEC standard. The pipeline generates it, "
+        "which it did not: this criterion calls the inventory a build artefact and the "
+        "build never made one, so the evidence upload collected an `sbom/` directory "
+        "that had never contained it (RF-24).",
         "make crypto-inventory",
     ),
     "AC-S17": Entry(

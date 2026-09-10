@@ -101,6 +101,13 @@ jobs:
       - name: "1.5b CycloneDX SBOM"
         run: python tasks.py sbom
 
+      # AC-S16 calls the cryptographic inventory a build artefact, and the
+      # build did not make one: `make ci` generated it, the pipeline did not,
+      # and the evidence upload at the end collected an `sbom/` directory that
+      # had never contained it (RF-24).
+      - name: "1.5c cryptographic inventory (AC-S16)"
+        run: python tasks.py crypto-inventory
+
       # ==================================================================
       # 2 TEST
       # ==================================================================
@@ -269,37 +276,31 @@ jobs:
       - name: "3.3 CycloneDX SBOM for the release"
         run: python tasks.py sbom
 
-      - name: "3.4a sign plug-in distributions (RF-02)"
+      - name: "3.4 sign artefacts and plug-in distributions (Decision S9, RF-02)"
+        # One step, through the task (RF-24). It was two, each invoking
+        # `scripts.sign_artefacts` by hand with different arguments -- the
+        # second kind of drift this finding is about, between a task and a
+        # workflow doing the same job.
+        #
         # The SBOM was signed and no plug-in was, so `PkiVerifier` had an empty
-        # signature record and refused every driver -- which is why both
+        # signature record and refused every driver, which is why both
         # production call sites took a verifier that verifies nothing. The
         # digest is computed by the same function the verifier uses, so a
         # signer and a verifier that hashed a distribution differently fail
         # here rather than at a forge.
+        #
+        # A pull request from a fork cannot reach the key. On main the absence
+        # is an error; elsewhere the task reports itself skipped, which is what
+        # a contributor sees and is not the same as passing quietly.
         env:
           DRAUPNIR_SIGNING_KEY: ${{ secrets.DRAUPNIR_SIGNING_KEY }}
         run: |
-          if [ -z "${DRAUPNIR_SIGNING_KEY}" ]; then
-            echo "::warning::No signing key configured; plug-in distributions are unsigned."
-            exit 0
-          fi
-          python -m scripts.sign_artefacts --distributions --out sbom/plugin-signatures.json
-
-      - name: "3.4 sign artefacts (internal PKI)"
-        env:
-          DRAUPNIR_SIGNING_KEY: ${{ secrets.DRAUPNIR_SIGNING_KEY }}
-        run: |
-          if [ -z "${DRAUPNIR_SIGNING_KEY}" ]; then
+          if [ -z "${DRAUPNIR_SIGNING_KEY}" ] && [ "${GITHUB_REF}" = "refs/heads/main" ]; then
             echo "::error::No signing key configured. Artefact signing is a"
             echo "::error::required stage on main (SAD 11H stage 3, Decision S9)."
-            # A pull request from a fork cannot reach the key. Signing runs on
-            # main, where the key is present, and the absence is reported
-            # rather than silently skipped.
-            [ "${GITHUB_REF}" = "refs/heads/main" ] && exit 1
-            echo "signing key unavailable outside main; stage reported, not skipped"
-            exit 0
+            exit 1
           fi
-          python scripts/sign_artefacts.py --sbom-dir sbom
+          python tasks.py sign
 
       - name: Upload evidence
         if: always()

@@ -7,7 +7,7 @@
 
 ## How it is demonstrated
 
-The inventory is generated from the code that uses each algorithm, and every entry maps to NCSC guidance or an ISO/IEC standard.
+The inventory is generated from the code that uses each algorithm, and every entry maps to NCSC guidance or an ISO/IEC standard. The pipeline generates it, which it did not: this criterion calls the inventory a build artefact and the build never made one, so the evidence upload collected an `sbom/` directory that had never contained it (RF-24).
 
 
 ```bash
@@ -16,6 +16,7 @@ make crypto-inventory
 
 ## Evidence
 
+- `.github/workflows/ci.yaml`
 - `draupnir/core/infrastructure/config.py`
 - `draupnir/svalinn/identity.py`
 - `draupnir/svalinn/inventory.py`

@@ -2949,6 +2949,56 @@ and has no equivalent of stage 3.4's artefact signing. A developer who runs
 - `python tasks.py ci` runs every stage the workflow runs.
 - Gated in stage 2.1.
 
+> **Status: done.**
+>
+> **The pipeline is a list now.** `PIPELINE` in `tasks.py` names twenty-five
+> stages in the workflow's order; `ci()` dispatches over it, and the test reads
+> the same list. Written out as calls, the two agreed until somebody added a
+> stage to one of them — which is exactly what had happened. `ci()` ran twelve
+> of the workflow's twenty-one task invocations.
+>
+> **What `ci()` was missing:** `acceptance`, `egress-policy`, `openapi` and
+> `con-a`. The register also named `audit` and `sbom`, and those were already
+> there — `static()` gained them at some point, so the register's list was one
+> item stale in that direction. Worth saying, because it is the same class of
+> drift the finding is about.
+>
+> **What the workflow was missing was more interesting.**
+> `crypto-inventory` ran in `make ci` and nowhere in the pipeline — and AC-S16
+> calls the cryptographic inventory *a build artefact*. The pipeline's evidence
+> upload collects the `sbom/` directory, which had never contained one. A
+> criterion satisfied on developer machines and nowhere else.
+>
+> **Signing was two steps doing one job by hand.** Stages 3.4a and 3.4 each
+> invoked `scripts.sign_artefacts` directly, with different arguments, neither
+> through a task — which is the second kind of drift this finding is about, and
+> the more insidious one: a task and a workflow step that do the same thing
+> differently. They are one step now, calling `tasks.py sign`, and the
+> main-branch enforcement stays where it belongs, in the workflow, because a
+> missing key is a property of *where the build is running* rather than of the
+> signing.
+>
+> **A difference may be deliberate, and `LOCAL_ONLY` is where it says so.**
+> `images` differs because the workflow tags for the registry, pushes on main
+> and uses a GitHub Actions cache, none of which belongs in a command a
+> developer runs — the *build* is the same and is what `make ci` checks.
+> `build-web` differs because `docker/web.Dockerfile` compiles the console
+> inside the image, so the workflow already builds it and doing it again first
+> would be the same work twice; a developer has no image build, so `make ci`
+> does it directly. A test asserts each entry has a reason of more than a
+> handful of words, because an exemption without an argument is just a list of
+> things somebody stopped checking.
+>
+> **`sign` is deliberately not in that map**, and the distinction is the point:
+> the workflow invokes it, and the *task* reports itself skipped without a key.
+> A stage that behaves differently in two places is a difference. A stage that
+> says so is a task.
+>
+> The order is asserted as well as the set. Running the acceptance pack before
+> the tests that produce its citations, or the client check before the document
+> it regenerates from, would pass a set comparison and fail in ways that read
+> as flakiness.
+
 ---
 
 ### RF-25 — P5 — The secret scan cannot run on the documented Windows path
@@ -3284,7 +3334,7 @@ diff of.
 | RF-21 | P5 | The breaking-change gate has no baseline — **done**; a parameter's schema was never compared either |
 | RF-22 | P5 | The visual regression gate never gates in CI — **gate done**, `-linux` baselines need one dispatch of `visual-baselines` on the CI runner |
 | RF-23 | P5 | `clients-check` fails on any CRLF checkout — **done**; it could not run at all since RF-01, and both clients had drifted by three operations |
-| RF-24 | P5 | `tasks.py ci` is not the pipeline |
+| RF-24 | P5 | `tasks.py ci` is not the pipeline — **done**; the pipeline never generated the cryptographic inventory it uploads |
 | RF-25 | P5 | The secret scan cannot run on the documented Windows path |
 | RF-26 | P5 | Two frontend advisories sit below the audit threshold |
 | RF-27 | P6 | Nine screens have a primary action with no operation behind it |

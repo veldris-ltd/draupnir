@@ -9,6 +9,7 @@ current and that the hand-written parts cover what they claim to.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,96 @@ from scripts import acceptance, module_readmes
 pytestmark = pytest.mark.unit
 
 ROOT = Path(__file__).resolve().parents[2]
+
+if str(ROOT) not in sys.path:  # pragma: no cover - `tasks` lives at the root
+    sys.path.insert(0, str(ROOT))
+
+
+# ---------------------------------------------------------------------------
+# The build says one thing about itself. RF-24.
+# ---------------------------------------------------------------------------
+
+
+def pipeline_tasks() -> list[str]:
+    """Every task the workflow invokes, in order, without repeats."""
+    workflow = (ROOT / ".github" / "workflows" / "ci.yaml").read_text(encoding="utf-8")
+    ordered: list[str] = []
+    for name in re.findall(r"python tasks\.py ([a-z0-9-]+)", workflow):
+        if name not in ordered:
+            ordered.append(name)
+    return ordered
+
+
+def test_the_pipeline_runs_every_stage_the_ci_task_runs() -> None:
+    """The README's central claim about this build, made checkable.
+
+    "`tasks.py` is the single entry point: the pipeline runs the same commands
+    a developer does, so a stage that passes locally and fails in CI is a bug
+    in the task rather than a difference between two scripts."
+
+    It was not true. `ci()` ran twelve of the workflow's twenty-one task
+    invocations, so `acceptance`, `egress-policy`, `openapi` and `con-a` could
+    be red in CI after a green `make ci` -- and the reader of that sentence had
+    no way to know.
+
+    A task may differ deliberately, and `LOCAL_ONLY` is where that is written
+    down with its reason. What may not happen is the two drifting apart with
+    nobody saying which.
+    """
+    import tasks
+
+    invoked = set(pipeline_tasks())
+    declared = set(tasks.PIPELINE)
+
+    unrun = sorted(invoked - declared)
+    assert not unrun, (
+        f"the workflow runs these and `make ci` does not: {unrun}. A developer "
+        "who gets green locally is still red in CI."
+    )
+
+    unexplained = sorted(declared - invoked - set(tasks.LOCAL_ONLY))
+    assert not unexplained, (
+        f"`make ci` runs these and the workflow does not: {unexplained}. Either "
+        "add them to .github/workflows/ci.yaml, or add them to tasks.LOCAL_ONLY "
+        "with the reason they differ."
+    )
+
+
+def test_the_two_run_their_shared_stages_in_the_same_order() -> None:
+    """A pipeline is an order as much as a set.
+
+    Running the acceptance pack before the tests that produce its citations, or
+    the client check before the document it regenerates from, would pass a set
+    comparison and fail in ways that read as flakiness.
+    """
+    import tasks
+
+    invoked = pipeline_tasks()
+    shared = [name for name in tasks.PIPELINE if name in set(invoked)]
+
+    assert shared == [name for name in invoked if name in set(tasks.PIPELINE)]
+
+
+def test_every_deliberate_difference_gives_a_reason() -> None:
+    """`LOCAL_ONLY` is an argument, not an exemption list.
+
+    An entry with an empty reason is the same as no entry: it records that
+    somebody noticed the difference and not why it is one.
+    """
+    import tasks
+
+    for name, reason in tasks.LOCAL_ONLY.items():
+        assert name in tasks.PIPELINE, f"{name} is explained but never run"
+        assert len(reason.split()) >= 15, f"{name}'s reason is too short to be one"
+
+
+def test_every_pipeline_stage_is_a_task_that_exists() -> None:
+    """So a rename breaks the build here rather than at stage 3."""
+    import tasks
+
+    missing = [name for name in tasks.PIPELINE if name not in tasks.TASKS]
+
+    assert not missing, f"PIPELINE names tasks that do not exist: {missing}"
 
 
 def test_every_module_readme_matches_its_docstring() -> None:

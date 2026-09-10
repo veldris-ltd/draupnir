@@ -1304,20 +1304,116 @@ def static() -> int:
     return 0
 
 
+#: Every stage the pipeline runs, by task name, in the workflow's order.
+#:
+#: One list, read by `ci()` below and by the test that compares it against
+#: `.github/workflows/ci.yaml` (RF-24). The README's claim about this build is
+#: that "the pipeline runs the same commands a developer does, so a stage that
+#: passes locally and fails in CI is a bug in the task rather than a difference
+#: between two scripts" -- and `ci()` ran twelve of the workflow's twenty-one
+#: task invocations, so `acceptance`, `egress-policy`, `openapi` and `con-a`
+#: could be red in CI after a green `make ci`. A claim about the build is worth
+#: exactly as much as the thing that enforces it.
+PIPELINE: tuple[str, ...] = (
+    # 1 STATIC
+    "lint",
+    "typecheck",
+    "lint-web",
+    "imports",
+    "secrets",
+    "audit",
+    "sbom",
+    "crypto-inventory",
+    # 2 TEST
+    "test-unit",
+    "test-property",
+    "test-contract",
+    "test-integration",
+    "acceptance",
+    "egress-policy",
+    "openapi",
+    "openapi-diff",
+    "test-frontend",
+    "test-e2e",
+    "test-a11y",
+    "test-visual",
+    # 3 BUILD
+    "build-web",
+    "images",
+    "con-a",
+    "clients-check",
+    "sign",
+)
+
+#: Stages `ci()` runs that the workflow does *not* invoke as a task, and why.
+#:
+#: `sign` is deliberately not here: the workflow invokes it, and the task
+#: itself reports skipped without a key. A stage that behaves differently in
+#: two places is a difference; a stage that says so is a task.
+#:
+#: Each of these is a real difference rather than an oversight, and naming it
+#: here is what keeps it from becoming one. The test reads this map: a task in
+#: `PIPELINE` is either invoked by the workflow or explained here, so the two
+#: cannot drift apart without somebody writing down which it is.
+LOCAL_ONLY: dict[str, str] = {
+    "images": (
+        "the workflow's stage 3.1 builds the same two images and then tags them "
+        "for the registry, pushes them on main, and reads and writes a GitHub "
+        "Actions cache. None of that belongs in a task a developer runs: a "
+        "developer does not push to the site registry. The *build* is the same "
+        "and is what `make ci` checks."
+    ),
+    "build-web": (
+        "`docker/web.Dockerfile` compiles the console inside the image, so the "
+        "workflow already builds it at stage 3.1 and doing it again beforehand "
+        "would be the same work twice on every run. A developer has no image "
+        "build, so `make ci` does it directly."
+    ),
+}
+
+
+@task("sign", "Sign the SBOM and the plug-in distributions (Decision S9)")
+def sign() -> int:
+    """Sign what this build produced, or say why it did not.
+
+    Skipped rather than failed without a key, and *reported* rather than
+    silent, which is the shape stage 3.4 already uses. The distinction matters:
+    a stage that prints nothing when it does nothing is indistinguishable from
+    a stage that ran, and Decision S9's whole subject is being able to tell a
+    signed artefact from one that merely looks like it.
+    """
+    if not os.environ.get("DRAUPNIR_SIGNING_KEY"):
+        print(
+            "    skipped: no DRAUPNIR_SIGNING_KEY. Artefact signing is a required\n"
+            "    stage on main (SAD 11H stage 3, Decision S9); locally there is no\n"
+            "    key and nothing here is released."
+        )
+        return 0
+
+    say("plug-in distributions")
+    uv_run(
+        "python",
+        "-m",
+        "scripts.sign_artefacts",
+        "--distributions",
+        "--out",
+        str(ROOT / "sbom" / "plugin-signatures.json"),
+    )
+    say("artefacts")
+    uv_run("python", "-m", "scripts.sign_artefacts")
+    return 0
+
+
 @task("ci", "Every stage the pipeline runs, in pipeline order")
 def ci() -> int:
-    static()
-    test_unit()
-    test_property()
-    test_contract()
-    test_integration()
-    clients_check()
-    openapi_diff()
-    test_frontend()
-    test_e2e()
-    test_a11y()
-    test_visual()
-    build_web()
+    """Run `PIPELINE`, in order, stopping at the first failure.
+
+    Dispatched from the list rather than written out as calls, so that the list
+    is the single description of the pipeline and the test can read it. Written
+    out, the two would agree until somebody added a stage to one of them.
+    """
+    for name in PIPELINE:
+        TASKS[name]()
     return 0
 
 
