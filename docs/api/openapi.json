@@ -3111,7 +3111,7 @@
     },
     "/metrics": {
       "get": {
-        "description": "Return the Prometheus exposition.\n\nMetrics are counters and histograms. Nothing here carries a run\nspecification, a corpus path or an actor identity: a metric labelled by\nactor is a metric with an unbounded label set, and one labelled by artefact\nis a cardinality problem that also happens to leak what is being built.",
+        "description": "Return the Prometheus exposition.\n\nMetrics are counters and histograms. Nothing here carries a run\nspecification, a corpus path or an actor identity: a metric labelled by\nactor is a metric with an unbounded label set, and one labelled by artefact\nis a cardinality problem that also happens to leak what is being built.\nThat was a statement about metrics that did not exist -- this returned four\nPython garbage-collector counters and nothing else -- so RF-18 gave it the\nSAD 11.3 signals to report and `draupnir.api.metrics` a test that enforces\nthe sentence above rather than repeating it.\n\nCollected in a thread. A Prometheus collector is synchronous, and the site\ncollector reads the database, so gathering on the event loop would stall\nevery request in this process for the length of a scrape.",
         "operationId": "getMetrics",
         "responses": {
           "200": {

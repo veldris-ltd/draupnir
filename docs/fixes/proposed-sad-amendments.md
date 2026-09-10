@@ -295,6 +295,52 @@ Three things have to exist, none of them in this repository:
 
 ---
 
+## §11.3 — the observability table has no row for the control plane itself
+
+**Raised by** RF-18
+**Severity** minor, and a gap rather than an error
+
+§11.3 gives eight signals a source and a surface. Every one of them is about
+the *estate* or about the *work*: appliance temperature, fabric bandwidth,
+vault capacity, chain integrity, anchor freshness, run state, gate outcomes,
+mains and battery. None of them is about the control plane.
+
+So an operator asking "is the API slow, and which route" has no signal to read.
+That question has an acceptance criterion behind it — AC-N4 requires a 500-run
+list to answer in under 300 ms at the 95th percentile — and until RF-18 there
+was no way to observe it outside a test. It is also the first question anybody
+asks when a console feels slow, and the answer decides whether to look at
+PostgreSQL, at the appliances, or at neither.
+
+RF-18 adds `draupnir_http_request_duration_seconds`, a histogram labelled by
+method, route *template* and status. The template matters and is worth saying
+in the document rather than only in the code: labelling by path would put a run
+identifier in a label, which is an unbounded series set and a list of this
+forge's work published on an endpoint served without a credential.
+
+This is per API process rather than per site, unlike every other row: it
+describes the work that process did, so it aggregates with `sum by` where the
+site-wide gauges aggregate with `max by`. That distinction has caught people
+out on every Prometheus deployment ever built and the table is the place to
+record it.
+
+### Proposed text, as a ninth row of §11.3
+
+| Signal | Source | Surfaced on |
+|---|---|---|
+| Control plane request latency and status | Core, per API process | CON-B dashboard 3, alarming above AC-N4's 300 ms at the 95th percentile |
+
+### And a note under the table
+
+> Rows describing the estate or the work are site-wide: every API process
+> reports the same value, so aggregate them with `max by (site)`. The request
+> latency row is per process and aggregates with `sum by`. No metric carries a
+> label naming an actor, a run or an artefact: two of those are unbounded and
+> all three would publish what is being built on an endpoint that carries no
+> credential (§8.1).
+
+---
+
 ## Pending — raised and not yet drafted
 
 These are identified in the estate register and need SAD amendments when the

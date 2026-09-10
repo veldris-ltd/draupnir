@@ -316,3 +316,34 @@ class IdempotencyKey(Base):
     status: Mapped[int | None] = mapped_column(Integer)
     body: Mapped[Any | None] = mapped_column(JSONB)
     location: Mapped[str | None] = mapped_column(Text)
+
+
+class DutyMeasurement(Base):
+    """The latest reading from each of the worker's periodic duties.
+
+    RF-18. `/metrics` had no DRAUPNIR collector at all, and two of SAD 11.3's
+    signals cannot be read at scrape time: verifying the chain is the hourly
+    duty's whole cost, and asking an NFS mount how full it is can block
+    uninterruptibly -- which would make Prometheus mark the control plane down
+    because the vault was slow.
+
+    So the worker writes what it measured and a scrape reads it. One row per
+    site per duty, overwritten in place: a current reading, not a history.
+    Anything that mattered is in the chain already, because an alarming duty
+    records an entry.
+
+    Written by the worker's maintenance pass and read by
+    `api.metrics.SiteCollector`. Nothing loads it through the unit of work.
+    """
+
+    __tablename__ = "duty_measurement"
+    __table_args__ = (CheckConstraint("length(duty) > 0", name="ck_duty_measurement_duty_present"),)
+
+    site_id: Mapped[str] = mapped_column(Text, ForeignKey("site.id"), primary_key=True)
+    #: `Duty`'s value, which is what SAD 11.3's signal column calls it.
+    duty: Mapped[str] = mapped_column(Text, primary_key=True)
+    measured_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    #: Whether the reading crossed the duty's threshold. A gauge cannot say
+    #: where the line is; the thresholds live with the duty that applies them.
+    alarm: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    measurements: Mapped[Any] = mapped_column(JSONB, nullable=False)

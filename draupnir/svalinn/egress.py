@@ -149,6 +149,16 @@ SCHEDULING_PURPOSE: Final = (
 )
 SCHEDULING_POLICY: Final = "scheduling/2026.01"
 
+#: Trace export. Its own policy rather than the observability one the metrics
+#: read uses, because the direction is opposite: reading measurements off REGIN
+#: and posting this site's traces to it are different permissions, and one
+#: approval that covered both would let a caller that may read start writing.
+TRACING_PURPOSE: Final = (
+    "posting this control plane's own spans to an OpenTelemetry collector, so a "
+    "request can be followed from the edge through the orchestrator to a driver"
+)
+TRACING_POLICY: Final = "tracing/2026.01"
+
 #: The Release 1 allow list. Short on purpose: each entry is a destination
 #: somebody argued for, and the list is evidence rather than configuration.
 ALLOW_LIST: Final[tuple[Destination, ...]] = (
@@ -207,6 +217,28 @@ ALLOW_LIST: Final[tuple[Destination, ...]] = (
         purpose="reading appliance thermal, throttle and fabric measurements",
         approving_policy="observability/2026.01",
         traverses_site_router=False,
+    ),
+    # REGIN a third time, for the same reason there are two entries already:
+    # a different port, a different reason, and the broker checks the approving
+    # policy on every call. A collector holding the observability approval
+    # cannot use it to cancel a job, and the driver holding the scheduling one
+    # cannot use it to post traces.
+    #
+    # `http`, like its neighbours: the management fabric serves without TLS
+    # (VLD-INF-SINDRI-001 section 34 step 7), and `matches` compares the
+    # scheme, so declaring https would refuse every real call. RF-18.
+    Destination(
+        host="regin.sindri.veldris.internal",
+        scheme="http",
+        port=4318,
+        purpose=TRACING_PURPOSE,
+        approving_policy=TRACING_POLICY,
+        traverses_site_router=False,
+        gap=(
+            "no collector is deployed on REGIN. The permission is declared so that "
+            "wiring one is a configuration change rather than a change to the allow "
+            "list, and until DRAUPNIR_OTLP_ENDPOINT is set nothing posts here."
+        ),
     ),
     # -- model and tokeniser acquisition -----------------------------------
     #

@@ -159,6 +159,21 @@ class Settings(BaseSettings):
     # was already there rather than adding one.
     registry_url: str = ""
 
+    # Where an OpenTelemetry collector answers, empty where this forge has
+    # none -- which is the ordinary case and not a fault (RF-18). Spans were
+    # collected into a list and discarded, so "spans from edge through
+    # orchestrator to driver boundary" was a shape a test could assert and a
+    # trace nobody could look at.
+    #
+    # An unconfigured tracer still discards, and still clears: a list nobody
+    # drains is a memory leak with a plausible reason.
+    otlp_endpoint: str = ""
+
+    # Fraction of traces exported. One per request is a lot of documents to
+    # carry for a signal whose value is the shape rather than the census, and
+    # an exporter that cannot be turned down is one that gets turned off.
+    otlp_sample: float = 1.0
+
     # The exporter's names for what is being read. Configuration because they
     # are the exporter's, they change between its versions, and section 48.2
     # already warns that an update can rename things underneath this estate --

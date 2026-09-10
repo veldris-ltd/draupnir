@@ -2315,6 +2315,117 @@ so; nothing reaches a scrape.
   metric added without a documented surface fails the build.
 - Gated in stages 2.1 and 2.3.
 
+> **Status: done.**
+>
+> **Eight metrics where there were none.** `draupnir/api/metrics.py` carries
+> the SAD 11.3 signals that are the control plane's own — runs by state (the
+> queue depth being the QUEUED one), gate results and margins by gate, vault
+> capacity, chain integrity, anchor age, duty alarms — and a request latency
+> histogram by method, route template and status.
+>
+> **Most of them are columns; two are not, and that is what migration 0005 is
+> for.** Verifying the chain is the hourly duty's entire cost, so doing it
+> inside a scrape would make Prometheus's interval the rate at which this site
+> rehashes its ledger. Asking an NFS mount how full it is can block
+> uninterruptibly, and a scrape that blocks is a target Prometheus marks down —
+> reporting the control plane as gone because the vault was slow. So the worker
+> writes what it measured to `duty_measurement` and the API reads it: one row
+> per site per duty, overwritten in place, in the duty's own transaction so a
+> reading and the alarm entry that may accompany it commit together.
+>
+> **Not the ledger.** The chain records state transitions and a vault at forty
+> per cent is not one. SAD 11.3's recording rule is exactly why duties log what
+> they find and record only alarms; appending a reading every fifteen minutes
+> would add thirty-five thousand entries a year per forge, all saying nothing
+> happened.
+>
+> **The cardinality rule is enforced rather than described.** The endpoint's
+> docstring already said a metric labelled by actor is unbounded and one
+> labelled by artefact leaks what is being built — a statement about metrics
+> that did not exist. `LABELS` is now the complete permitted set, and tests
+> read a live exposition and fail on anything outside it. The trap it actually
+> guards is the request histogram: labelling by *path* puts a run identifier in
+> a label, which is both a series per run forever and a list of this forge's
+> work on an endpoint SAD 8.1 serves without a credential.
+>
+> **Site-wide gauges are duplicated across processes, and the `HELP` text says
+> so.** SAD 5.1 runs two to four API processes and each reports the same value,
+> so a dashboard that sums them reports three times the queue depth. Aggregate
+> with `max by`; the request histogram is the exception and aggregates with
+> `sum by`, because it describes the work one process did.
+>
+> **The spans go somewhere now.** `draupnir/api/tracing.py` posts OTLP over
+> HTTP with JSON through the egress broker. Not the SDK exporter, and that is
+> not a preference about dependencies: every outbound call in this system goes
+> through `BrokeredClient` — the JWKS fetch, the telemetry read, the anchor
+> submission, RF-17's readiness probes — and an SDK exporter holds its own
+> transport and opens its own socket. Wiring one in would create the single
+> call in the process that no allow list decided, which is threat T11 exactly.
+> REGIN gains a third destination under its own policy, so a driver holding the
+> scheduling approval cannot spend it on the collector.
+>
+> **The three OpenTelemetry distributions are gone**, with the reasoning in
+> `pyproject.toml` where the other dependency arguments live. Nothing imported
+> them; shipping an instrumentation library that instruments nothing puts six
+> distributions in the image and the SBOM to be scanned, patched and explained,
+> in exchange for nothing. Removing them took six out of the lock file.
+>
+> **Found while implementing: the tracer nested concurrent requests into each
+> other.** `telemetry.TRACER` was a module global holding one open-span stack,
+> so whichever request opened a span first became the parent of whatever any
+> other request opened next. That was invisible while the spans were collected
+> and discarded — and it becomes a trace showing one operator's approval under
+> another operator's submission the moment anything exports them. The tracer is
+> now a context variable set per request, with the process-wide one still there
+> for the worker and the procedures.
+>
+> **Found while implementing: the tracer was also a leak.** A list that grew
+> for the life of every process this system has ever run, because nothing ever
+> drained it. `drain` clears unconditionally and exports optionally, which is
+> the right way round.
+>
+> **Found while testing: registering a collector calls `collect()`.**
+> `CollectorRegistry.register` builds its name index that way unless a
+> collector offers `describe()` — so *starting* the process performed a
+> database query, and against a database that is down it waited out the
+> connection timeout. RF-17's readiness test, which starts an API pointed at a
+> port nothing is listening on precisely to prove the process still answers,
+> went from seconds to over a minute and then failed. Which is the failure SAD
+> 11.2 exists to prevent, arriving through the observability code. `describe()`
+> fixed it; startup is back to 1.2 seconds.
+>
+> **Found while testing: the scrape read every site's runs.** `read_facts`
+> relied on row level security alone, and RLS does not apply to a superuser or
+> a role holding `BYPASSRLS` — the integration container's default role is one,
+> and the first run of the test reported two forges' queued runs added
+> together. Every other read in `reading.py` names the site in its `WHERE` as
+> well as scoping the session; this now does too.
+>
+> **Found while testing: a mounted route's template loses its prefix.**
+> `path_format` on a route under the `/v1` mount reports `/runs/{run_id}`, so
+> the label would have merged two API versions' latencies into one series the
+> day a `/v2` existed. The template is rebuilt from the path and the matched
+> parameters, whole segments only.
+>
+> **Two of SAD 11E.4's five named metrics are still not exposed**, and the
+> reason is the same for both. *Transition latency* and *driver failure rate*
+> are properties of work the **worker** performs, and the worker has no scrape
+> surface. The two signals it measures reach a scrape through
+> `duty_measurement` because they are periodic readings with somewhere natural
+> to be written; a latency histogram and a failure counter are distributions,
+> and a table holding the latest value would lose the shape that makes them
+> worth having. Giving the worker its own endpoint needs a port, a binding
+> decision against SAD 8.1's loopback rule, and a second scrape target — which
+> is a piece of work, not a line. `metrics.UNEXPOSED` names both so the gap is
+> in the code rather than only here.
+>
+> SAD 11.3 has no row for the control plane's own request path, so an operator
+> asking "is the API slow, and which route" had no signal to read — a question
+> with an acceptance criterion behind it, since AC-N4 requires a 500-run list
+> under 300 ms at the 95th percentile. Written up in
+> `docs/fixes/proposed-sad-amendments.md` as a ninth row rather than quietly
+> mapped onto a row that means something else.
+
 ---
 
 ### RF-19 — P5 — Eleven coverage targets collect nothing
@@ -2883,7 +2994,7 @@ diff of.
 | RF-15 | P4 | The event stream is process-local, one-kind, and not a stream — **done** |
 | RF-16 | P4 | `listApprovals` and `listModels` ignore their cursor — **done**; a malformed cursor was silently ignored too |
 | RF-17 | P4 | `readyz` checks one dependency and builds an engine per probe — **done** |
-| RF-18 | P4 | `/metrics` exposes no DRAUPNIR metric; traces go nowhere |
+| RF-18 | P4 | `/metrics` exposes no DRAUPNIR metric; traces go nowhere — **done**; two worker-side metrics await a scrape surface on the worker |
 | RF-19 | P5 | Eleven coverage targets collect nothing |
 | RF-20 | P5 | HODD and GLEIPNIR are under no coverage floor |
 | RF-21 | P5 | The breaking-change gate has no baseline |

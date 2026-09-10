@@ -16,6 +16,7 @@ make test-contract
 
 ## Evidence
 
+- `draupnir/api/metrics.py`
 - `draupnir/api/pagination.py`
 - `draupnir/api/routers/runs.py`
 - `tests/contract/test_api_performance.py`

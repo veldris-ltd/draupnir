@@ -20,6 +20,7 @@ below carries run id, site id and actor without being passed them.
 
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -28,7 +29,17 @@ from fastapi import APIRouter, FastAPI, Request, Response
 from sqlalchemy import create_engine as sync_engine
 
 from draupnir import __version__
-from draupnir.api import authentication, deps, development, ledger_events, readiness, writing
+from draupnir.api import (
+    authentication,
+    deps,
+    development,
+    ledger_events,
+    metrics,
+    readiness,
+    telemetry,
+    tracing,
+    writing,
+)
 from draupnir.api import context as request_context
 from draupnir.api.guards import enforce_declarations
 from draupnir.api.idempotency import IdempotencyStore
@@ -62,6 +73,8 @@ from draupnir.svalinn.egress import (
     FEDERATION_PURPOSE,
     SCHEDULING_POLICY,
     SCHEDULING_PURPOSE,
+    TRACING_POLICY,
+    TRACING_PURPOSE,
     BrokeredClient,
 )
 
@@ -105,6 +118,81 @@ async def bind_context(
         if bound.correlation_id:
             response.headers[request_context.CORRELATION_HEADER] = bound.correlation_id
     return response
+
+
+async def record_request(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """Time every request and record it by route template. RF-18.
+
+    The template and never the path. `/v1/runs/{run_id}` is one series;
+    `/v1/runs/019cb993-.../events` is a new series for every run ever created,
+    which is an unbounded label set on an endpoint served without a credential
+    -- so it would be both a way to exhaust a disk and a list of what this
+    forge is building, published to anybody who can reach the port.
+
+    A request that matched no route is recorded under one name for the same
+    reason: a 404 sweep must not mint a series per path tried.
+
+    Failures are timed too. A route that raises is a route whose latency an
+    operator wants, and the status the error mapper produced is what a
+    dashboard alarms on.
+    """
+    started = time.perf_counter()
+    status = 500
+    # One tracer for this request (RF-18). A process-wide one holds a single
+    # open-span stack, so two requests in flight nest into each other -- which
+    # was invisible while the spans were collected and discarded, and becomes a
+    # trace showing one operator's approval under another's submission as soon
+    # as anything exports them.
+    with telemetry.collecting() as collector:
+        try:
+            response: Response = await call_next(request)
+        except Exception:
+            metrics.observe(
+                method=request.method,
+                route=_template(request),
+                status=status,
+                seconds=time.perf_counter() - started,
+            )
+            # Exported before the exception continues: a request that failed is
+            # the one whose trace is worth having.
+            tracing.drain(collector)
+            raise
+        metrics.observe(
+            method=request.method,
+            route=_template(request),
+            status=response.status_code,
+            seconds=time.perf_counter() - started,
+        )
+        # Drained whether or not an exporter is configured, which is the point:
+        # the tracer was a list that grew for the life of the process because
+        # nothing ever read it.
+        tracing.drain(collector)
+    return response
+
+
+def _template(request: Request) -> str:
+    """The matched route's path template, or a single name for no match.
+
+    Rebuilt from the path and the parameters Starlette matched, rather than
+    read off the route's `path_format`. The routers are mounted under `/v1`,
+    and a mounted route's `path_format` is relative to its mount -- it reports
+    `/runs/{run_id}`, not `/v1/runs/{run_id}`. Labelling by that would merge
+    two API versions' latencies into one series the day a `/v2` exists, and the
+    graph would look like a route that suddenly doubled in traffic.
+
+    Whole segments only. Replacing a parameter's value as a substring would
+    rewrite a coincidental match earlier in the path, and a label that is
+    usually right is worse than one that is obviously wrong.
+    """
+    if request.scope.get("route") is None:
+        return metrics.UNMATCHED
+    matched = {str(value): name for name, value in (request.scope.get("path_params") or {}).items()}
+    return "/".join(
+        "{" + matched[segment] + "}" if segment in matched else segment
+        for segment in request.url.path.split("/")
+    )
 
 
 @asynccontextmanager
@@ -172,9 +260,32 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             federation_client=probe_client(purpose=FEDERATION_PURPOSE, policy=FEDERATION_POLICY),
         )
     )
+    # The SAD 11.3 signals a scrape can read (RF-18). On the synchronous
+    # engine, because a Prometheus collector cannot await; the route gathers in
+    # a thread so the query stays off the event loop.
+    metrics.install(lambda: metrics.read_facts(writer_engine, settings.site_id))
+
+    # And where a span goes. Through the broker like every other outbound call:
+    # an SDK exporter holds its own transport and would be the one call in this
+    # process nobody decided (threat T11). An empty endpoint exports nothing,
+    # which is the ordinary case -- the estate has no collector.
+    tracing.set_exporter(
+        tracing.OtlpExporter(
+            endpoint=settings.otlp_endpoint,
+            client=(
+                probe_client(purpose=TRACING_PURPOSE, policy=TRACING_POLICY)
+                if settings.otlp_endpoint
+                else None
+            ),
+            site_id=settings.site_id,
+            sample=settings.otlp_sample,
+        )
+    )
     try:
         yield
     finally:
+        metrics.remove()
+        tracing.set_exporter(tracing.OtlpExporter())
         readiness.set_dependencies(readiness.Dependencies())
         await listener.stop()
         deps.set_reader(EmptyReadModel())
@@ -288,6 +399,11 @@ def create_app() -> FastAPI:
     )
 
     app.middleware("http")(bind_context)
+
+    # Outermost of the two, so the time it records includes everything the
+    # inner middleware and the handler do (RF-18). Starlette runs the last
+    # registered first, so this goes after.
+    app.middleware("http")(record_request)
 
     # Authentication, and the refusal that goes with it. RF-01: `deps` resolves
     # the caller from `request.state.claims` and said the OIDC middleware set

@@ -55,10 +55,27 @@ dependencies = [
   "uuid6>=2024.7.10",
   # Observability, SAD 11E.4
   "structlog>=24.4",
-  "opentelemetry-api>=1.28",
-  "opentelemetry-sdk>=1.28",
-  "opentelemetry-instrumentation-fastapi>=0.49b0",
   "prometheus-client>=0.21",
+  #
+  # The three OpenTelemetry distributions that were here are gone (RF-18).
+  # `opentelemetry-api`, `opentelemetry-sdk` and
+  # `opentelemetry-instrumentation-fastapi` were installed and nothing in
+  # `draupnir/` imported any of them: spans were built by a local `Tracer`,
+  # collected into a list and discarded. Shipping an instrumentation library
+  # that instruments nothing puts three distributions and their transitive
+  # dependencies in the image and in the SBOM, to be scanned, patched and
+  # explained to whoever reads it, in exchange for nothing.
+  #
+  # They are not coming back with the export, either, and that is the part
+  # worth writing down. `draupnir/api/tracing.py` posts OTLP over HTTP with
+  # JSON, which is a published transport, because **every outbound call in
+  # this system goes through `svalinn.egress.BrokeredClient`** -- the JWKS
+  # fetch, the telemetry read, the anchor submission, the readiness probes.
+  # An SDK exporter holds its own transport and opens its own socket, so
+  # wiring one in would create the single call in the process that no allow
+  # list decided, which is threat T11 exactly. The encoding is one JSON
+  # document; the broker is the constraint that makes writing it the smaller
+  # thing to maintain.
   # CLI
   "typer>=0.15",
   "httpx>=0.28",

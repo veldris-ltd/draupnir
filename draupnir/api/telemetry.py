@@ -24,6 +24,7 @@ truncation is visible so nobody wonders whether the field was empty.
 
 from __future__ import annotations
 
+import contextvars
 import re
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -266,12 +267,52 @@ class Tracer:
         self._stack.clear()
 
 
-#: The process-wide tracer. Replaced in a test with a fresh one.
+#: The tracer for code that is not serving a request: the worker, a procedure,
+#: a test that does not install one.
 TRACER = Tracer()
+
+#: The tracer for the request being served, if there is one. RF-18.
+#:
+#: A context variable and not a global, because a `Tracer` holds an open-span
+#: stack and one stack shared by every request nests them into each other:
+#: whichever request opened a span first becomes the parent of whatever any
+#: other request opens next. That was invisible while nothing read the spans --
+#: they were collected into a list and discarded -- and it becomes a trace
+#: showing one operator's approval nested under another operator's submission
+#: the moment an exporter is wired.
+#:
+#: The default is `None` rather than `TRACER` so that "no request" is a state
+#: this module can see, and so `current()` resolves at call time the way
+#: `deps.reader()` does.
+_CURRENT: contextvars.ContextVar[Tracer | None] = contextvars.ContextVar(
+    "draupnir_tracer", default=None
+)
+
+
+def current() -> Tracer:
+    """The tracer this code should use: the request's, or the process's."""
+    return _CURRENT.get() or TRACER
+
+
+@contextmanager
+def collecting() -> Iterator[Tracer]:
+    """A fresh tracer for the duration of one request.
+
+    The token is reset in the same context that set it, which is what makes
+    this safe across the task boundary Starlette puts between middleware and
+    handler: the variable is copied into the handler's context, so the handler
+    sees this tracer and resetting here cannot leak into another request.
+    """
+    collector = Tracer()
+    token = _CURRENT.set(collector)
+    try:
+        yield collector
+    finally:
+        _CURRENT.reset(token)
 
 
 @contextmanager
 def span(name: str, layer: str = EDGE, **attributes: Any) -> Iterator[Span]:
-    """Open a span on the process tracer."""
-    with TRACER.span(name, layer, **attributes) as current:
-        yield current
+    """Open a span on whichever tracer is current."""
+    with current().span(name, layer, **attributes) as opened:
+        yield opened

@@ -102,7 +102,18 @@ async def metrics() -> Response:
     specification, a corpus path or an actor identity: a metric labelled by
     actor is a metric with an unbounded label set, and one labelled by artefact
     is a cardinality problem that also happens to leak what is being built.
+    That was a statement about metrics that did not exist -- this returned four
+    Python garbage-collector counters and nothing else -- so RF-18 gave it the
+    SAD 11.3 signals to report and `draupnir.api.metrics` a test that enforces
+    the sentence above rather than repeating it.
+
+    Collected in a thread. A Prometheus collector is synchronous, and the site
+    collector reads the database, so gathering on the event loop would stall
+    every request in this process for the length of a scrape.
     """
+    import asyncio
+
     from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+    body = await asyncio.to_thread(generate_latest)
+    return Response(content=body, media_type=CONTENT_TYPE_LATEST)

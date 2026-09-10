@@ -896,21 +896,28 @@ def test_the_installer_configures_the_collector() -> None:
     )
 
 
-def test_the_collector_and_the_scheduler_are_separate_destinations() -> None:
-    """Two services on REGIN, two approvals. RF-E15.
+def test_each_service_on_regin_is_its_own_destination_and_approval() -> None:
+    """Three services on REGIN, three approvals. RF-E15, and RF-18 for the third.
 
     The broker checks the approving policy on every call, so one allow-list
-    entry covering both would let a console holding the telemetry approval
-    cancel a job. They differ only by port, which is why `Destination` has one.
+    entry covering several would let a console holding the telemetry approval
+    cancel a job, or a driver holding the scheduling one post traces. They
+    differ only by port, which is why `Destination` has one.
+
+    The third is the OpenTelemetry collector. It is declared before anything is
+    deployed on that port, and the entry says so in its `gap`: wiring a
+    collector should be a configuration change rather than a change to the
+    allow list, because a permission granted in the same commit as the first
+    call that needs it is a permission nobody reviewed.
     """
     from draupnir.svalinn.egress import ALLOW_LIST
 
     regin = [item for item in ALLOW_LIST if item.host == "regin.sindri.veldris.internal"]
 
-    assert len(regin) == 2, "REGIN runs slurmrestd and Prometheus; both are declared"
-    assert {item.port for item in regin} == {6820, 9090}
-    assert len({item.approving_policy for item in regin}) == 2, (
-        "the two services share an approving policy, so either approval grants both"
+    assert len(regin) == 3, "REGIN runs slurmrestd, Prometheus and a collector"
+    assert {item.port for item in regin} == {6820, 9090, 4318}
+    assert len({item.approving_policy for item in regin}) == 3, (
+        "two of these services share an approving policy, so either approval grants both"
     )
 
 

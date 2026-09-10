@@ -67,6 +67,7 @@ from draupnir.motsognir.supply import (
 )
 from draupnir.worker import array_queue, corpora, duties, stages
 from draupnir.worker.duties import Duty, Finding, Timetable
+from draupnir.worker.measurements import MeasurementStore
 from draupnir.worker.stages import Context, Outcome, Result
 
 logger = structlog.get_logger(__name__)
@@ -485,6 +486,12 @@ class Maintenance:
     #: The idempotency store whose expired records this sweeps. `None` on a
     #: worker that shares no database with an API, where there are no keys.
     keys: Any = None
+    #: Where the periodic readings go, so `/metrics` can report them (RF-18).
+    #: Two of SAD 11.3's signals cannot be read at scrape time -- verifying the
+    #: chain is this duty's whole cost, and asking an NFS mount how full it is
+    #: can block uninterruptibly -- so the worker measures and the API reads
+    #: what it wrote. `None` in a test that is not exercising that path.
+    measurements: Any = None
 
     #: What the last anchoring attempt produced, for the loop to record.
     anchored: duties.Anchored | None = None
@@ -685,6 +692,29 @@ def maintain(
         if finding is None:
             continue
         found.append(finding)
+
+        # The reading, whether or not it alarms (RF-18). This is the half the
+        # chain deliberately does not carry: a vault at forty per cent is not a
+        # state transition, and a duty appending "nothing wrong" every fifteen
+        # minutes is the noise SAD 11.3's recording rule exists to avoid. It is
+        # a current measurement, overwritten in place, and the alarm below is
+        # what becomes a matter of record.
+        if maintenance.measurements is not None:
+            try:
+                maintenance.measurements.record(
+                    site_id=orchestrator.site_id,
+                    duty=str(finding.duty),
+                    measured_at=now,
+                    alarm=finding.alarm,
+                    measurements=dict(finding.measurements),
+                )
+            except Exception as unwritable:
+                # Never fatal. A duty that found something has already found
+                # it, and losing the scrape's copy must not lose the alarm the
+                # ledger entry below carries.
+                logger.warning(
+                    "duty.measurement.unwritten", duty=str(finding.duty), reason=str(unwritable)
+                )
 
         if finding.alarm:
             orchestrator.record(
@@ -1101,6 +1131,9 @@ class Worker:
             workspace=self._workspace,
             site_id=self.settings.site_id,
             keys=self._keys,
+            # On this connection, so a reading and the alarm entry that may
+            # accompany it commit or roll back together (RF-18).
+            measurements=MeasurementStore(connection),
             corpora=lambda: _corpus_queue(LedgerRepository(connection, scope)),
             array_requests=lambda: _array_queue(LedgerRepository(connection, scope)),
             submitter=array_queue.Submitter(

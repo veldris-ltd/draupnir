@@ -21,6 +21,7 @@ make test-skills
 - `migrations/versions/0002_projection_checkpoint.py`
 - `migrations/versions/0003_idempotency_key.py`
 - `migrations/versions/0004_ledger_notify.py`
+- `migrations/versions/0005_duty_measurement.py`
 - `skills/draupnir-migration/scripts/new_migration.py`
 - `tasks.py`
 - `tests/unit/test_projector.py`
