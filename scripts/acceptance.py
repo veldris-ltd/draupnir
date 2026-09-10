@@ -616,7 +616,10 @@ REGISTER: dict[str, Entry] = {
     "AC-Q3": Entry(
         IMPLEMENTED,
         "gitleaks runs on every commit through a hook and in the pipeline over the whole "
-        "history; the history is clean.",
+        "history; the history is clean. A local binary is preferred and a pinned "
+        "container is the fallback, and neither being available is a failure rather "
+        "than a skip -- a scan that could not start has found nothing in the way an "
+        "empty room has (RF-25).",
         "make secrets",
     ),
     "AC-Q4": Entry(

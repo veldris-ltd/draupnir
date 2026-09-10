@@ -7,7 +7,7 @@
 
 ## How it is demonstrated
 
-gitleaks runs on every commit through a hook and in the pipeline over the whole history; the history is clean.
+gitleaks runs on every commit through a hook and in the pipeline over the whole history; the history is clean. A local binary is preferred and a pinned container is the fallback, and neither being available is a failure rather than a skip -- a scan that could not start has found nothing in the way an empty room has (RF-25).
 
 
 ```bash
@@ -19,6 +19,7 @@ make secrets
 - `.github/workflows/ci.yaml`
 - `.gitleaks.toml`
 - `tasks.py`
+- `tests/unit/test_secret_scan.py`
 
 ---
 

@@ -482,8 +482,56 @@ def bootstrap() -> int:
     )
     say("Playwright browsers")
     pnpm("exec", "playwright", "install", "--with-deps", "chromium", check=False)
+    install_gitleaks()
     env_file()
     return 0
+
+
+def install_gitleaks() -> None:
+    """Acquire gitleaks, if it is not here and a package manager can get it.
+
+    So the container is a fallback rather than the path most developers take
+    (RF-25). The container needs the drive shared with Docker Desktop's virtual
+    machine, which is a setting on somebody else's laptop, and when it is not
+    set the failure is `exit 125` and a sentence about `/run/desktop/mnt/host`.
+
+    Never fatal. A machine with no package manager this knows about still has
+    the container, and a bootstrap that refused to finish over a tool with a
+    working fallback would be worse than the problem. It says what it did.
+    """
+    say("gitleaks")
+    if which("gitleaks"):
+        print("    already installed")
+        return
+
+    for manager, command in (
+        (
+            "winget",
+            [
+                "winget",
+                "install",
+                "--id",
+                "gitleaks.gitleaks",
+                "--silent",
+                "--accept-source-agreements",
+                "--accept-package-agreements",
+            ],
+        ),
+        ("scoop", ["scoop", "install", "gitleaks"]),
+        ("brew", ["brew", "install", "gitleaks"]),
+    ):
+        if which(manager) is None:
+            continue
+        print(f"    installing with {manager}")
+        if run(command, check=False) == 0 and which("gitleaks"):
+            return
+        print(f"    {manager} did not install it")
+        break
+
+    print(
+        "    not installed. `python tasks.py secrets` will use the pinned container,\n"
+        "    which needs this drive shared with Docker Desktop. See docs/CONTRIBUTING.md."
+    )
 
 
 @task("hooks", "Install the pre-commit hooks, including the gitleaks scan (AC-Q3)")
@@ -559,28 +607,120 @@ def imports() -> int:
     return 0
 
 
+#: The image the container fallback runs, pinned. A secret scan that floated to
+#: `latest` would change what it detects without anybody deciding to.
+GITLEAKS_IMAGE = "zricethezav/gitleaks:v8.21.2"
+
+#: The arguments, shared by both paths. Written once so the local binary and
+#: the container cannot come to scan different things -- which is the failure
+#: mode a fallback introduces, and the one nobody notices, because the fallback
+#: only runs on the machines nobody is watching.
+GITLEAKS_ARGUMENTS = ("detect", "--config", ".gitleaks.toml", "--redact", "--verbose")
+
+#: What Docker Desktop says when the drive holding the repository is not shared
+#: with the Linux virtual machine. Matched on substrings rather than on the
+#: whole message because the path in it is the developer's own.
+MOUNT_FAILURES = ("error while creating mount source path", "mkdir /run/desktop/mnt/host")
+
+
+def mount_remedy(output: str) -> str | None:
+    """The advice for a Docker mount failure, or `None` if this is not one.
+
+    A `docker run` that cannot mount the working tree exits 125 and says so in
+    a sentence about `/run/desktop/mnt/host` that means nothing to anybody who
+    has not met it before (RF-25). It is not a fault in this repository -- the
+    drive is not shared with Docker Desktop's virtual machine -- but it stops
+    `make static` on a platform the README documents, and a task that reports
+    only `failed (125)` leaves a developer with nothing to act on.
+
+    Two remedies, and both are given because which one suits depends on the
+    machine: sharing a drive is a setting somebody may not be able to change on
+    a managed laptop, and installing a binary may be equally awkward.
+    """
+    if not any(marker in output for marker in MOUNT_FAILURES):
+        return None
+    return (
+        "gitleaks ran in a container and Docker could not mount this working tree.\n"
+        "\n"
+        "That is a Docker Desktop drive-sharing setting rather than anything in this\n"
+        "repository: the drive holding the checkout is not shared with the Linux\n"
+        "virtual machine the daemon runs in.\n"
+        "\n"
+        "Two ways forward:\n"
+        "\n"
+        "  1. Docker Desktop -> Settings -> Resources -> File sharing, add the drive\n"
+        "     this checkout is on, and apply. Docker restarts.\n"
+        "\n"
+        "  2. Install gitleaks itself and this task will prefer it, with no container\n"
+        "     and no mount:\n"
+        "         winget install gitleaks          (or: scoop install gitleaks)\n"
+        "         brew install gitleaks            (macOS)\n"
+        "         go install github.com/gitleaks/gitleaks/v8@latest\n"
+        "\n"
+        "`python tasks.py bootstrap` will attempt the second for you.\n"
+        "\n"
+        "What this must not do is pass. AC-Q3 is a secret scan over the working tree\n"
+        "and the whole history, and a scan that could not run has found nothing in\n"
+        "the way that an empty room has found nothing."
+    )
+
+
 @task("secrets", "gitleaks over the working tree and the full history (AC-Q3)")
 def secrets() -> int:
+    """Scan with the local binary if there is one, otherwise the pinned image.
+
+    Never falls through to a pass. An unrunnable secret scan is a failure, and
+    the one thing worse than a red stage here is a green one.
+    """
     binary = which("gitleaks")
     if binary:
-        run([binary, "detect", "--config", ".gitleaks.toml", "--redact", "--verbose"])
+        run([binary, *GITLEAKS_ARGUMENTS])
         return 0
+
     say("gitleaks is not installed locally; running the pinned container image")
-    docker(
+    if which("docker") is None:
+        raise Failure(
+            "gitleaks is not installed and neither is docker, so the secret scan\n"
+            "cannot run at all. Install gitleaks -- `winget install gitleaks`, or see\n"
+            "docs/CONTRIBUTING.md -- or install Docker Desktop.\n"
+            "\n"
+            "This is a failure rather than a skip: AC-Q3 asks for a scan, and one\n"
+            "that did not run has not found anything."
+        )
+
+    # Captured rather than streamed, because the failure worth explaining is in
+    # the output and has to be read before it can be recognised. Echoed
+    # afterwards either way, so a real finding still reaches the log.
+    command = [
+        str(which("docker")),
         "run",
         "--rm",
         "-v",
         f"{ROOT.as_posix()}:/repo",
         "-w",
         "/repo",
-        "zricethezav/gitleaks:v8.21.2",
-        "detect",
-        "--config",
-        ".gitleaks.toml",
-        "--redact",
-        "--verbose",
+        GITLEAKS_IMAGE,
+        *GITLEAKS_ARGUMENTS,
+    ]
+    print(f"    $ {' '.join(command)}", flush=True)
+    completed = subprocess.run(  # noqa: S603
+        command,
+        cwd=ROOT,
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        capture_output=True,
+        text=True,
+        check=False,
     )
-    return 0
+    output = f"{completed.stdout}{completed.stderr}"
+    print(output, end="", flush=True)
+
+    if completed.returncode == 0:
+        return 0
+
+    remedy = mount_remedy(output)
+    if remedy is not None:
+        raise Failure(remedy)
+    raise Failure(f"failed ({completed.returncode}): gitleaks found something, or could not run")
 
 
 @task("audit", "Dependency audit for both toolchains")

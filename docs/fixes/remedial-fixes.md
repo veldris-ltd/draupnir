@@ -3036,6 +3036,54 @@ development platform, and because the task has no fallback.
 - `docs/CONTRIBUTING.md` records the Docker Desktop drive-sharing requirement.
 - Gated in stage 1.4.
 
+> **Status: done.**
+>
+> **Half the prompt was already true.** The task has preferred a local
+> `gitleaks` over the container since before this register was written, so what
+> was missing was the diagnosis, the bootstrap step and the documentation. Said
+> plainly because the register asked for all four and a reader comparing the
+> two should not have to work out which.
+>
+> **The mount failure now explains itself.** `mount_remedy` recognises Docker
+> Desktop's message — matched on the parts that are not the developer's own
+> path — and answers with both remedies: share the drive in Docker Desktop's
+> file-sharing settings, or install the binary and remove the container from
+> the path entirely. Both, because which is available depends on the machine:
+> a managed laptop may refuse either one.
+>
+> It also says, first, that this is not a finding. The reader's first thought
+> on a red secret scan is that it found a secret; it did not, it could not
+> start, and saying so is the difference between checking a setting and
+> searching your own diff.
+>
+> **The rule that keeps that honest** is the test asserting a real finding is
+> never given the mount advice. Drive-sharing guidance shown for a leaked key
+> would be the worst outcome available here: the one failure this stage exists
+> to surface, explained away as configuration.
+>
+> **It never passes.** Neither binary nor Docker is a `Failure`, not a skip —
+> AC-Q3 asks for a scan over the working tree and the whole history, and one
+> that could not start has found nothing in the way an empty room has found
+> nothing. A green stage there is the shape of an assurance without the
+> substance, and it appears on exactly the machines least likely to be watched.
+>
+> **`bootstrap` acquires it**, through `winget`, `scoop` or `brew`, and is
+> never fatal about it: a machine with none of those still has the container,
+> and a bootstrap that refused to finish over a tool with a working fallback
+> would be worse than the problem. It says what it did either way.
+>
+> **The arguments are shared between the two paths**, which is a small thing
+> with a nasty failure behind it. A fallback that scanned differently would
+> only ever run on the machines without the binary, so the divergence would
+> present as one developer's clean scan and another's finding on the same
+> commit.
+>
+> The symptom itself did not reproduce here: the container mounts this working
+> tree and the scan completes. Recorded rather than glossed, because the fix is
+> warranted anyway — the mechanism is real on Windows, README and `make.ps1`
+> both present it as a supported path, and a task whose only failure mode is
+> `exit 125` is a task nobody can act on whether or not it fires today.
+
 ---
 
 ### RF-26 — P5 — Two frontend advisories sit below the audit threshold
@@ -3335,7 +3383,7 @@ diff of.
 | RF-22 | P5 | The visual regression gate never gates in CI — **gate done**, `-linux` baselines need one dispatch of `visual-baselines` on the CI runner |
 | RF-23 | P5 | `clients-check` fails on any CRLF checkout — **done**; it could not run at all since RF-01, and both clients had drifted by three operations |
 | RF-24 | P5 | `tasks.py ci` is not the pipeline — **done**; the pipeline never generated the cryptographic inventory it uploads |
-| RF-25 | P5 | The secret scan cannot run on the documented Windows path |
+| RF-25 | P5 | The secret scan cannot run on the documented Windows path — **done**; it diagnoses the mount failure and never passes without scanning |
 | RF-26 | P5 | Two frontend advisories sit below the audit threshold |
 | RF-27 | P6 | Nine screens have a primary action with no operation behind it |
 | RF-28 | P6 | CON-B reports neither thermal nor fabric bandwidth |

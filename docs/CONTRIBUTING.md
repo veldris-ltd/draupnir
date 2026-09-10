@@ -46,6 +46,7 @@ Run `make` with no target, or `python tasks.py --list`, for the full list.
 | pnpm | 9.12 | Pinned in `web/package.json` under `packageManager` |
 | Docker | any recent | PostgreSQL, MinIO, the integration tests and the image build |
 | uv | 0.5 or later | Optional. `make dev` installs a project-local copy into `.uv-bootstrap/` if it is missing |
+| gitleaks | 8.21 | Optional. `make bootstrap` installs it; without it the secret scan runs in a container, which needs this drive shared with Docker Desktop |
 
 The recommended way to install `uv` properly is the official installer:
 
@@ -64,6 +65,37 @@ all — its file APIs are redirected by the app container, so the task runner
 finds nothing while `pnpm` works perfectly in the same terminal. Corepack
 covers that case, but Node 25 removed corepack from the distribution, leaving
 npm as the floor.
+
+### gitleaks, and the drive Docker can see
+
+`make secrets` — and so `make static` and `make ci` — scans the working tree
+and the whole history. It prefers a `gitleaks` on `PATH` and falls back to a
+pinned container image; `make bootstrap` installs the binary if `winget`,
+`scoop` or `brew` is available, so most machines never reach the fallback.
+
+**If you are on Windows and it reaches the fallback, the drive has to be shared
+with Docker Desktop.** The container mounts the checkout, and a drive that is
+not shared produces this:
+
+```
+docker: Error response from daemon: error while creating mount source path
+'/run/desktop/mnt/host/d/repos/veldris/draupnir': mkdir /run/desktop/mnt/host/d: file exists
+```
+
+That is a Docker Desktop setting rather than anything in this repository, and
+the task now says so along with both remedies. Either:
+
+* **Docker Desktop → Settings → Resources → File sharing**, add the drive the
+  checkout is on, and apply; or
+* install gitleaks — `winget install gitleaks`, `scoop install gitleaks`,
+  `brew install gitleaks` — which removes the container and the mount from the
+  path entirely.
+
+**What the task will not do is pass.** AC-Q3 asks for a secret scan over the
+working tree and the whole history, and one that could not start has found
+nothing in the way an empty room has found nothing. A green stage there would
+be the shape of an assurance without the substance, which is worse than a red
+one somebody has to deal with.
 
 ### The seeded dataset
 
