@@ -39,6 +39,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from draupnir.api.problems import ProblemError
 from draupnir.api.schemas import (
     ApprovalItem,
     ApprovalPage,
@@ -253,15 +254,36 @@ class Cursor:
         return f"{self.created_at.isoformat()}|{self.id}"
 
     @classmethod
-    def decode(cls, value: str) -> Cursor | None:
-        """Read a cursor, returning `None` for anything that is not one."""
+    def decode(cls, value: str) -> Cursor:
+        """Read a cursor, refusing anything that is not one we issued.
+
+        It used to return `None`, which the callers read as "start again", so
+        a client that sent a corrupted cursor was answered with page one and
+        told nothing (RF-16). That is the failure `pagination.Cursor` already
+        refuses in as many words -- a paginating client resets, pages forward,
+        corrupts it again and loops, and every page it serves looks correct.
+        Two cursor implementations in one codebase disagreeing about this is
+        how the quieter one wins.
+        """
         head, _, tail = value.partition("|")
-        if not tail:
-            return None
-        try:
-            return cls(created_at=datetime.fromisoformat(head), id=tail)
-        except ValueError:
-            return None
+        moment: datetime | None = None
+        if tail:
+            try:
+                moment = datetime.fromisoformat(head)
+            except ValueError:
+                moment = None
+        if moment is None:
+            raise ProblemError(
+                status=422,
+                code="invalid-cursor",
+                title="Invalid cursor",
+                detail=(
+                    f"{value!r} is not a cursor this API issued. Cursors are opaque: "
+                    "pass back the `nextCursor` from the previous page rather than "
+                    "constructing one."
+                ),
+            )
+        return cls(created_at=moment, id=tail)
 
 
 class DatabaseReadModel:
@@ -381,26 +403,53 @@ class DatabaseReadModel:
     # -- approvals ----------------------------------------------------------
 
     async def approvals(self, site_id: str, *, limit: int, cursor: str | None) -> ApprovalPage:
-        """The queue, oldest first, so nothing ages quietly (UX 9.3)."""
-        del cursor
+        """The queue, oldest first, so nothing ages quietly (UX 9.3).
+
+        Keyset paginated like everything else (RF-16). It used to discard the
+        cursor and return `nextCursor: null`, so a site with more approvals
+        than `limit` truncated silently -- and this is the one collection where
+        that is not merely inconvenient: the queue is ordered oldest first
+        precisely so nothing ages out of sight, and a page that never advanced
+        hid the oldest work behind the newest.
+
+        Ascending, so the comparison is `>` rather than the `<` the other
+        collections use. The tiebreak is the run's identifier because
+        `started_at` is not unique -- two runs submitted in the same
+        transaction share it, and a cursor on a non-unique column either
+        repeats them or skips them.
+        """
+        after = Cursor.decode(cursor) if cursor else None
+        clauses = ["r.site_id = :site_id", "r.state = 'AWAITING_APPROVAL'"]
+        params: dict[str, Any] = {"site_id": site_id, "limit": limit + 1}
+        if after is not None:
+            clauses.append(
+                "(COALESCE(r.started_at, TIMESTAMPTZ '-infinity'), r.id::text) "
+                "> (:after_at, :after_id)"
+            )
+            params["after_at"] = after.created_at
+            params["after_id"] = str(after.id)
+
         # The artefact digest travels with the queue entry: it is the key the
         # lineage explorer is opened with, and an approver who has to look it
         # up separately is an approver who approves without looking.
         sql = (
-            "SELECT r.id AS run_id, r.name, r.started_at, "
+            "SELECT r.id AS run_id, r.name, r.started_at, "  # noqa: S608 -- literal fragments, bound values
             "COALESCE(a.sha256_manifest, '') AS artefact_sha256 "
             "FROM run r LEFT JOIN artefact a ON a.created_from_run = r.id "
-            "WHERE r.site_id = :site_id AND r.state = 'AWAITING_APPROVAL' "
-            "ORDER BY COALESCE(r.started_at, TIMESTAMPTZ '-infinity') ASC LIMIT :limit"
+            f"WHERE {' AND '.join(clauses)} "
+            "ORDER BY COALESCE(r.started_at, TIMESTAMPTZ '-infinity') ASC, r.id::text ASC "
+            "LIMIT :limit"
         )
         gates_sql = (
             "SELECT run_id, gate, suite_version, value, baseline_value, margin, passed "
             "FROM gate_result WHERE run_id = ANY(:run_ids) ORDER BY gate"
         )
         async with self._scoped(site_id) as session:
-            rows = list(
-                (await session.execute(text(sql), {"site_id": site_id, "limit": limit})).mappings()
-            )
+            fetched = list((await session.execute(text(sql), params)).mappings())
+            # Trimmed before the gates are read: the over-fetched row is not on
+            # this page, and loading its gate results would be a second query's
+            # worth of work for a row nobody is shown.
+            rows, next_cursor = _paginate(fetched, limit, key="run_id")
             run_ids = [row["run_id"] for row in rows]
             gates: dict[UUID, list[GateOut]] = {}
             if run_ids:
@@ -435,15 +484,40 @@ class DatabaseReadModel:
                 )
                 for row in rows
             ],
-            next_cursor=None,
+            next_cursor=next_cursor,
             limit=limit,
         )
 
     # -- audit --------------------------------------------------------------
 
     async def ledger(self, site_id: str, *, limit: int, cursor: str | None) -> LedgerSlice:
-        """A slice of the chain, re-linked here rather than trusted."""
-        after_seq = int(cursor) if cursor and cursor.isdigit() else None
+        """A slice of the chain, re-linked here rather than trusted.
+
+        The cursor here is a sequence number rather than the `(created_at, id)`
+        pair the other collections use, and deliberately: a chain is already
+        totally ordered by `seq`, so a compound cursor would be a second
+        ordering to keep in step with the first.
+
+        A cursor that is not a sequence number is refused rather than treated
+        as absent (RF-16). It used to fall back to `None`, which reads as
+        "start from the newest" -- so an audit view whose cursor was corrupted
+        silently restarted at the head of the chain, which is the one place in
+        this system where quietly showing the wrong window matters most.
+        """
+        after_seq: int | None = None
+        if cursor:
+            if not cursor.isdigit():
+                raise ProblemError(
+                    status=422,
+                    code="invalid-cursor",
+                    title="Invalid cursor",
+                    detail=(
+                        f"{cursor!r} is not a cursor this API issued. Cursors are opaque: "
+                        "pass back the `nextCursor` from the previous page rather than "
+                        "constructing one."
+                    ),
+                )
+            after_seq = int(cursor)
         clauses = ["site_id = :site_id"]
         params: dict[str, Any] = {"site_id": site_id, "limit": limit + 1}
         if after_seq is not None:
@@ -496,26 +570,51 @@ class DatabaseReadModel:
     # -- models -------------------------------------------------------------
 
     async def models(self, site_id: str, *, limit: int, cursor: str | None) -> ModelPage:
-        """The registry, published first, with the sole approver flag on the row."""
-        del cursor
+        """The registry, published first, with the sole approver flag on the row.
+
+        Keyset paginated like everything else (RF-16). It used to discard the
+        cursor and return `nextCursor: null`, so a registry larger than `limit`
+        was silently truncated -- and the registry is the collection that only
+        grows, so this was a defect that arrived on its own with time.
+
+        The tiebreak moved from `a.uri` to the artefact's identifier. Ordering
+        the unpublished tail alphabetically read better, but a cursor needs a
+        unique second column and `uri` is not one: two artefacts with the same
+        uri would make a page either repeat a row or skip one. `NULLS LAST`
+        became `COALESCE(..., '-infinity')` for the same reason the runs query
+        does it -- the cursor comparison has to see a value.
+        """
+        after = Cursor.decode(cursor) if cursor else None
+        clauses = [
+            "a.site_id = :site_id",
+            # `artefact_kind` is an enum; naming a value it does not have makes
+            # the whole query fail rather than return nothing.
+            "a.kind IN ('adapter', 'merged', 'quantised', 'base_model', 'substrate')",
+        ]
+        params: dict[str, Any] = {"site_id": site_id, "limit": limit + 1}
+        if after is not None:
+            clauses.append(
+                "(COALESCE(rel.published_at, TIMESTAMPTZ '-infinity'), a.id::text) "
+                "< (:after_at, :after_id)"
+            )
+            params["after_at"] = after.created_at
+            params["after_id"] = str(after.id)
+
         sql = (
-            "SELECT a.id, a.uri, a.sha256_manifest, a.kind, a.created_from_run, "
+            "SELECT a.id, a.uri, a.sha256_manifest, a.kind, a.created_from_run, "  # noqa: S608 -- literal fragments, bound values
             "r.name AS run_name, rel.id AS release_id, rel.published_at, "
             "rel.model_card_uri, rel.anchored_at, ap.sole_approver_exception, ap.approver "
             "FROM artefact a "
             "LEFT JOIN run r ON r.id = a.created_from_run "
             "LEFT JOIN release rel ON rel.artefact_id = a.id "
             "LEFT JOIN approval ap ON ap.id = rel.approval_id "
-            # `artefact_kind` is an enum; naming a value it does not have makes the
-            # whole query fail rather than return nothing.
-            "WHERE a.site_id = :site_id "
-            "AND a.kind IN ('adapter', 'merged', 'quantised', 'base_model', 'substrate') "
-            "ORDER BY rel.published_at DESC NULLS LAST, a.uri LIMIT :limit"
+            f"WHERE {' AND '.join(clauses)} "
+            "ORDER BY COALESCE(rel.published_at, TIMESTAMPTZ '-infinity') DESC, "
+            "a.id::text DESC LIMIT :limit"
         )
         async with self._scoped(site_id) as session:
-            rows = list(
-                (await session.execute(text(sql), {"site_id": site_id, "limit": limit})).mappings()
-            )
+            fetched = list((await session.execute(text(sql), params)).mappings())
+        rows, next_cursor = _paginate(fetched, limit, at="published_at")
         return ModelPage(
             items=[
                 ModelOut(
@@ -532,7 +631,7 @@ class DatabaseReadModel:
                 )
                 for row in rows
             ],
-            next_cursor=None,
+            next_cursor=next_cursor,
             limit=limit,
         )
 
@@ -1065,15 +1164,24 @@ async def _lineage(model: DatabaseReadModel, site_id: str, artefact: str) -> Lin
 
 
 def _paginate(
-    rows: Sequence[Any], limit: int, *, at: str = "started_at"
+    rows: Sequence[Any], limit: int, *, at: str = "started_at", key: str = "id"
 ) -> tuple[Sequence[Any], str | None]:
-    """Split an over-fetched result into a page and the cursor after it."""
+    """Split an over-fetched result into a page and the cursor after it.
+
+    `key` names the column holding the row's identifier, which is not always
+    `id`: the approval queue selects the run's as `run_id`, because the row is
+    a run awaiting a decision rather than an approval that exists yet.
+
+    A cursor is only issued when a further row was actually fetched, which is
+    what makes `nextCursor: null` mean "this is the last page" rather than
+    "this collection does not paginate" (RF-16).
+    """
     if len(rows) <= limit:
         return rows, None
     page = rows[:limit]
     last = page[-1]
     moment = last[at] or datetime.min.replace(tzinfo=UTC)
-    return page, Cursor(created_at=moment, id=str(last["id"])).encode()
+    return page, Cursor(created_at=moment, id=str(last[key])).encode()
 
 
 def _run_out(row: Any) -> RunOut:

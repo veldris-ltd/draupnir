@@ -7,11 +7,11 @@
 
 ## How it is demonstrated
 
-Pagination is keyset based throughout, and a test inserting rows mid-pagination shows no skipped or duplicated record.
+Pagination is keyset based throughout -- enumerated from the published document rather than from a list somebody maintains, so a collection cannot ship advertising a cursor it ignores (RF-16) -- and every one of them is paged to the end against real PostgreSQL, with a row inserted mid-pagination shown to skip and duplicate nothing.
 
 
 ```bash
-make test-contract
+make test-contract && make test-integration
 ```
 
 ## Evidence
@@ -21,6 +21,7 @@ make test-contract
 - `draupnir/api/routers/runs.py`
 - `draupnir/api/schemas.py`
 - `skills/draupnir-endpoint/scripts/new_endpoint.py`
+- `tests/integration/test_pagination.py`
 - `tests/unit/test_api_conventions.py`
 - `web/packages/api-client/src/generated/schema.d.ts`
 

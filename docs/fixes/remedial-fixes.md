@@ -2083,6 +2083,73 @@ rows skipped".
   returns a distinct second page.
 - Gated in stages 2.3 and 2.4.
 
+> **Status: done.**
+>
+> **Both collections now page like the other three.** `approvals` keys on
+> `(started_at, r.id)` ascending — ascending because the queue is oldest
+> first, so the comparison is `>` where every other collection uses `<`. The
+> tiebreak is the run's identifier rather than the instant alone, because
+> `started_at` is not unique: two runs submitted in the same transaction
+> share it, and a cursor on a non-unique column either repeats a row or skips
+> one. It is also trimmed to the page *before* the gate results are read,
+> since loading the over-fetched row's gates is a second query's worth of
+> work for a row nobody is shown.
+>
+> **`models` lost its `a.uri` tiebreak**, and that is a real change rather
+> than a tidy-up. Ordering the unpublished tail alphabetically read better,
+> but a keyset cursor needs a unique second column and `uri` is not one.
+> `NULLS LAST` became `COALESCE(..., '-infinity')` for the same reason the
+> runs query does it — the cursor comparison has to have a value to compare.
+>
+> **The enumeration is the guard, not a list.** Both the contract test and
+> the integration suite read the cursor-declaring operations out of
+> `docs/api/openapi.json`, so a sixth collection that advertises a cursor and
+> ignores it fails without anybody remembering to add it. That is the whole
+> point: this defect existed because the convention was followed query by
+> query, so the next query skipped it. A list maintained by hand would have
+> the same property.
+>
+> **Found while implementing: a malformed cursor was silently ignored.**
+> `reading.Cursor.decode` returned `None` for anything it could not parse and
+> every caller read that as "start from the beginning", so a client whose
+> cursor was corrupted in transit was served page one and told nothing — then
+> pages forward, corrupts it again, and loops, with every response it gets a
+> well formed page. `pagination.Cursor` in the same codebase refuses exactly
+> this, in as many words, in its docstring. Two cursor implementations
+> disagreeing about it is how the quieter one wins. It is now a 422
+> `invalid-cursor`, alongside the existing `invalid-page-size`.
+>
+> The audit view had its own version of the same thing: its cursor is a
+> ledger sequence number, and `int(cursor) if cursor.isdigit() else None`
+> made anything else mean "start from the newest". Of everywhere in this
+> system to quietly show the wrong window, the chain is the worst one. It
+> refuses too. Its cursor stays a sequence number rather than becoming a
+> `(created_at, id)` pair — a chain is already totally ordered by `seq`, and
+> a compound cursor would be a second ordering to keep in step with the
+> first.
+>
+> **Where the tests live differs from the register's suggestion.** The
+> acceptance criteria name `tests/integration/test_repositories.py`, which
+> tests repositories over synchronous connections; the cursor lives in the
+> read model, which is asynchronous and reached over HTTP. So the behaviour
+> is asserted in a new `tests/integration/test_pagination.py`, against a real
+> API process with real rows in PostgreSQL — every collection paged to the
+> end at `limit=2`, every row reached exactly once, and a row inserted behind
+> the boundary shown to remove nothing that was still coming.
+>
+> The contract file keeps the half that needs no database, and it is
+> structural rather than behavioural on purpose: a read model stubbed in the
+> contract suite pages perfectly while the query it stands for ignores its
+> cursor, which is precisely what was happening. It asks the syntax tree
+> whether each cursor-taking read ever *reads* the name — `del cursor`, the
+> idiom both broken reads used, is a statement about a name rather than a
+> string to grep for. Run against the previous commit it names `approvals`
+> and `models` and nothing else.
+>
+> AC-B3 claimed pagination was keyset based "throughout" while two of the
+> five collections discarded their cursor. It now says so accurately, and
+> cites the integration suite where the property is actually demonstrated.
+
 ---
 
 ### RF-17 — P4 — `readyz` checks one dependency and builds an engine per probe
@@ -2741,7 +2808,7 @@ diff of.
 | RF-13 | P3 | The 56-element array is not built; `getArray` fabricates it — **done**; the requeue refuses over slurmrestd |
 | RF-14 | P4 | The idempotency store is process-local — **done** |
 | RF-15 | P4 | The event stream is process-local, one-kind, and not a stream — **done** |
-| RF-16 | P4 | `listApprovals` and `listModels` ignore their cursor |
+| RF-16 | P4 | `listApprovals` and `listModels` ignore their cursor — **done**; a malformed cursor was silently ignored too |
 | RF-17 | P4 | `readyz` checks one dependency and builds an engine per probe |
 | RF-18 | P4 | `/metrics` exposes no DRAUPNIR metric; traces go nowhere |
 | RF-19 | P5 | Eleven coverage targets collect nothing |

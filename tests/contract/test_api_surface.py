@@ -385,6 +385,79 @@ def test_a_collection_returns_a_cursor_shaped_page() -> None:
     assert body["items"] == []
 
 
+def _discards_cursor(member: Any) -> bool:
+    """Whether a read takes a cursor and then does nothing with it.
+
+    Asked of the syntax tree rather than of the source text, because the
+    question is whether the name is ever read -- and `del cursor`, the idiom
+    the two broken reads used, is a statement about the name rather than a
+    string to grep for. There is nothing else to interrogate: a parameter
+    accepted and dropped shows up in no signature and in no response.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(member)))
+    return not any(
+        isinstance(node, ast.Name) and node.id == "cursor" and isinstance(node.ctx, ast.Load)
+        for node in ast.walk(tree)
+    )
+
+
+def test_every_cursor_declaring_operation_has_a_read_that_honours_it() -> None:
+    """RF-16, guarded here so it fails in the fast suite rather than only in Docker.
+
+    `listGates` and `listModels` advertised a `cursor` query parameter and
+    their read model methods opened with `del cursor`, returning
+    `nextCursor: null` no matter how many rows there were. Nothing connected
+    the two facts, so the contract said one thing and the query did another for
+    as long as nobody counted.
+
+    This connects them: every operation in the published document that declares
+    a cursor must have a read model method that takes one, and every method
+    that takes one must decode it. What each collection then *does* with it is
+    asserted against real PostgreSQL in `tests/integration/test_pagination.py`,
+    which is the only place it can be -- the defect was in SQL, and a stubbed
+    read model pages perfectly while the query it stands for ignores its
+    cursor.
+    """
+    import inspect
+    import json
+    from pathlib import Path
+
+    from draupnir.api.reading import DatabaseReadModel
+
+    document = json.loads(Path("docs/api/openapi.json").read_text(encoding="utf-8"))
+    declared = {
+        operation["operationId"]
+        for operations in document["paths"].values()
+        for method, operation in operations.items()
+        if isinstance(operation, dict)
+        and method == "get"
+        and any(p.get("name") == "cursor" for p in operation.get("parameters", []))
+    }
+    reads = {
+        name: member
+        for name, member in inspect.getmembers(DatabaseReadModel, inspect.isfunction)
+        if "cursor" in inspect.signature(member).parameters
+    }
+
+    assert len(reads) == len(declared), (
+        f"{len(declared)} operations declare a cursor but {len(reads)} reads take one: "
+        f"{sorted(declared)} against {sorted(reads)}"
+    )
+    # What the cursor is made of is the collection's business -- the audit view
+    # pages by ledger sequence, because a chain is already totally ordered and a
+    # compound cursor would be a second ordering to keep in step. What is not
+    # its business is discarding it, and `del cursor` was the idiom for that.
+    ignoring = [name for name, member in reads.items() if _discards_cursor(member)]
+    assert not ignoring, (
+        f"these reads take a cursor and do not use it, so their collection "
+        f"truncates silently: {sorted(ignoring)}"
+    )
+
+
 def test_an_invalid_page_size_is_a_problem_document() -> None:
     response = client_as(OPERATOR).get("/v1/runs?limit=0")
 

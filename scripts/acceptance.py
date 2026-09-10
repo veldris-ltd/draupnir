@@ -430,9 +430,12 @@ REGISTER: dict[str, Entry] = {
     ),
     "AC-B3": Entry(
         IMPLEMENTED,
-        "Pagination is keyset based throughout, and a test inserting rows mid-pagination "
-        "shows no skipped or duplicated record.",
-        "make test-contract",
+        "Pagination is keyset based throughout -- enumerated from the published document "
+        "rather than from a list somebody maintains, so a collection cannot ship "
+        "advertising a cursor it ignores (RF-16) -- and every one of them is paged to the "
+        "end against real PostgreSQL, with a row inserted mid-pagination shown to skip "
+        "and duplicate nothing.",
+        "make test-contract && make test-integration",
     ),
     "AC-B4": Entry(
         IMPLEMENTED,
