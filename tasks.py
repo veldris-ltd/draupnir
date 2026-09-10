@@ -31,6 +31,14 @@ BOOTSTRAP_VENV = ROOT / ".uv-bootstrap"
 COMPOSE_FILE = ROOT / "docker" / "compose.dev.yaml"
 COMPOSE_PROJECT = "draupnir-dev"
 OPENAPI = ROOT / "docs" / "api" / "openapi.json"
+
+#: Where each measured stage writes its report. One each, for the reason the
+#: data files are separate: two stages writing one file contend for it, and on
+#: Windows the loser reports a corrupt database rather than a coverage
+#: failure. `coverage.xml` keeps the name the pipeline already collects.
+UNIT_REPORT = ROOT / "coverage.xml"
+CONTRACT_REPORT = ROOT / "coverage-contract.xml"
+INTEGRATION_REPORT = ROOT / "coverage-integration.xml"
 API_URL = "http://127.0.0.1:8000"
 
 TASKS: dict[str, Callable[..., int]] = {}
@@ -49,6 +57,124 @@ PASSTHROUGH: set[str] = set()
 
 class Failure(Exception):
     """A task step failed."""
+
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+#
+# Dotted module names, never paths. RF-19: `--cov=draupnir/api/idempotency.py`
+# is treated as a module name, finds no module of that name, warns
+# `module-not-imported` and measures nothing -- while the percentage still
+# prints, computed over whatever else was named. Eleven targets were in that
+# state, so both floors were lower than they read.
+#
+# Written out here rather than inline at each call because the verification
+# below checks the same list the run was given. A target list that could drift
+# from the flags would reintroduce the defect one rename later.
+
+#: The floors each stage must clear. Raised to the achieved figure rather than
+#: fitted to it: RF-19 found eleven targets measuring nothing, so both the 90
+#: and the 85 were computed over a smaller denominator than they named and the
+#: real coverage was not what the numbers said.
+UNIT_FLOOR = 91
+CONTRACT_FLOOR = 87
+INTEGRATION_FLOOR = 81
+
+#: The unit stage: pure domain and module logic, plus the edge's pure
+#: mechanisms. Routers are exercised by a request and are measured at the
+#: contract level, where a request exists.
+UNIT_COVERAGE: tuple[str, ...] = (
+    "draupnir.core.domain",
+    "draupnir.motsognir",
+    "draupnir.hamarr",
+    "draupnir.brisingamen",
+    "draupnir.raun",
+    "draupnir.skidbladnir",
+    "draupnir.svalinn",
+    "draupnir.gullinbursti",
+    "draupnir.megingjord",
+    "draupnir.api.concurrency",
+    "draupnir.api.context",
+    "draupnir.api.events",
+    "draupnir.api.guards",
+    "draupnir.api.idempotency",
+    "draupnir.api.pagination",
+    "draupnir.api.telemetry",
+)
+
+#: The contract stage: the edge, where a convention is shown to be attached to
+#: a route rather than merely implemented.
+CONTRACT_COVERAGE: tuple[str, ...] = (
+    "draupnir.api.app",
+    "draupnir.api.deps",
+    "draupnir.api.problems",
+    "draupnir.api.routers",
+    "draupnir.api.schemas",
+)
+
+#: The integration stage: what needs a database or an object store to exercise.
+INTEGRATION_COVERAGE: tuple[str, ...] = (
+    "draupnir.core.infrastructure",
+    "draupnir.core.application",
+    "draupnir.procedures",
+)
+
+
+def coverage_flags(targets: Sequence[str], *, report: Path, floor: int) -> list[str]:
+    """The `--cov` arguments for these targets, plus the reports and the floor."""
+    return [
+        *(f"--cov={target}" for target in targets),
+        f"--cov-fail-under={floor}",
+        "--cov-report=term-missing",
+        f"--cov-report=xml:{report}",
+    ]
+
+
+def measured(report: Path) -> set[str]:
+    """Every module the report actually measured, as dotted names."""
+    import xml.etree.ElementTree as ElementTree
+
+    if not report.is_file():
+        raise Failure(f"{report} was not written, so what was measured cannot be checked")
+
+    found: set[str] = set()
+    # The file is one `coverage` wrote a moment ago into this repository, not
+    # untrusted input; adding `defusedxml` to parse our own build output would
+    # be a dependency to justify in the SBOM for no threat.
+    for element in ElementTree.parse(report).iter("class"):  # noqa: S314
+        filename = element.get("filename", "")
+        if filename.endswith(".py"):
+            found.add(filename.replace("\\", "/").replace("/", ".").removesuffix(".py"))
+    return found
+
+
+def verify_coverage(report: Path, targets: Sequence[str]) -> None:
+    """Refuse a run in which a named target measured nothing. RF-19.
+
+    A coverage target that measures nothing is worse than an absent one,
+    because the percentage still prints -- over a smaller denominator, so the
+    figure goes *up*. Eleven targets were in that state and both floors read
+    higher than they were.
+
+    Checked against what the report holds rather than against the warning
+    coverage emits, because a warning on standard error is a thing a pipeline
+    scrolls past.
+    """
+    seen = measured(report)
+    missing = [
+        target
+        for target in targets
+        if not any(name == target or name.startswith(f"{target}.") for name in seen)
+    ]
+    if missing:
+        named = ", ".join(missing)
+        raise Failure(
+            f"these coverage targets measured nothing: {named}. A target coverage "
+            "cannot resolve is silently dropped and the percentage is computed "
+            "without it, so the floor is lower than it reads. Name modules "
+            "(draupnir.api.idempotency), never paths."
+        )
 
 
 def task(
@@ -707,37 +833,20 @@ def test_unit() -> int:
     # measured by the contract level, and so is the API edge: a router is
     # exercised by a request, and measuring it here would report the routers
     # as uncovered while the contract level exercises every one of them.
+    # The edge's pure mechanisms -- idempotency, cursors, entity tags, event
+    # deltas, redaction -- are in `UNIT_COVERAGE` too. They are unit testable
+    # and are tested here; the routers that use them are exercised by the
+    # contract level, which is where a request exists.
     uv_run(
         "pytest",
         "tests/unit",
-        "--cov=draupnir/core/domain",
-        "--cov=draupnir/motsognir",
-        "--cov=draupnir/hamarr",
-        "--cov=draupnir/brisingamen",
-        "--cov=draupnir/raun",
-        "--cov=draupnir/skidbladnir",
-        "--cov=draupnir/svalinn",
-        "--cov=draupnir/gullinbursti",
-        "--cov=draupnir/megingjord",
-        # The edge's pure mechanisms -- idempotency, cursors, entity tags,
-        # event deltas, redaction -- are unit testable and are tested here.
-        # The routers that use them are exercised by the contract level, which
-        # is where a request exists.
-        "--cov=draupnir/api/concurrency.py",
-        "--cov=draupnir/api/context.py",
-        "--cov=draupnir/api/events.py",
-        "--cov=draupnir/api/guards.py",
-        "--cov=draupnir/api/idempotency.py",
-        "--cov=draupnir/api/pagination.py",
-        "--cov=draupnir/api/telemetry.py",
-        "--cov-fail-under=90",
-        "--cov-report=term-missing",
-        "--cov-report=xml",
+        *coverage_flags(UNIT_COVERAGE, report=UNIT_REPORT, floor=UNIT_FLOOR),
         # Its own data file. Two pipeline stages measuring coverage into the
         # same one contend for it, and on Windows the loser reports a corrupt
         # database rather than a coverage failure.
         env={"COVERAGE_FILE": str(ROOT / ".coverage.unit")},
     )
+    verify_coverage(UNIT_REPORT, UNIT_COVERAGE)
     return 0
 
 
@@ -756,15 +865,10 @@ def test_contract() -> int:
     uv_run(
         "pytest",
         "tests/contract",
-        "--cov=draupnir/api/app.py",
-        "--cov=draupnir/api/deps.py",
-        "--cov=draupnir/api/problems.py",
-        "--cov=draupnir/api/routers",
-        "--cov=draupnir/api/schemas.py",
-        "--cov-fail-under=85",
-        "--cov-report=term-missing",
+        *coverage_flags(CONTRACT_COVERAGE, report=CONTRACT_REPORT, floor=CONTRACT_FLOOR),
         env={"COVERAGE_FILE": str(ROOT / ".coverage.contract")},
     )
+    verify_coverage(CONTRACT_REPORT, CONTRACT_COVERAGE)
     return 0
 
 
@@ -797,11 +901,7 @@ def test_integration() -> int:
     uv_run(
         "pytest",
         "tests/integration",
-        "--cov=draupnir/core/infrastructure",
-        "--cov=draupnir/core/application",
-        "--cov=draupnir/procedures",
-        "--cov-fail-under=80",
-        "--cov-report=term-missing",
+        *coverage_flags(INTEGRATION_COVERAGE, report=INTEGRATION_REPORT, floor=INTEGRATION_FLOOR),
         # The M1-M10 procedure and the degraded-mode injections both place work
         # through the reference drivers, which are unsigned until the Veldris
         # PKI verifier has a key (SAD 9.3). Without this the procedure would run
@@ -811,6 +911,7 @@ def test_integration() -> int:
             "DRAUPNIR_DEV": "1",
         },
     )
+    verify_coverage(INTEGRATION_REPORT, INTEGRATION_COVERAGE)
     return 0
 
 

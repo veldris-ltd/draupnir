@@ -310,6 +310,8 @@ jobs:
             sbom/
             dist/
             coverage.xml
+            coverage-contract.xml
+            coverage-integration.xml
             docs/api/openapi.json
             docs/egress-policy.md
             web/playwright-report/

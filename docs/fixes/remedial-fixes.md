@@ -2469,6 +2469,52 @@ without them. The floor is therefore lower than it reads.
 - Both stages still pass at or above their floors, with the floors updated.
 - Gated in stages 2.1 and 2.3.
 
+> **Status: done.**
+>
+> **Dotted module names, and a guard that they measured something.** The
+> targets are declared once, in `UNIT_COVERAGE`, `CONTRACT_COVERAGE` and
+> `INTEGRATION_COVERAGE`; `coverage_flags` builds the `--cov` arguments from
+> them and `verify_coverage` checks the report against the same tuple. That
+> arrangement is the point rather than tidiness — a list of flags and a list of
+> things to verify that could drift apart is the defect one rename away from
+> returning, and a test asserts they are still built from one source.
+>
+> **Verified against the report, not against the warning.** Coverage does say
+> `module-not-imported`, on standard error, in a run that then prints a
+> percentage and exits zero. That is a thing a pipeline scrolls past, and it
+> did, for eleven targets. The guard parses the XML and names what is missing.
+>
+> **The floors are the achieved figures.** Unit 90 to **91** (91.16 measured),
+> contract 85 to **87** (87.16), integration 80 to **81** (81.25). Raised to
+> what is reached rather than fitted to it, which is what the register asked
+> for — and the numbers moved *up* when the broken targets were fixed, which is
+> the counter-intuitive part worth stating: a target measuring nothing shrinks
+> the denominator, so the percentage a broken target produces is higher than
+> the truth, not lower.
+>
+> **The integration stage was included too**, though its targets were
+> directories and already worked. A directory can go stale as easily as a path
+> can be wrong, the guard costs one XML parse, and a stage exempt from a check
+> is where the next instance of the defect will be.
+>
+> **Three reports rather than one.** Each stage writes its own, for the reason
+> each already has its own data file: two stages writing one file contend for
+> it, and on Windows the loser reports a corrupt database rather than a
+> coverage failure. `coverage.xml` keeps the name the pipeline already
+> collects; the other two are added to the evidence upload and to
+> `.gitignore`.
+>
+> **The file is read as well as the lists.** `test_no_stage_passes_a_coverage_path_anywhere_in_the_file`
+> greps `tasks.py` for a `--cov=` argument that looks like a path, so a new
+> stage written inline — bypassing the lists entirely — brings the defect back
+> loudly rather than quietly.
+>
+> AC-N8 claimed "90 per cent statement coverage on the core". The figure was
+> real but the denominator was not what the criterion described: the edge's
+> pure mechanisms were named as targets and excluded from the measurement. It
+> now states all three stages' figures and says that a target measuring nothing
+> is refused.
+
 ---
 
 ### RF-20 — P5 — HODD and GLEIPNIR are under no coverage floor
@@ -2995,7 +3041,7 @@ diff of.
 | RF-16 | P4 | `listApprovals` and `listModels` ignore their cursor — **done**; a malformed cursor was silently ignored too |
 | RF-17 | P4 | `readyz` checks one dependency and builds an engine per probe — **done** |
 | RF-18 | P4 | `/metrics` exposes no DRAUPNIR metric; traces go nowhere — **done**; two worker-side metrics await a scrape surface on the worker |
-| RF-19 | P5 | Eleven coverage targets collect nothing |
+| RF-19 | P5 | Eleven coverage targets collect nothing — **done**; floors raised to 91/87/81 |
 | RF-20 | P5 | HODD and GLEIPNIR are under no coverage floor |
 | RF-21 | P5 | The breaking-change gate has no baseline |
 | RF-22 | P5 | The visual regression gate never gates in CI |

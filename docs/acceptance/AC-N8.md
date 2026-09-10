@@ -7,7 +7,7 @@
 
 ## How it is demonstrated
 
-90 per cent statement coverage on the core, and every transition in SAD 6.1 exercised by name.
+91 per cent on the unit stage, 87 on the contract stage and 81 on the integration stage, and every transition in SAD 6.1 exercised by name. Each stage now refuses a run in which a named target measured nothing: eleven of them were doing exactly that, so the figures were computed over a smaller denominator than they named (RF-19).
 
 
 ```bash
