@@ -93,8 +93,18 @@ CASES: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
         {"formats_regated": ["nvfp4", "gguf-q4km"], "formats_failing": ["gguf-q4km"]},
     ),
     "AWAITING_APPROVAL->RELEASED": (
-        {"approver_has_role": True, "decision": "APPROVED", "signature": "sig"},
-        {"approver_has_role": False, "decision": "APPROVED", "signature": "sig"},
+        {
+            "approver_has_role": True,
+            "decision": "APPROVED",
+            "signature": "sig",
+            "signature_verified": True,
+        },
+        {
+            "approver_has_role": False,
+            "decision": "APPROVED",
+            "signature": "sig",
+            "signature_verified": True,
+        },
     ),
     "AWAITING_APPROVAL->QUARANTINED": (
         {"approver_has_role": True, "decision": "REJECTED"},
@@ -378,3 +388,53 @@ def test_a_guard_says_which_of_its_conditions_failed(
 def test_a_refusal_carries_no_reason_when_it_passed() -> None:
     passing, _ = CASES["QUEUED->TRAINING"]
     assert evaluate(RunState.QUEUED, RunState.TRAINING, TransitionContext(passing)).reason == ""
+
+
+def test_the_approver_signed_guard_refuses_an_unverified_signature() -> None:
+    """RF-06. `"signature": "x"` used to pass.
+
+    The guard ended `bool(context.require(name, "signature"))`, so any
+    non-empty string satisfied it — and the route supplied `body.signature`
+    straight through, unverified. The guard named the control and measured
+    whether a field had been filled in.
+    """
+    facts = {
+        "approver_has_role": True,
+        "decision": "APPROVED",
+        "signature": "x",
+        "signature_verified": False,
+    }
+
+    outcome = GUARDS["approver-signed"](TransitionContext(facts))
+
+    assert not outcome.passed
+    assert "not verified" in outcome.reason
+
+
+def test_the_approver_signed_guard_refuses_an_absent_verification_fact() -> None:
+    """An absent fact is not a passing one, and it is not even a failing one.
+
+    `MissingFactError` rather than a failed outcome, which is the stricter
+    answer and the right one: a caller that omits the fact is not asserting
+    the signature failed to verify, they are saying nothing about it. A guard
+    that quietly read silence as `False` would be indistinguishable from one
+    that read it as `True` on the day somebody inverted a default.
+    """
+    facts = {"approver_has_role": True, "decision": "APPROVED", "signature": "x"}
+
+    with pytest.raises(MissingFactError, match="signature_verified"):
+        GUARDS["approver-signed"](TransitionContext(facts))
+
+
+def test_a_release_must_record_that_the_signature_was_verified() -> None:
+    """A control that is checked and not recorded is one nobody can show was checked.
+
+    The guard decides at the moment; the required record is what an auditor
+    reads afterwards.
+    """
+    transition = assert_allowed(RunState.AWAITING_APPROVAL, RunState.RELEASED)
+
+    assert "signature_verified" in transition.records
+    assert "signature_verified" in missing_records(
+        transition, {"approver": "a", "signature": "s", "decided_at": "t"}
+    )

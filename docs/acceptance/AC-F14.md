@@ -7,7 +7,7 @@
 
 ## How it is demonstrated
 
-A dry run validates and renders the plan without submitting; the console makes it the primary action.
+A dry run validates and renders the plan without submitting; the console makes it the primary action; and the worker dispatches the same render through the same registry, so the plan an operator was shown is the plan that is submitted -- asserted by comparing the two rather than assumed from `render` being pure (RF-10).
 
 
 ```bash
@@ -20,7 +20,9 @@ make test-e2e
 - `draupnir/api/schemas.py`
 - `draupnir/interfaces/testing/harness.py`
 - `draupnir/interfaces/testing/suite.py`
+- `draupnir/worker/stages.py`
 - `tests/contract/test_run_submission.py`
+- `tests/unit/test_worker_planning.py`
 - `web/e2e/journeys/j2-operate.spec.ts`
 - `web/packages/api-client/src/generated/schema.d.ts`
 

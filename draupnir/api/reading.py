@@ -32,6 +32,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from itertools import pairwise
+from types import SimpleNamespace
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -41,6 +42,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from draupnir.api.schemas import (
     ApprovalItem,
     ApprovalPage,
+    ArrayElementOut,
+    ArrayOut,
     ArtefactOut,
     CorpusOut,
     CorpusPage,
@@ -132,6 +135,10 @@ class ReadModel(Protocol):
         """The corpus of each jurisdiction, and how far it has been curated."""
         ...
 
+    async def array(self, site_id: str) -> ArrayOut | None:
+        """The array this site has submitted, or `None` if it has submitted none."""
+        ...
+
     async def retention(self, site_id: str) -> RetentionPage:
         """Retention actions, soonest first."""
         ...
@@ -197,6 +204,11 @@ class EmptyReadModel:
         """No hits."""
         del site_id
         return SearchPage(items=[], query=query, limit=limit)
+
+    async def array(self, site_id: str) -> ArrayOut | None:
+        """No array. RF-13: `None` rather than a size derived from nothing."""
+        del site_id
+        return None
 
     async def corpora(self, site_id: str) -> CorpusPage:
         """No corpora."""
@@ -594,6 +606,61 @@ class DatabaseReadModel:
         return SearchPage(items=hits[:limit], query=query, limit=limit)
 
     # -- curation and retention --------------------------------------------
+
+    async def array(self, site_id: str) -> ArrayOut | None:
+        """The array this site holds, folded from its own entries. RF-13.
+
+        Read rather than derived. `getArray` listed the runs at the site,
+        sorted them and numbered them `0..n`, so `size` was the number of runs
+        rather than fifty-six, `attempts` was `max(1, 4 - retry_budget)` -- a
+        formula rather than a count -- and a site with sixty runs from other
+        work reported a sixty-element array.
+
+        Folded here rather than projected into a table, because an array is
+        small and the chain is the record: a projection would be a second place
+        the element states live, and the two would disagree the first time one
+        was rebuilt.
+        """
+        from draupnir.motsognir import arrays as array_domain
+
+        sql = (
+            "SELECT seq, transition, payload FROM ledger_entry "
+            "WHERE site_id = :site_id AND subject_type = :subject ORDER BY seq"
+        )
+        async with self._scoped(site_id) as session:
+            rows = list(
+                (
+                    await session.execute(
+                        text(sql),
+                        {"site_id": site_id, "subject": array_domain.ARRAY_SUBJECT},
+                    )
+                ).mappings()
+            )
+
+        record = array_domain.fold(
+            SimpleNamespace(transition=row["transition"], payload=row["payload"]) for row in rows
+        )
+        if record is None:
+            return None
+
+        return ArrayOut(
+            name=record.name,
+            size=record.size,
+            elements=[
+                ArrayElementOut(
+                    index=element.index,
+                    subject=element.subject,
+                    state=str(element.state),
+                    attempts=element.attempts,
+                    node=element.node,
+                )
+                for element in record.elements
+            ],
+            summary=record.summary,
+            slurm_array=record.slurm_array,
+            concurrency=record.concurrency,
+            job_id=record.job_id or None,
+        )
 
     async def corpora(self, site_id: str) -> CorpusPage:
         """The corpus of each jurisdiction, and how far it has been curated.

@@ -134,6 +134,15 @@ def released_entry_for(artefact_sha256: str) -> Question:
     return ask
 
 
+def publication_facts_for(artefact_sha256: str) -> Question:
+    """Everything a publication is decided against, as of one moment. RF-05."""
+
+    def ask(orchestrator: Orchestrator) -> Any:
+        return orchestrator.publication_facts(artefact_sha256)
+
+    return ask
+
+
 class NoWriter:
     """Records nothing. The default, and what a contract test runs against.
 

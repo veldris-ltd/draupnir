@@ -8,21 +8,28 @@
 set -euo pipefail
 
 PREVIOUS="${1:?usage: rollback.sh <revision>}"
-REGISTRY="${DRAUPNIR_REGISTRY:-registry.veldris.internal}"
+REGISTRY="${DRAUPNIR_REGISTRY:-}"
 
 # shellcheck source=deploy/lib.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/lib.sh"
 UNITS=("${DRAUPNIR_UNITS[@]}")
+: "${REGISTRY:=$(draupnir_host_for registry)}"
+
+# Before anything is changed. A rollback runs when a deployment has already
+# gone wrong, so the argument is checked at the top rather than discovered at
+# the pull -- and the message names what arrived, because the thing that
+# arrived is usually the output of a command somebody meant to be a revision.
+draupnir_require_tag "${PREVIOUS}" "rollback revision" || exit $?
 
 echo "==> rolling back to ${PREVIOUS}"
 
 for unit in "${UNITS[@]}"; do
   image="$(draupnir_image_for "${unit}" "${PREVIOUS}" "${REGISTRY}")"
-  systemctl --user set-environment "$(draupnir_image_var "${unit}")=${image}"
+  draupnir_service_set_image "${unit}" "${image}"
 done
 
 for unit in "${UNITS[@]}"; do
-  systemctl --user restart "${unit}.service"
+  draupnir_service_restart "${unit}"
 done
 
 echo "==> rollback complete; the schema was deliberately left forward"

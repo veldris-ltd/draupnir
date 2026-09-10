@@ -28,6 +28,7 @@ from draupnir.interfaces.types import (
     JobHandle,
     JobPlan,
     JobStatus,
+    NodeState,
     ObjectInfo,
     PolicyDecision,
     ProgressEvent,
@@ -154,6 +155,56 @@ class ScheduleDriver(Driver, Protocol):
 
     def logs(self, handle: JobHandle) -> str:
         """Return whatever output the job has produced so far."""
+        ...
+
+
+@runtime_checkable
+class ClusterScheduleDriver(ScheduleDriver, Protocol):
+    """A schedule driver backed by a real cluster.
+
+    Three things a cluster can answer that a bare `ScheduleDriver` cannot, and
+    that the core needs before it can drive one honestly. Optional, and
+    separate, because a local runner has none of them: it has no nodes to
+    report, no array element to requeue, and nothing to find a job in.
+
+    The core checks for this at the point of use rather than requiring it of
+    every driver, so an installation that has only a local runner keeps
+    working and says what it cannot do.
+    """
+
+    def find(self, name: str) -> JobHandle | None:
+        """The job this scheduler holds under `name`, or None.
+
+        What makes dispatch idempotent without the control plane remembering
+        anything. A run is submitted under a name derived from its identifier,
+        so a worker that submitted and then died can ask whether it did, and a
+        run stays `QUEUED` -- which is what a queued job is -- until the
+        scheduler says it started.
+
+        Without this a worker would have to record an allocation the moment it
+        submitted, which is how a job that Slurm has merely accepted came to be
+        recorded as TRAINING.
+        """
+        ...
+
+    def nodes(self) -> tuple[NodeState, ...]:
+        """Every node the scheduler knows, and whether it can take work.
+
+        MOTSOGNIR decides placement from the appliances that are up, and until
+        something asks, "up" is an assumption. SAD 11.2 row 3 and the runbook's
+        section 3 both describe an estate short of a machine; neither is
+        reachable if the estate is a constant.
+        """
+        ...
+
+    def requeue(self, handle: JobHandle, index: int) -> JobStatus:
+        """Requeue one element of an array, leaving the others alone.
+
+        AC-F6. `scontrol requeue <job>_<index>` rather than a fresh
+        submission: a resubmission is a new job identifier, which severs the
+        element from the array it belongs to and loses both the `%M` throttle
+        and the accounting record that ties the fifty six together.
+        """
         ...
 
 

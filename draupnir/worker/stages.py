@@ -13,15 +13,34 @@ unwound on every transient failure would stop the estate over a full disk.
 
 **Where the artefacts live.** Each run gets a scratch directory derived from its
 identifier, so a restarted worker finds what the one before it wrote. The
-digests go in the chain, which is what makes the directory disposable: a
-scratch tree that is lost costs the run, and a chain that is lost costs
-everything.
+scratch tree is a workbench, not a home: what a stage produces is put into
+HODD at its `hodd://` address and sealed there before the transition that
+records it, and the address goes in the chain beside the digest.
+
+That ordering is the point (RF-08). A transition recorded first and a put
+attempted afterwards leaves a chain saying an artefact exists at an address
+holding nothing, which is the one failure the whole provenance argument cannot
+survive -- a publication would re-hash bytes that are not there, and the
+refusal would name the wrong cause. So the vault write happens first and a
+vault that will not take it defers the run.
 
 **On the executors.** The plans are placed through the real schedule driver and
-run as real processes with real exit codes. What they run is the development
-executor of `motsognir.execution`, because there is no GPU in a control plane;
-the driver-rendered plan is recorded beside the result so that what a real
-estate would have run is in the chain even where it did not run here.
+run as real processes with real exit codes. What they run is what the run's
+specification renders to, through the plug-in registry and the same
+`validate`-then-`render` the dry run performs -- so the command an operator was
+shown before submitting is the command that is submitted (AC-F14).
+
+That was not true (RF-10). Every dispatch, for every run, built
+`execution.stand_in_plan`, which runs a Python one-liner; the specification was
+not consulted and neither was the registry, while `POST /v1/runs/dry-run`
+rendered the real driver's command and returned it. The console showed a
+LLaMA-Factory invocation and the worker ran `sys.executable -c`.
+
+The stand-in remains, behind `DRAUPNIR_WORKER_STAND_IN`, because `make
+procedure` runs on a machine with no GPU and no training framework. It logs
+`executor.stand-in` at warning level on every use, in the shape
+`plugin.unverified` uses: a simulation nobody is told about is the problem, and
+a simulation that announces itself is a development tool.
 """
 
 from __future__ import annotations
@@ -29,21 +48,35 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+import structlog
+
+from draupnir.api import assurance
 from draupnir.brisingamen.sweep import Sweep, linear
 from draupnir.core.application.orchestrator import Orchestrator, RunFacts
 from draupnir.core.domain.states import RunState
 from draupnir.gleipnir import gates as gleipnir_gates
-from draupnir.interfaces.types import JobState
+from draupnir.hodd import quota, stores
+from draupnir.interfaces.types import JobHandle, JobPlan, JobState, RunSpec
 from draupnir.motsognir import execution
-from draupnir.motsognir.placement import Estate, Partition, PlacementError
+from draupnir.motsognir.placement import Estate, Partition, Placement, PlacementError
 from draupnir.motsognir.placement import plan as place
 from draupnir.raun import suites as raun_suites
+from draupnir.svalinn import integrity
+
+logger = structlog.get_logger(__name__)
+
+#: What the chain records as the executor when the development stand-in ran.
+#: A name rather than a flag, so that a reader of a run's history sees it
+#: without knowing to look for one -- and so that a query for runs that were
+#: simulated is a query rather than an inference.
+STAND_IN_EXECUTOR = "development-stand-in"
 
 #: The release formats of SAD 6.2's worked example. What a run is quantised to
 #: comes from its specification; this is the default for a run whose
@@ -100,6 +133,71 @@ class Context:
     scheduler: Any
     scratch: Path
     estate: Estate = field(default_factory=Estate)
+    #: Which site's addresses this worker writes. An artefact URI always names
+    #: its site (SAD 7.4), so a worker that guessed would write addresses no
+    #: other forge could resolve.
+    site_id: str = "sindri"
+    #: The artefact store. `None` on an installation with no vault configured,
+    #: where the stages still run and still record digests but the artefacts
+    #: stay in scratch -- so nothing can be released, which is the truthful
+    #: consequence and is said out loud in the outcome rather than discovered
+    #: at publication.
+    store: Any = None
+    #: The secrets broker. Held so that every plan this worker submits is
+    #: checked for a materialised secret before it reaches a scheduler, and so
+    #: that a job's environment carries lease references rather than values
+    #: (RF-09, threat T6).
+    secrets: Any = None
+    #: The leases this run's jobs are started with. Empty at Sindri, which
+    #: brokers no secret to a training job today -- and the environment is
+    #: built through `brokered_environment` anyway, because the point is that
+    #: there is no code path by which a value could be written into one.
+    leases: tuple[Any, ...] = ()
+    #: The plug-in registry a specification's driver is resolved through. The
+    #: same one the dry run uses, which is what makes the plan an operator was
+    #: shown the plan that is submitted (RF-10, AC-F14).
+    registry: Any = None
+    #: Run the development executor instead of the specification's driver.
+    #: False everywhere but a machine with no GPU, and loud when true.
+    stand_in: bool = False
+    #: Which driver rendered the plan most recently placed, for the chain to
+    #: record. Set by `_plan_for` and read by the transition that follows it,
+    #: rather than threaded through four signatures that would each have to
+    #: remember it.
+    planned_by: str = ""
+    #: What relative gates are compared against, read out of the chain. `None`
+    #: on a worker that has not loaded them, which defers a judgement rather
+    #: than inventing one -- a run judged against a baseline derived from its
+    #: own score passes by construction (RF-10).
+    baselines: Any = None
+
+    def confinement(self, workdir: Path, artefacts: Sequence[Path] = ()) -> dict[str, Any]:
+        """The sandbox profile this job runs under, rendered for the plan. RF-09.
+
+        Composed here because the composition root is the only place allowed to
+        put SVALINN and MOTSOGNIR together: they are siblings in the layering
+        and neither imports the other. `sandbox.py` said the plan carries lease
+        references and `execution.stand_in_plan` wrote a two-entry environment;
+        nothing ever built a profile, so the whole module read as coverage.
+
+        Inputs mount read-only and the working directory is the one writable
+        place. That is not a policy this chooses -- `sandbox.for_job` forces it,
+        and a writable artefact mount is threat T8 reached from inside.
+        """
+        from draupnir.svalinn import sandbox, secrets
+
+        return sandbox.for_job(
+            workdir=str(workdir),
+            artefacts=[(str(item), f"/inputs/{item.name}") for item in artefacts],
+            environment=secrets.brokered_environment(self.leases),
+        ).as_payload()
+
+    def job_environment(self) -> dict[str, str]:
+        """What a job is started with: lease references, never values."""
+        from draupnir.svalinn import secrets
+
+        return secrets.brokered_environment(self.leases)
+
     #: False while the supply is on battery. Dispatch stops; running work does
     #: not (SAD 11.2, last row).
     may_dispatch: bool = True
@@ -124,17 +222,398 @@ class Context:
 Stage = Callable[[Context, RunFacts], Outcome]
 
 
+class NoJudgementError(Exception):
+    """The gates could not be judged, and the reason is not a failing gate.
+
+    Distinct from a gate failure on purpose. A run that failed a gate has been
+    measured and found wanting; a run that could not be judged has not been
+    measured, and treating the second as the first would record a failure
+    against a model nobody evaluated.
+    """
+
+
+def _judged(
+    context: Context,
+    facts: RunFacts,
+    *,
+    artefact_kind: str,
+    digest: str,
+    workdir: Path,
+    suite: Any,
+) -> Any:
+    """Measure the artefact and put the numbers to GLEIPNIR. RF-10.
+
+    The measurements come from the `draupnir.eval` driver the specification
+    names, read out of what the harness wrote; the baseline comes out of the
+    chain; the verdict is GLEIPNIR's, reached through `api.assurance`, which is
+    the seam that already existed for exactly this and which nothing called.
+
+    What this replaced was worse than a stub. `_measurements` derived a score
+    per gate from the artefact's SHA-256 and `_baselines` returned
+    `measurement * 0.95`, so every run was judged against ninety-five per cent
+    of its own score and every run passed. The docstrings were candid; the
+    consequence was that six gates, four of them relative, decided nothing.
+
+    A run with no baseline is refused rather than given one. That is the whole
+    point: `Gate.holds` already refuses a relative comparison with no baseline,
+    and deriving one from the run under judgement turns the refusal into a pass.
+    """
+    if context.stand_in:
+        logger.warning(
+            "gates.stand-in",
+            runId=str(facts.run_id),
+            artefactKind=artefact_kind,
+            reason=(
+                "DRAUPNIR_WORKER_STAND_IN is set, so these gate measurements are "
+                "derived from the artefact's digest rather than measured, and the "
+                "baseline is derived from them. Nothing here is an evaluation."
+            ),
+        )
+        measurements = _measurements(digest, suite.gates)
+        return gleipnir_gates.evaluate(
+            measurements, _baselines(suite.gates, measurements), suite_version=suite.version
+        )
+
+    measurements = _measured(context, facts, workdir=workdir, suite=suite)
+    baselines = _baseline_for(context, suite=suite, artefact_kind=artefact_kind, facts=facts)
+    return assurance.gleipnir_judge(
+        measurements,
+        baselines,
+        suite_version=suite.version,
+        gate_ids=list(suite.gates),
+    )
+
+
+def _measured(context: Context, facts: RunFacts, *, workdir: Path, suite: Any) -> dict[str, float]:
+    """What the evaluation harness measured, read through its driver."""
+    if context.registry is None or facts.specification is None:
+        msg = (
+            "no evaluation driver can be resolved for this run, so its gates cannot be "
+            "measured. Set DRAUPNIR_WORKER_STAND_IN to derive numbers deliberately, or "
+            "install the suite the specification names."
+        )
+        raise NoJudgementError(msg)
+
+    try:
+        spec = RunSpec.from_mapping(facts.specification)
+        plugin = context.registry.for_spec(spec, "draupnir.eval")
+    except Exception as error:
+        raise NoJudgementError(f"no installed evaluation driver: {error}") from error
+
+    try:
+        outcomes = plugin.driver.collect_gates(workdir, suite.version)
+    except Exception as error:
+        raise NoJudgementError(f"{plugin.name} could not read its results: {error}") from error
+
+    # The value, not the verdict. A driver that filled `passed` in would be a
+    # driver that could pass its own evaluation, and Decision S4 puts that with
+    # GLEIPNIR; `lm-eval` leaves it unset for exactly this reason.
+    measurements = {outcome.gate: float(outcome.value) for outcome in outcomes}
+    missing = [gate for gate in suite.gates if gate not in measurements]
+    if missing:
+        raise NoJudgementError(
+            f"{plugin.name} reported no measurement for {', '.join(sorted(missing))}. A gate "
+            "with no measurement is not a gate that passed, and judging the rest would "
+            "report a pass for a suite that did not run."
+        )
+    return measurements
+
+
+def _baseline_for(
+    context: Context, *, suite: Any, artefact_kind: str, facts: RunFacts
+) -> dict[str, float]:
+    """The values relative gates are compared against, out of the chain."""
+    from draupnir.raun.baselines import NoBaselineError
+
+    jurisdiction = None
+    if facts.specification is not None:
+        metadata = facts.specification.get("metadata")
+        if isinstance(metadata, Mapping):
+            found = metadata.get("jurisdiction")
+            jurisdiction = str(found) if found else None
+
+    if context.baselines is None:
+        msg = (
+            "this worker holds no baselines, so a relative gate has nothing to compare "
+            "against. Four of the six gates are relative and a baseline derived from the "
+            "run under judgement passes by construction, so the run is deferred."
+        )
+        raise NoJudgementError(msg)
+
+    try:
+        values: dict[str, float] = context.baselines.values_for(
+            suite.key, artefact_kind, jurisdiction
+        )
+    except NoBaselineError as refusal:
+        raise NoJudgementError(str(refusal)) from refusal
+    return values
+
+
+class NoPlanError(Exception):
+    """The run's specification could not be turned into a job. RF-10.
+
+    Caught by the stage that asked and turned into a `DEFERRED` outcome. Every
+    reason it carries is one an operator can act on -- a missing driver, a
+    specification the driver refused, a driver that accepted and then failed --
+    and each is named as what it is, because "the run did not start" sends
+    somebody to the wrong place.
+    """
+
+
+def _plan_for(
+    context: Context,
+    facts: RunFacts,
+    *,
+    group: str,
+    output: Path,
+    inputs: Sequence[Path],
+    workdir: Path,
+    partition: str,
+    nodes: int = 1,
+    gres: str = "",
+) -> JobPlan:
+    """Render the job this run's specification asks for, or say why not.
+
+    The registry, `validate`, then `render` -- the same three steps
+    `dryRunSpecification` takes, in the same order and through the same
+    registry. `render` is pure by Decision S5 and the conformance harness
+    enforces it, so the plan produced here and the plan the operator was shown
+    are the same bytes; that is asserted rather than assumed.
+
+    Validated before rendered, because `render` on a specification the driver
+    has refused is undefined behaviour: letting it raise turns "your
+    specification is missing save_steps" into a `KeyError`, which is the
+    operator's problem stated in the driver author's vocabulary.
+
+    What the estate adds afterwards is its own and is not the driver's to know:
+    the accelerator type this forge offers (a specification is portable across
+    the Forge Matrix and must not name one forge's hardware), the confinement
+    profile, and the lease references a job redeems at start.
+    """
+    context.planned_by = STAND_IN_EXECUTOR if context.stand_in else ""
+    if context.stand_in:
+        # Loud, and every time. A tick report that said nothing would let a
+        # development flag survive into an estate, and the run's own chain
+        # would record a checkpoint nobody could reproduce.
+        logger.warning(
+            "executor.stand-in",
+            runId=str(facts.run_id),
+            group=group,
+            reason=(
+                "DRAUPNIR_WORKER_STAND_IN is set, so this job runs the development "
+                "executor rather than the driver the specification names. What it "
+                "produces is not a model."
+            ),
+        )
+        return execution.stand_in_plan(
+            output,
+            inputs,
+            workdir=workdir,
+            partition=partition,
+            nodes=nodes,
+            gres=gres,
+            environment=context.job_environment(),
+            sandbox=context.confinement(workdir, inputs),
+        )
+
+    if context.registry is None:
+        msg = (
+            "this worker has no plug-in registry, so no driver can be resolved for "
+            "the specification. Set DRAUPNIR_WORKER_STAND_IN to run the development "
+            "executor deliberately, or install the drivers the specification names."
+        )
+        raise NoPlanError(msg)
+
+    if facts.specification is None:
+        # A run registered before the chain recorded specifications, or by
+        # something that does not record one. Deferred rather than run with a
+        # stand-in, because a stand-in substituted silently is the finding.
+        msg = (
+            "the chain records no specification for this run, only its hash, so "
+            "there is nothing to render a job from (SAD 6.2 makes the specification "
+            "the unit of reproduction). This run was registered before the "
+            "specification was recorded."
+        )
+        raise NoPlanError(msg)
+
+    try:
+        spec = RunSpec.from_mapping(facts.specification)
+    except (ValueError, KeyError, TypeError) as error:
+        raise NoPlanError(f"the recorded specification could not be read: {error}") from error
+
+    try:
+        plugin = context.registry.for_spec(spec, group)
+    except Exception as error:
+        raise NoPlanError(f"no installed driver can render this specification: {error}") from error
+
+    context.planned_by = str(plugin.name)
+    problems = list(plugin.driver.validate(spec))
+    if problems:
+        named = " ".join(f"{problem.field}: {problem.message}" for problem in problems)
+        raise NoPlanError(f"{plugin.name} refused this specification -- {named}")
+
+    try:
+        rendered: JobPlan = plugin.driver.render(spec, workdir)
+    except Exception as error:
+        # `validate` passed and `render` raised, which is a defect in the
+        # driver rather than in the specification. Named as such, because an
+        # operator told to fix their specification will not be able to.
+        raise NoPlanError(
+            f"{plugin.name} accepted this specification and then failed to render it: "
+            f"{type(error).__name__}: {error}. Its `validate` returned no problems, so "
+            "this is a fault in the driver rather than in the specification."
+        ) from error
+
+    envelope: JobPlan = replace(
+        rendered,
+        environment={**rendered.environment, **context.job_environment()},
+        sandbox=context.confinement(workdir, inputs),
+        resources=replace(
+            rendered.resources,
+            partition=partition or rendered.resources.partition,
+            gres=gres or rendered.resources.gres,
+        ),
+    )
+    return envelope
+
+
+def _expected(plan: JobPlan, workdir: Path, fallback: str) -> Path:
+    """Where the job is expected to leave its output.
+
+    From the plan rather than from a constant. `ARTEFACTS["adapter"]` is the
+    stand-in's filename; a real driver names its own -- LLaMA-Factory writes
+    `adapter_model.safetensors` -- and a worker looking for the wrong name
+    would report "exited zero and wrote nothing" about a job that wrote
+    exactly what it said it would (RF-10).
+    """
+    first = plan.expected_artefacts[0] if plan.expected_artefacts else fallback
+    return workdir / first
+
+
+class NotStagedError(Exception):
+    """The vault was asked to hold an artefact and would not.
+
+    Caught by the stage that raised it and turned into a `DEFERRED` outcome,
+    the way a dispatch refusal is. It is an exception rather than a return
+    value because every staging site has the same answer to it -- try again
+    next tick -- and threading a second failure channel through three call
+    sites would let one of them forget.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class Staged:
+    """Where an artefact was put, and what its bytes hash to."""
+
+    sha256: str
+    #: The `hodd://` address, or empty where this installation has no vault.
+    uri: str = ""
+    #: Why there is no address. Empty when there is one.
+    reason: str = ""
+
+    def as_record(self) -> dict[str, Any]:
+        """The `{uri, sha256}` shape `Orchestrator._uri_for` matches on."""
+        return {"uri": self.uri, "sha256": self.sha256}
+
+
+def _stage(context: Context, kind: str, run_id: UUID, source: Path, *, name: str = "") -> Staged:
+    """Put an artefact into HODD, seal it, and return its address. RF-08.
+
+    Nothing did this. The worker hashed what a job wrote and recorded the
+    digest, and the bytes stayed in a scratch directory that SAD 11.2 calls
+    disposable -- so `hodd.quota` was checked by nothing, `stores.store_for`
+    was called by nothing, and a release approval resolved an artefact URI the
+    chain had never recorded.
+
+    **Sealed at the put, not at the approval.** AC-S8 re-hashes at publication
+    to detect a post-gate modification (T8); a seal placed only once a release
+    is approved leaves the whole window between evaluation and approval open,
+    which is exactly the window an insider has time to act in.
+
+    **Capacity is checked before the write and not after.** A put that fills
+    the vault has already caused the harm the check exists to prevent, and on a
+    copy-on-write filesystem a full vault cannot even be emptied. Deferring
+    costs the run a tick; the alternative costs the estate its vault.
+
+    Idempotent by digest. A stage whose transition failed re-runs next tick and
+    finds its own bytes already at the address; putting them again would be
+    refused as an overwrite of a sealed artefact and the run would defer for
+    ever. Bytes that differ are *not* accepted -- that is a second artefact at
+    one address, and the seal refusing it is the seal working.
+    """
+    digest = _digest(source)
+    if context.store is None:
+        return Staged(
+            sha256=digest,
+            reason=(
+                "this worker has no artefact store configured (DRAUPNIR_VAULT_ROOT), so "
+                f"the {kind} stays in scratch and the run cannot be released"
+            ),
+        )
+
+    uri = stores.artefact_uri(context.site_id, kind, str(run_id), name)
+    try:
+        held = context.store.stat(uri)
+    except Exception as error:
+        raise NotStagedError(f"the vault did not answer about {uri}: {error}") from error
+
+    if held.exists and held.sha256 == digest:
+        # Already ours, byte for byte. Seal again in case the last tick put and
+        # then died: `seal` is idempotent and an unsealed artefact is the gap.
+        context.store.seal(uri)
+        return Staged(sha256=digest, uri=uri)
+
+    size = source.stat().st_size
+    room = quota.room_for(size, context.store, what=f"{kind} for run {run_id}")
+    if not room.fits:
+        raise NotStagedError(
+            f"{uri} needs {stores.readable_size(size)} and the vault is "
+            f"{stores.readable_size(room.shortfall)} short of taking it. The run is "
+            f"deferred rather than the vault filled (AC-S10).{chr(10)}{room.explain()}"
+        )
+
+    try:
+        context.store.put(uri, source)
+        context.store.seal(uri)
+    except Exception as error:
+        raise NotStagedError(f"{uri} was not stored: {error}") from error
+    return Staged(sha256=digest, uri=uri)
+
+
 # ---------------------------------------------------------------------------
 # QUEUED -> TRAINING
 # ---------------------------------------------------------------------------
 
 
-def dispatch(context: Context, facts: RunFacts) -> Outcome:
-    """Place a queued run, and record the allocation it was given.
+def job_name_for(run_id: UUID) -> str:
+    """The name a run's job carries on the scheduler.
 
-    Placement first, submission second, transition third, and the transition
-    records the scheduler's own identifier for the job -- which is what a later
-    tick, or a later worker, uses to find it again.
+    Derived from the run rather than remembered, which is what lets a worker
+    ask "did I already submit this?" without having written anything down. A
+    worker holds nothing between ticks by design (SAD 11.2 row 1), and this is
+    how that survives contact with a scheduler that queues.
+    """
+    return f"draupnir-{run_id}"
+
+
+def dispatch(context: Context, facts: RunFacts) -> Outcome:
+    """Submit a queued run, or transition it once the scheduler starts it.
+
+    **A queued job is a QUEUED run.** This used to submit and immediately
+    transition to TRAINING, which recorded a job Slurm had merely accepted as
+    one that was training. On this estate that is not an edge case: the adapter
+    array is `--array=0-55%3`, so fifty three of fifty six elements are pending
+    at any moment by design, and the board would have shown fifty six runs
+    training against three appliances.
+
+    QUEUED already means "waiting to run", which is exactly what a pending job
+    is, so no new state was needed -- only the transition moved to where the
+    run actually starts.
+
+    That leaves one problem: something has to stop the next tick submitting a
+    second copy. The answer is the scheduler itself. The job carries a name
+    derived from the run, and a driver that can be asked about it is asked;
+    nothing is recorded until there is something true to record.
     """
     if not context.may_dispatch:
         return Outcome(
@@ -142,6 +621,11 @@ def dispatch(context: Context, facts: RunFacts) -> Outcome:
             Result.DEFERRED,
             "the supply is on battery; queued work will not finish before it does",
         )
+
+    name = job_name_for(facts.run_id)
+    existing = _already_submitted(context, name)
+    if existing is not None:
+        return _start_if_running(context, facts, existing)
 
     try:
         placement = place(
@@ -156,20 +640,88 @@ def dispatch(context: Context, facts: RunFacts) -> Outcome:
     corpus = _corpus_of(context, facts, workdir)
     output = workdir / ARTEFACTS["adapter"]
 
-    plan = execution.stand_in_plan(
-        output,
-        [corpus],
-        workdir=workdir,
-        partition=str(placement.partition),
-        nodes=placement.nodes_per_element,
-    )
+    try:
+        plan = _plan_for(
+            context,
+            facts,
+            group="draupnir.train",
+            output=output,
+            inputs=[corpus],
+            workdir=workdir,
+            partition=str(placement.partition),
+            nodes=placement.nodes_per_element,
+            # What the placement decided the estate offers, carried into the
+            # plan rather than re-derived by the driver: a specification is
+            # portable across the Forge Matrix and must not name one forge's
+            # hardware (SAD 6.2).
+            gres=placement.gres,
+        )
+    except NoPlanError as refusal:
+        # The run stays QUEUED. Nothing about the run failed -- there is no job
+        # to fail -- and a specification the estate cannot render is an
+        # operator's problem to fix, not a run to mark FAILED.
+        return Outcome(facts.run_id, Result.DEFERRED, f"no job plan: {refusal}")
 
     try:
-        handle = execution.submit(context.scheduler, plan)
+        handle = execution.submit(context.scheduler, plan, name=name, leak_check=context.secrets)
     except execution.DispatchError as refusal:
         # Dispatch suspends; the run stays QUEUED. SAD 11.2 row 2: a queued run
         # is not marked failed, because nothing about the run failed.
         return Outcome(facts.run_id, Result.DEFERRED, f"dispatch suspended: {refusal}")
+
+    return _start_if_running(context, facts, handle, placement=placement, plan=plan)
+
+
+def _already_submitted(context: Context, name: str) -> JobHandle | None:
+    """Whether the scheduler is already holding this run's job.
+
+    Asked of a driver that can answer and skipped on one that cannot. A local
+    runner has no queue to search, and on it a submission starts immediately,
+    so the question does not arise.
+    """
+    finder = getattr(context.scheduler, "find", None)
+    if finder is None:
+        return None
+    try:
+        found: JobHandle | None = finder(name)
+    except Exception:
+        return None
+    return found
+
+
+def _start_if_running(
+    context: Context,
+    facts: RunFacts,
+    handle: JobHandle,
+    *,
+    placement: Placement | None = None,
+    plan: JobPlan | None = None,
+) -> Outcome:
+    """Transition to TRAINING when the scheduler says the job is running.
+
+    Until then the run stays QUEUED and the outcome says why, so an operator
+    reading the tick report sees "queued behind the throttle" rather than
+    nothing at all.
+    """
+    status = context.scheduler.poll(handle)
+
+    if status.state is JobState.PENDING:
+        return Outcome(
+            facts.run_id,
+            Result.DEFERRED,
+            f"job {handle.job_id} is queued on the scheduler and has not started",
+        )
+
+    if status.state in {JobState.FAILED, JobState.CANCELLED}:
+        # Rejected before it ever ran: an invalid partition, a resource the
+        # cluster cannot satisfy. The run has not failed at anything it did,
+        # so it stays QUEUED and the reason is reported every tick.
+        return Outcome(
+            facts.run_id,
+            Result.DEFERRED,
+            f"job {handle.job_id} {status.state} before starting: "
+            f"{status.message or 'no reason given'}",
+        )
 
     applied = context.orchestrator.transition(
         facts.run_id,
@@ -177,15 +729,34 @@ def dispatch(context: Context, facts: RunFacts) -> Outcome:
         facts={"scheduler_job_id": handle.job_id},
         payload={
             "scheduler_job_id": handle.job_id,
-            "node": handle.node or (placement.appliances[0] if placement.appliances else None),
+            "node": handle.node
+            or status.node
+            or (placement.appliances[0] if placement and placement.appliances else None),
             "placement": {
-                "partition": str(placement.partition),
-                "nodes": placement.nodes_per_element,
+                "partition": str(placement.partition) if placement else str(Partition.ADAPTERS),
+                "nodes": placement.nodes_per_element if placement else 1,
                 "driver": handle.driver,
             },
+            # What the job said it would leave behind, so the tick that
+            # observes it looks for the right filename. A real driver names its
+            # own -- LLaMA-Factory writes `adapter_model.safetensors` -- and a
+            # worker checking for the stand-in's `adapter.safetensors` would
+            # report "exited zero and wrote nothing" about a job that wrote
+            # exactly what it said (RF-10).
+            "expected_artefacts": list(plan.expected_artefacts) if plan else [],
+            # Which driver rendered this, so a reader of the chain can tell a
+            # run the estate actually trained from one the development
+            # stand-in simulated. This used to be recorded at TRAINED as the
+            # literal string "stand-in" whatever had run, which was true then
+            # and would have quietly stopped being true (RF-10).
+            "job_driver": context.planned_by,
+            # And the plan itself, which is what makes a run reproducible from
+            # the chain: SAD 6.2 asks a reader to reconstruct, and a chain that
+            # records only that a job ran cannot answer what it ran.
+            "job_plan": plan.as_mapping() if plan else None,
         },
     )
-    return Outcome(facts.run_id, Result.PLACED, f"job {handle.job_id}", applied.state)
+    return Outcome(facts.run_id, Result.PLACED, f"job {handle.job_id} started", applied.state)
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +811,7 @@ def observe(context: Context, facts: RunFacts) -> Outcome:
 
     completed = execution.observe(context.scheduler, handle, status)
     workdir = context.workdir(facts.run_id)
-    produced = workdir / ARTEFACTS["adapter"]
+    produced = workdir / _recorded_artefact(context, facts, ARTEFACTS["adapter"])
 
     if not completed.succeeded or not produced.is_file():
         applied = context.orchestrator.transition(
@@ -255,20 +826,33 @@ def observe(context: Context, facts: RunFacts) -> Outcome:
         )
         return Outcome(facts.run_id, Result.MOVED, f"exit {completed.exit_code}", applied.state)
 
-    digest = _digest(produced)
+    try:
+        staged = _stage(context, "adapter", facts.run_id, produced)
+    except NotStagedError as refusal:
+        # Before the transition, deliberately. A run recorded TRAINED whose
+        # checkpoint is in a scratch directory and nowhere else is a run whose
+        # weights the next disk failure takes with it.
+        return Outcome(facts.run_id, Result.DEFERRED, str(refusal))
+
+    digest = staged.sha256
     applied = context.orchestrator.transition(
         facts.run_id,
         RunState.TRAINED,
         facts={"exit_code": completed.exit_code, "checkpoint_sha256": digest},
         payload={
             "checkpoint_sha256": digest,
+            "artefact_sha256": digest,
+            "artefact_uri": staged.uri,
             "steps": 1,
             "final_loss": 0.0,
-            "executor": "stand-in",
+            "executor": _recorded(context, facts, "job_driver") or STAND_IN_EXECUTOR,
             "node": completed.node,
         },
     )
-    return Outcome(facts.run_id, Result.MOVED, f"checkpoint {digest[:12]}", applied.state)
+    where = staged.uri or f"not staged: {staged.reason}"
+    return Outcome(
+        facts.run_id, Result.MOVED, f"checkpoint {digest[:12]} at {where}", applied.state
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -320,10 +904,20 @@ def judge(context: Context, facts: RunFacts) -> Outcome:
         return Outcome(facts.run_id, Result.DEFERRED, "the chain records no checkpoint to judge")
 
     suite = raun_suites.default_registry().resolve("adapter")[0]
-    measurements = _measurements(digest, suite.gates)
-    result = gleipnir_gates.evaluate(
-        measurements, _baselines(suite.gates, measurements), suite_version=suite.version
-    )
+    try:
+        result = _judged(
+            context,
+            facts,
+            artefact_kind="adapter",
+            digest=str(digest),
+            workdir=context.workdir(facts.run_id),
+            suite=suite,
+        )
+    except NoJudgementError as refusal:
+        # Deferred, not failed. A run that could not be judged has not been
+        # measured, and recording a gate failure against a model nobody
+        # evaluated is a claim the chain would carry for as long as it exists.
+        return Outcome(facts.run_id, Result.DEFERRED, f"the gates were not judged: {refusal}")
 
     if result.passed:
         applied = context.orchestrator.transition(
@@ -409,19 +1003,53 @@ def merge_and_quantise(context: Context, facts: RunFacts) -> Outcome:
             ),
         )
 
+    # The bytes about to be merged are the bytes the chain says were trained.
+    # RF-09, AC-S1: `integrity.verify_before_load` existed and nothing called
+    # it, and this stage read `checkpoint_sha256` out of the chain, passed it
+    # into the sweep as the adapter's identity, and never hashed the file --
+    # so a merge recorded as being over one checkpoint could be over another,
+    # and the sweep hash AC-F8 asks a reader to reconstruct from would be a
+    # statement about bytes nobody checked. Here rather than earlier because
+    # this is the last moment before an allocation is consumed.
+    try:
+        integrity.verify_before_load(
+            adapter,
+            artefact="adapter",
+            expected=adapter_digest,
+            at=datetime.now(UTC),
+            run_id=str(facts.run_id),
+        )
+    except integrity.IntegrityError as refusal:
+        return Outcome(facts.run_id, Result.DEFERRED, f"the adapter did not verify: {refusal}")
+
     base = hashlib.sha256(b"MIDGARD-CORE-QWEN36-35B-A3B-v1.0").hexdigest()
     sweep = linear(method="slerp", base_sha256=base, adapter_sha256=adapter_digest)
 
     try:
+        merge_plan = _plan_for(
+            context,
+            facts,
+            group="draupnir.merge",
+            output=merged,
+            inputs=[adapter],
+            workdir=workdir,
+            partition=str(Partition.EXPORT),
+        )
+    except NoPlanError as refusal:
+        return Outcome(facts.run_id, Result.DEFERRED, f"no merge plan: {refusal}")
+
+    try:
         completed = execution.dispatch(
             context.scheduler,
-            execution.stand_in_plan(merged, [adapter], workdir=workdir, partition="export"),
+            merge_plan,
             timeout=context.timeout,
+            leak_check=context.secrets,
         )
     except execution.DispatchError as refusal:
         return Outcome(facts.run_id, Result.DEFERRED, f"merge not placed: {refusal}")
     if not completed.succeeded:
         return Outcome(facts.run_id, Result.DEFERRED, f"the merge exited {completed.exit_code}")
+    merged = _expected(merge_plan, workdir, ARTEFACTS["merged"])
     if not merged.is_file():
         # A job that exits zero and writes nothing is a job that wrote
         # somewhere else. Saying so beats hashing a file that is not there.
@@ -431,12 +1059,24 @@ def merge_and_quantise(context: Context, facts: RunFacts) -> Outcome:
             f"the merge exited zero and wrote no {merged.name} in {merged.parent}",
         )
 
-    merged_digest = _digest(merged)
+    try:
+        staged_merge = _stage(context, "merged", facts.run_id, merged)
+    except NotStagedError as refusal:
+        return Outcome(facts.run_id, Result.DEFERRED, str(refusal))
+
+    merged_digest = staged_merge.sha256
     suite = raun_suites.default_registry().resolve("merged")[0]
-    measurements = _measurements(merged_digest, suite.gates)
-    regate = gleipnir_gates.evaluate(
-        measurements, _baselines(suite.gates, measurements), suite_version=suite.version
-    )
+    try:
+        regate = _judged(
+            context,
+            facts,
+            artefact_kind="merged",
+            digest=merged_digest,
+            workdir=workdir,
+            suite=suite,
+        )
+    except NoJudgementError as refusal:
+        return Outcome(facts.run_id, Result.DEFERRED, f"the merge was not re-gated: {refusal}")
     if not regate.passed:
         return Outcome(
             facts.run_id,
@@ -445,13 +1085,28 @@ def merge_and_quantise(context: Context, facts: RunFacts) -> Outcome:
         )
 
     built: dict[str, str] = {}
+    addresses: list[dict[str, Any]] = [staged_merge.as_record()]
     for fmt in FORMATS:
         target = workdir / f"{fmt}.bin"
         try:
+            export_plan = _plan_for(
+                context,
+                facts,
+                group="draupnir.export",
+                output=target,
+                inputs=[merged],
+                workdir=workdir,
+                partition=str(Partition.EXPORT),
+            )
+        except NoPlanError as refusal:
+            return Outcome(facts.run_id, Result.DEFERRED, f"no {fmt} plan: {refusal}")
+
+        try:
             outcome = execution.dispatch(
                 context.scheduler,
-                execution.stand_in_plan(target, [merged], workdir=workdir, partition="export"),
+                export_plan,
                 timeout=context.timeout,
+                leak_check=context.secrets,
             )
         except execution.DispatchError as refusal:
             return Outcome(facts.run_id, Result.DEFERRED, f"{fmt} not placed: {refusal}")
@@ -463,7 +1118,12 @@ def merge_and_quantise(context: Context, facts: RunFacts) -> Outcome:
                 Result.DEFERRED,
                 f"the {fmt} export exited zero and wrote no {target.name}",
             )
-        built[fmt] = _digest(target)
+        try:
+            staged_format = _stage(context, "quantised", facts.run_id, target, name=target.name)
+        except NotStagedError as refusal:
+            return Outcome(facts.run_id, Result.DEFERRED, str(refusal))
+        built[fmt] = staged_format.sha256
+        addresses.append(staged_format.as_record())
 
     applied = context.orchestrator.transition(
         facts.run_id,
@@ -474,9 +1134,19 @@ def merge_and_quantise(context: Context, facts: RunFacts) -> Outcome:
             "sweep_result": {"points": len(sweep.points), "method": sweep.method},
             "formats_built": built,
             "merged_sha256": merged_digest,
+            # Every artefact this stage produced, each with its own address.
+            # A list rather than one `artefact_uri` because a release run
+            # produces several and a publication resolves one of them by its
+            # digest -- see `Orchestrator._uri_for`, which matches on exactly
+            # this shape and would otherwise find no location for two of the
+            # three formats (RF-05, AC-S8).
+            "artefacts": addresses,
         },
     )
-    return Outcome(facts.run_id, Result.MOVED, f"{len(built)} format(s) built", applied.state)
+    detail = f"{len(built)} format(s) built"
+    if any(not item["uri"] for item in addresses):
+        detail += ", none staged: this worker has no vault configured"
+    return Outcome(facts.run_id, Result.MOVED, detail, applied.state)
 
 
 # ---------------------------------------------------------------------------
@@ -496,14 +1166,38 @@ def regate_formats(context: Context, facts: RunFacts) -> Outcome:
         return Outcome(facts.run_id, Result.DEFERRED, "the chain records no built format")
 
     suite = raun_suites.default_registry().resolve("quantised")[0]
+    workdir = context.workdir(facts.run_id)
     results: dict[str, Any] = {}
     failing: list[str] = []
     for fmt, digest in sorted(built.items()):
-        measurements = _measurements(str(digest), suite.gates)
-        outcome = gleipnir_gates.evaluate(
-            measurements, _baselines(suite.gates, measurements), suite_version=suite.version
-        )
-        results[fmt] = outcome.as_payload()
+        try:
+            outcome = _judged(
+                context,
+                facts,
+                artefact_kind="quantised",
+                digest=str(digest),
+                # Each format is evaluated in its own directory, because each
+                # is its own evaluation: `collect_gates` reads one harness
+                # result file, and pointing three formats at one would judge
+                # all three on whichever ran last.
+                workdir=workdir / fmt,
+                suite=suite,
+            )
+        except NoJudgementError as refusal:
+            return Outcome(facts.run_id, Result.DEFERRED, f"{fmt} was not re-gated: {refusal}")
+        # Bound to the bytes, not to the format name. AC-F9 asks for evidence
+        # per built format and RF-05's publication re-hash matches evidence to
+        # a digest -- so the digest travels with the result rather than being
+        # inferred from the key it sits under.
+        results[fmt] = {
+            **outcome.as_payload(),
+            "artefactSha256": str(digest),
+            "artefactKind": "quantised",
+            "format": fmt,
+            "suite": suite.key,
+            "evaluatedAt": datetime.now(UTC).isoformat(),
+            "passed": outcome.passed,
+        }
         if not outcome.passed:
             failing.append(fmt)
 
@@ -613,7 +1307,28 @@ def _corpus_of(context: Context, facts: RunFacts, workdir: Path) -> Path:
     if not corpus.is_file():
         recorded = str(_recorded(context, facts, "output_sha256") or facts.spec_hash)
         corpus.write_bytes(_bytes_of(recorded) * 8)
+    # Not verified against `output_sha256`, and deliberately not: these bytes
+    # are *derived* from that digest rather than being the curated corpus, so
+    # an integrity check here would compare a file against the hash of
+    # something else and fail on every run. The check that means something on
+    # this path is at the merge, where the chain's digest and the file are
+    # about the same bytes because this worker wrote and hashed both. On the
+    # estate the driver resolves a `hodd://` URI against the mounted vault and
+    # the input carries its own manifest, which is where AC-S1 bites.
     return corpus
+
+
+def _recorded_artefact(context: Context, facts: RunFacts, fallback: str) -> str:
+    """What the chain says this run's job was expected to leave behind.
+
+    Read back rather than assumed, because the filename belongs to whichever
+    driver rendered the plan and a constant here would be a second answer to
+    it. Falls back for a run placed before this was recorded.
+    """
+    recorded = _recorded(context, facts, "expected_artefacts")
+    if isinstance(recorded, list) and recorded:
+        return str(recorded[0])
+    return fallback
 
 
 def _digest(path: Path, *, block: int = 1 << 20) -> str:
@@ -674,9 +1389,11 @@ __all__ = [
     "FORMATS",
     "STAGES",
     "Context",
+    "NotStagedError",
     "Outcome",
     "Result",
     "Stage",
+    "Staged",
     "actionable",
     "advance",
     "placement_of",

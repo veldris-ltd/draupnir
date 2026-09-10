@@ -46,6 +46,14 @@ from draupnir.core.domain.ledger import ChainHead
 
 SCHEMA: Final = "draupnir/federation/v1"
 
+#: The transition an anchoring attempt is recorded under, against the site as
+#: subject. Here rather than in the worker that writes it, because the
+#: orchestrator reads it back to decide whether a release may publish (AC-S13)
+#: and the core may not import the worker. Two spellings of one transition name
+#: is a chain that silently stops answering the question it was written to
+#: answer.
+ANCHOR_SUBMITTED: Final = "site.anchor.submitted"
+
 #: The longest a string field may be. Long enough for a URI, a policy version
 #: or a site name; far too short for a document, a log excerpt or a base64
 #: blob. A federation payload has no legitimate use for more.

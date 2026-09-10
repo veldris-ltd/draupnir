@@ -31,7 +31,15 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator, Mapping
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Iterable,
+    Iterator,
+    Mapping,
+)
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -168,6 +176,11 @@ class EventStream:
     site_id: str
     capacity: int = BUFFER
     _events: list[Delta] = field(default_factory=list, repr=False)
+    #: Only for a publisher with no ledger entry behind it, which in the
+    #: running system is none: every delta comes from an append and carries
+    #: that append's sequence (RF-15). Kept so the type is usable in a unit
+    #: test without a chain, and it counts from the highest seq seen so that
+    #: mixing the two cannot produce a duplicate.
     _next_seq: int = 1
     #: Live subscribers. A queue each, so one slow console cannot hold up the
     #: others and cannot hold up the publisher.
@@ -181,10 +194,30 @@ class EventStream:
         at: datetime,
         changed: Mapping[str, Any],
         run_id: UUID | None = None,
+        seq: int | None = None,
     ) -> Delta:
-        """Record one change and return the event that describes it."""
+        """Record one change and return the event that describes it.
+
+        `seq` is the ledger sequence of the entry this delta describes, and in
+        the running system it is always given (RF-15). It matters because
+        `Last-Event-ID` is answered by whichever API process a client
+        reconnects to: two processes counting independently produce two
+        meanings for `id: 41`, and a client resuming from the wrong one is told
+        nothing because the number looks plausible.
+
+        An event whose sequence this stream has already seen is dropped rather
+        than appended. Two processes both listening to the same notification is
+        the ordinary case -- that is how a fan-out works -- but a single
+        process receiving one twice, through a reconnect that replays, would
+        otherwise buffer the same change under one identifier twice and hand a
+        reconnecting client a duplicate.
+        """
+        chosen = self._next_seq if seq is None else seq
+        if self._events and chosen <= self._events[-1].seq:
+            return self._events[-1] if chosen == self._events[-1].seq else self._duplicate(chosen)
+
         delta = Delta(
-            seq=self._next_seq,
+            seq=chosen,
             kind=kind,
             site_id=self.site_id,
             subject_id=subject_id,
@@ -192,7 +225,7 @@ class EventStream:
             changed=dict(changed),
             run_id=run_id,
         )
-        self._next_seq += 1
+        self._next_seq = chosen + 1
         self._events.append(delta)
         if len(self._events) > self.capacity:
             del self._events[: len(self._events) - self.capacity]
@@ -207,6 +240,20 @@ class EventStream:
             with contextlib.suppress(asyncio.QueueFull):
                 queue.put_nowait(delta)
         return delta
+
+    def _duplicate(self, seq: int) -> Delta:
+        """The buffered event with this sequence, for a redelivery.
+
+        Returned rather than raised: a redelivered notification is a fact
+        about the transport and not a fault, and the caller has nothing useful
+        to do about it. Where the sequence is older than anything buffered the
+        newest event is returned instead -- the caller ignores the value, and
+        the alternative is an exception on a path that has nothing to report.
+        """
+        for item in reversed(self._events):
+            if item.seq == seq:
+                return item
+        return self._events[-1]
 
     @contextlib.asynccontextmanager
     async def subscribe(self) -> AsyncIterator[asyncio.Queue[Delta]]:
@@ -296,7 +343,11 @@ async def live_frames(
     keepalive_seconds: float = 15.0,
     only_run: UUID | None = None,
     disconnected: Callable[[], Awaitable[bool]] | None = None,
-) -> AsyncIterator[str]:
+    # An `AsyncGenerator` and not merely an `AsyncIterator`, because a caller
+    # that stops reading early has to be able to `aclose()` it: the subscriber
+    # is removed by `subscribe()`'s `finally`, and leaving that to the garbage
+    # collector holds a queue per departed console (RF-15).
+) -> AsyncGenerator[str, None]:
     """Backlog, then live events, until the client goes away.
 
     Two halves, and both are necessary. The backlog answers "what did I miss
@@ -317,8 +368,14 @@ async def live_frames(
     disconnect makes the removal happen at the moment the client leaves.
     """
     async with stream.subscribe() as queue:
-        for frame in stream.frames(since):
-            yield frame
+        # The backlog is filtered as well as the live half. Filtering only the
+        # live half would put every other run's history on a run's stream at
+        # the moment a console connected -- which is what `streamRunEvents`
+        # did for its whole life, since it did not filter at all (RF-15).
+        yield retry()
+        for delta in stream.since(since):
+            if _concerns(delta, only_run):
+                yield delta.render()
         while True:
             if disconnected is not None and await disconnected():
                 return
@@ -327,6 +384,19 @@ async def live_frames(
             except TimeoutError:
                 yield comment("keep-alive")
                 continue
-            if only_run is not None and delta.run_id != only_run and delta.subject_id != only_run:
+            if not _concerns(delta, only_run):
                 continue
             yield delta.render()
+
+
+def _concerns(delta: Delta, only_run: UUID | None) -> bool:
+    """Whether this event belongs on a stream filtered to one run.
+
+    Two fields, because a delta about a run names it as the subject and a
+    delta about something a run produced names it as the run. A gate result's
+    subject is the artefact; the run it belongs to is what a console watching
+    that run is filtering on.
+    """
+    if only_run is None:
+        return True
+    return delta.run_id == only_run or delta.subject_id == only_run

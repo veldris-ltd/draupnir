@@ -26,6 +26,8 @@ from draupnir.api import deps
 from draupnir.api.app import create_app
 from draupnir.api.reading import EmptyReadModel
 from draupnir.api.schemas import (
+    ArrayElementOut,
+    ArrayOut,
     ArtefactOut,
     CorpusOut,
     CorpusPage,
@@ -235,6 +237,28 @@ class StubReadModel(EmptyReadModel):
             overdue=1,
         )
 
+    async def array(self, site_id: str) -> ArrayOut | None:
+        """A two-element array, as the chain would hold it. RF-13.
+
+        Held by this stub rather than derived from the run list, which is what
+        the handler used to do: it listed the runs, sorted them and numbered
+        them `0..n`, so `size` was the number of runs and `attempts` was
+        `max(1, 4 - retry_budget)` -- a formula rather than a count.
+        """
+        del site_id
+        return ArrayOut(
+            name="cim-56-adapters",
+            size=2,
+            slurm_array="0-1%2",
+            concurrency=2,
+            job_id="4001",
+            elements=[
+                ArrayElementOut(index=0, subject="GBR", state="RUNNING", attempts=1, node="dvalin"),
+                ArrayElementOut(index=1, subject="JAM", state="AWAITING_RETRY", attempts=2),
+            ],
+            summary={"AWAITING_RETRY": 1, "RUNNING": 1},
+        )
+
 
 @pytest.fixture
 def stubbed() -> Iterator[None]:
@@ -430,6 +454,36 @@ def test_the_array_is_ordered_and_summarised(stubbed: None) -> None:
 
     assert [element["index"] for element in body["elements"]] == [0, 1]
     assert sum(body["summary"].values()) == body["size"]
+
+
+def test_the_array_reports_the_directive_it_was_submitted_with(stubbed: None) -> None:
+    """The `--array` string, reported rather than inferred.
+
+    RF-13: `size` was the number of runs at the site, so an operator asking "is
+    this the fifty-six element array" had no way to tell. The directive is the
+    string sbatch was given, so the answer is a fact rather than an inference
+    from two other numbers.
+    """
+    del stubbed
+    body = client().get("/v1/arrays").json()
+
+    assert body["slurmArray"] == "0-1%2"
+    assert body["concurrency"] == 2
+    assert body["jobId"] == "4001"
+
+
+def test_a_site_with_no_array_says_so_rather_than_counting_runs() -> None:
+    """The answer the old handler could not give, because it always had a number.
+
+    It counted the runs at the site, so a site with sixty runs from other work
+    reported a sixty-element array, and an array that had been submitted and
+    had not started reported size zero.
+    """
+    body = client().get("/v1/arrays").json()
+
+    assert body["size"] == 0
+    assert body["elements"] == []
+    assert "no array" in body["name"]
 
 
 def test_a_sweep_states_the_trade_in_words(stubbed: None) -> None:

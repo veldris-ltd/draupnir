@@ -7,17 +7,19 @@
 
 ## How it is demonstrated
 
-A state change reaches the board in under five seconds, measured in the journey against a real event stream.
+A state change reaches the board in under five seconds, measured in the journey against a real event stream, and separately from a committed ledger append in another process through PostgreSQL into a listener -- the path the worker's transitions actually take (RF-15).
 
 
 ```bash
-make test-e2e
+make test-e2e && make test-integration
 ```
 
 ## Evidence
 
 - `draupnir/api/events.py`
 - `draupnir/api/routers/runs.py`
+- `migrations/versions/0004_ledger_notify.py`
+- `tests/integration/test_event_stream.py`
 - `web/apps/console/src/api/useEvents.ts`
 - `web/apps/console/src/screens/Runs.tsx`
 - `web/e2e/journeys/j2-operate.spec.ts`

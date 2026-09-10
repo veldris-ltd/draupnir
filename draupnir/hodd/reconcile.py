@@ -472,7 +472,11 @@ __all__ = [
     "Finding",
     "Outcome",
     "Report",
+    # Both of the exceptions `require_vault` raises. Exporting one of a pair
+    # whose whole point is that a caller tells them apart makes half the
+    # distinction unusable from outside the module.
     "VaultNotInitialisedError",
+    "VaultUnavailableError",
     "describe",
     "initialise",
     "known",

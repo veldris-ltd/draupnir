@@ -15,6 +15,7 @@ The target is an anchor round trip under two seconds at the 95th percentile over
 ## Evidence
 
 - `draupnir/gullinbursti/agent.py`
+- `draupnir/worker/loop.py`
 - `tests/unit/test_federation.py`
 
 ---

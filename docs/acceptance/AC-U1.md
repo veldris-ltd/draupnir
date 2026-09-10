@@ -20,6 +20,7 @@ make test-e2e
 - `draupnir/api/development.py`
 - `draupnir/api/routers/models.py`
 - `tasks.py`
+- `tests/contract/test_reference_drivers.py`
 - `web/e2e/journeys/j1-curate.spec.ts`
 - `web/e2e/journeys/j2-operate.spec.ts`
 - `web/e2e/journeys/j3-approve.spec.ts`

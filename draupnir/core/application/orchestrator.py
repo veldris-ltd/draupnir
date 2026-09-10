@@ -41,6 +41,14 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from draupnir.core.domain import states
+from draupnir.core.domain.evidence import (
+    BASELINE_CAPTURED,
+    BASELINE_SUBJECT,
+    Evidence,
+    EvidenceError,
+    EvidenceLog,
+)
+from draupnir.core.domain.federation import ANCHOR_SUBMITTED
 from draupnir.core.domain.ledger import LedgerEntry, append
 from draupnir.core.domain.projector import REGISTRATION, RUN_SUBJECT, ProjectedRun
 from draupnir.core.domain.states import RunState, Transition, TransitionContext
@@ -68,6 +76,10 @@ class LedgerPort(Protocol):
 
     def entries_for_subject(self, subject_id: str) -> tuple[LedgerEntry, ...]:
         """Every entry about one subject, oldest first."""
+        ...
+
+    def entries_of_type(self, subject_type: str) -> tuple[LedgerEntry, ...]:
+        """Every entry about subjects of one kind, oldest first."""
         ...
 
     def serialise(self) -> None:
@@ -179,6 +191,13 @@ class RunFacts:
     #: The gates the last evaluation recorded as failing, if any. A requeue is
     #: for a run that failed one; a run that failed none has nothing to retry.
     failing_gates: tuple[str, ...] = ()
+    #: The specification, as the registration entry recorded it. RF-10.
+    #:
+    #: `None` for a run registered before this was recorded, and for one
+    #: registered by something that does not record it. A caller that needs it
+    #: says so and defers; a caller that guessed would be dispatching work
+    #: nobody specified.
+    specification: Mapping[str, Any] | None = None
 
     @property
     def budget_remaining(self) -> int:
@@ -204,6 +223,102 @@ class Applied:
 def _now() -> datetime:
     """The current instant, with an explicit offset. SAD 11E.2."""
     return datetime.now(UTC)
+
+
+@dataclass(frozen=True, slots=True)
+class PublicationFacts:
+    """What a publication is decided against, read as of one moment."""
+
+    approval: LedgerEntry
+    evidence: EvidenceLog
+    built_formats: tuple[str, ...]
+    #: Where the bytes are, as the chain recorded it. Empty when no entry named
+    #: a location, which is a refusal rather than a guess: an artefact whose
+    #: whereabouts nobody recorded cannot be re-hashed, and constructing a path
+    #: from a convention would hash whatever happened to be there.
+    artefact_uri: str
+    #: Where the approval sits in the chain, and how far the federation has
+    #: countersigned. AC-S13 compares the two.
+    release_seq: int
+    anchored_through: int
+
+
+def _evidence_from(results: Mapping[str, Any]) -> tuple[Evidence, ...]:
+    """Rebuild evidence entries from the payload the chain recorded.
+
+    Tolerant on purpose: an entry whose shape this does not recognise is
+    skipped rather than raising, because a publication refused by a parse error
+    would be indistinguishable from one refused by a control -- and the second
+    is the answer that means something.
+    """
+    found: list[Evidence] = []
+    for name, item in results.items():
+        if not isinstance(item, Mapping):
+            continue
+        digest = item.get("artefactSha256") or item.get("artefact_sha256")
+        if not digest:
+            continue
+        # Absent is `None`, not the empty string. `Evidence` refuses a baseline
+        # that is not a SHA-256, and "" is not one -- so passing "" for "there
+        # was no baseline" raised, which is exactly what this function's
+        # tolerance exists to avoid. A re-gated quantised format has no
+        # baseline: the absolute gates are the ones that apply to it.
+        baseline = item.get("baselineSha256") or item.get("baseline_sha256")
+        try:
+            found.append(
+                Evidence(
+                    artefact_sha256=str(digest),
+                    artefact_kind=str(item.get("artefactKind") or item.get("artefact_kind") or ""),
+                    format=str(item.get("format") or name),
+                    suite=str(item.get("suite") or ""),
+                    suite_version=str(item.get("suiteVersion") or item.get("suite_version") or ""),
+                    baseline_sha256=str(baseline) if baseline else None,
+                    evaluated_at=_moment(item.get("evaluatedAt") or item.get("evaluated_at")),
+                    passed=bool(item.get("passed")),
+                    # `failing` is derived by `Evidence` from its outcomes rather
+                    # than stored, so the recorded list is not passed back in: the
+                    # type computes it, and a second source would let the two
+                    # disagree about which gate failed.
+                    outcomes=(),
+                )
+            )
+        except EvidenceError:
+            # Skipped rather than raised, as the docstring above promises and as
+            # this did not do. A publication refused by a parse error is
+            # indistinguishable to an operator from one refused by a control,
+            # and the second is the answer that means something. Evidence that
+            # will not construct is evidence the publication does not have, and
+            # `verify_artefact` refuses on that in its own words.
+            continue
+    return tuple(found)
+
+
+def _uri_for(payload: Mapping[str, Any], artefact_sha256: str) -> str:
+    """Where the chain says these bytes are, if any entry said."""
+    direct = payload.get("artefact_uri") or payload.get("artefactUri")
+    if direct and payload.get("artefact_sha256") == artefact_sha256:
+        return str(direct)
+
+    listed = payload.get("artefacts")
+    if isinstance(listed, list):
+        for item in listed:
+            if not isinstance(item, Mapping):
+                continue
+            digest = item.get("sha256") or item.get("artefactSha256")
+            found = item.get("uri")
+            if digest == artefact_sha256 and found:
+                return str(found)
+    return ""
+
+
+def _moment(raw: Any) -> datetime:
+    """An offset-aware instant from a recorded one, or the epoch."""
+    if isinstance(raw, datetime):
+        return raw
+    try:
+        return datetime.fromisoformat(str(raw))
+    except (TypeError, ValueError):
+        return datetime.fromtimestamp(0, tz=UTC)
 
 
 class Orchestrator:
@@ -293,12 +408,23 @@ class Orchestrator:
         submitter = ""
         budget = 0
         failing: tuple[str, ...] = ()
+        specification: Mapping[str, Any] | None = None
 
         for entry in history:
             payload = entry.payload if isinstance(entry.payload, dict) else {}
             if entry.transition == REGISTRATION:
                 submitter = entry.actor
                 budget = int(payload.get("retry_budget", 0) or 0)
+
+            # From whichever entry carried it, latest wins. A submission
+            # through the API records it at registration; a run curated by the
+            # Sindri procedure records it at QUEUED, because the specification
+            # is compiled once the corpus exists and there is nothing to record
+            # before that. Keying on the transition would have found one of the
+            # two and silently not the other.
+            recorded_spec = payload.get("specification")
+            if isinstance(recorded_spec, Mapping):
+                specification = recorded_spec
             # The most recent evaluation wins: a run requeued twice has two
             # entries, and what matters is what the last one found.
             recorded = payload.get("failing_gates") or payload.get("failing_gate")
@@ -321,6 +447,7 @@ class Orchestrator:
             retry_count=run.retry_count,
             retry_budget=budget,
             failing_gates=failing,
+            specification=specification,
         )
 
     def history(self, run_id: UUID) -> tuple[LedgerEntry, ...]:
@@ -361,6 +488,148 @@ class Orchestrator:
             if entry.transition == f"{RunState.AWAITING_APPROVAL}->{RunState.RELEASED}":
                 return entry
         return None
+
+    def publication_facts(self, artefact_sha256: str) -> PublicationFacts | None:
+        """Everything the publication checks need, as of one moment.
+
+        One read rather than five, for the reason `facts_of` gives: each would
+        be its own transaction and the five answers have to describe the same
+        chain. A release admitted against evidence from before an anchor moved
+        is a release admitted against a chain that no longer exists.
+
+        `None` when no approval exists for these bytes, which the caller turns
+        into the refusal it already had.
+        """
+        approval = self.released_entry_for(artefact_sha256)
+        if approval is None:
+            return None
+
+        history = self._ledger.entries_for_subject(approval.subject_id)
+        evidence: list[Evidence] = []
+        built: list[str] = []
+        uri = ""
+        uri = ""
+
+        for entry in history:
+            payload = entry.payload if isinstance(entry.payload, dict) else {}
+
+            # What was *built*, from the entry that built it. AC-F9 is driven by
+            # this rather than by the evidence, because iterating the evidence
+            # confirms that everything evaluated passed -- which is true of an
+            # empty set and of a set missing the one format nobody ran.
+            for key in ("formats", "formats_regated", "built_formats"):
+                found = payload.get(key)
+                if isinstance(found, list):
+                    built.extend(str(item) for item in found)
+
+            for key in ("format_gate_results", "gate_results"):
+                results = payload.get(key)
+                if isinstance(results, dict):
+                    evidence.extend(_evidence_from(results))
+
+            # The location of these particular bytes. Matched on the digest, so
+            # an entry naming a different artefact of the same run cannot be
+            # mistaken for this one.
+            uri = _uri_for(payload, artefact_sha256) or uri
+
+        return PublicationFacts(
+            approval=approval,
+            evidence=EvidenceLog(entries=tuple(evidence)),
+            built_formats=tuple(dict.fromkeys(built)),
+            artefact_uri=uri,
+            release_seq=approval.seq,
+            anchored_through=self._anchored_through(),
+        )
+
+    def _anchor_entries(self) -> tuple[LedgerEntry, ...]:
+        """Every anchoring attempt this site has recorded, oldest first.
+
+        By transition and subject rather than by payload containment. This was
+        `entries_matching({"anchored_through": None})`, which is a JSONB
+        containment probe for the *value* null -- and the duty records an
+        integer, never null, so the probe matched nothing and
+        `_anchored_through` answered zero however many times the chain had been
+        countersigned. Every publication was refused, for a reason the refusal
+        did not name.
+        """
+        return tuple(
+            entry
+            for entry in self._ledger.entries_for_subject(self.site_id)
+            if entry.transition == ANCHOR_SUBMITTED
+        )
+
+    def _anchored_through(self) -> int:
+        """The highest sequence the federation has countersigned. AC-S13.
+
+        Zero when nothing has been anchored, which refuses every publication --
+        correctly. An estate with no federation link has no countersigned chain
+        head, and publishing against one would put an artefact in the registry
+        whose provenance no other site can attest.
+        """
+        highest = 0
+        for entry in self._anchor_entries():
+            payload = entry.payload if isinstance(entry.payload, dict) else {}
+            recorded = payload.get("anchored_through") or payload.get("anchoredThrough")
+            if recorded is None:
+                continue
+            try:
+                highest = max(highest, int(recorded))
+            except (TypeError, ValueError):
+                continue
+        return highest
+
+    def baseline_payloads(self) -> tuple[Mapping[str, Any], ...]:
+        """Every baseline this site has captured, latest per subject. RF-10.
+
+        Latest per subject rather than every entry, because re-capturing a
+        baseline is a deliberate, recorded act -- `BaselineRegistry.capture`
+        refuses to overwrite silently -- and the chain keeps the ones it
+        replaced. A reader asking "what is a run judged against today" wants
+        the current one; the history is there for the auditor asking when it
+        moved and who moved it.
+
+        Payloads rather than `Baseline` objects, because the core may not
+        import RAUN. The caller reconstructs, and `raun.baselines.from_payload`
+        raises rather than tolerating: a baseline that will not reconstruct
+        must not become a baseline of `None`, since a relative gate compared
+        against nothing fails for want of a value and reads as a bad model.
+        """
+        latest: dict[str, Mapping[str, Any]] = {}
+        for entry in self._ledger.entries_of_type(BASELINE_SUBJECT):
+            if entry.transition == BASELINE_CAPTURED and isinstance(entry.payload, Mapping):
+                latest[entry.subject_id] = entry.payload
+        return tuple(latest.values())
+
+    def last_anchored_at(self) -> datetime | None:
+        """When the federation last countersigned this chain, or None. RF-07.
+
+        Out of the chain rather than off the site row. `site.last_anchored_at`
+        was what the freshness duty read and nothing ever wrote it, so the duty
+        alarmed on every tick for ever -- and a side table that has to be kept
+        in step with the chain is a side table that will not be. The entries
+        the anchor duty writes are the record; this reads them.
+
+        Only accepted attempts count. A rejection is recorded too, deliberately
+        -- an operator during an outage needs "tried and was refused" told apart
+        from "never tried" -- but a rejection is not an anchor, and letting one
+        refresh the clock would silence the alarm that says the chain's end is
+        unprotected.
+        """
+        latest: datetime | None = None
+        for entry in self._anchor_entries():
+            payload = entry.payload if isinstance(entry.payload, dict) else {}
+            if not (payload.get("anchored_through") or payload.get("anchoredThrough")):
+                continue
+            raw = payload.get("anchored_at") or payload.get("anchoredAt")
+            if not raw:
+                continue
+            try:
+                found = datetime.fromisoformat(str(raw))
+            except (TypeError, ValueError):
+                continue
+            if latest is None or found > latest:
+                latest = found
+        return latest
 
     def register(
         self,

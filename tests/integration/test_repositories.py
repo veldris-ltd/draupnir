@@ -255,7 +255,15 @@ def test_batched_verification_crosses_batch_boundaries(
 
 def test_the_registry_loads_from_the_site_table(sindri: Connection) -> None:
     registry = SiteRepository(sindri).registry(local="sindri")
-    assert registry.ids == ("brokkr", "sindri")
+
+    # A superset, not an equality. The container is session scoped and several
+    # integration tests commit a forge of their own -- a worker test needs one
+    # whose chain no other test moves, and a release test needs one whose
+    # anchors no other test has laid down. Asserting the whole table made this
+    # test fail whenever somebody added a forge somewhere else in the suite,
+    # which is a true statement about the database and not about the registry.
+    assert {"brokkr", "sindri"} <= set(registry.ids)
+    assert registry.ids == tuple(sorted(registry.ids)), "the registry does not sort its sites"
     assert registry.local.anchor_state is AnchorState.ANCHORED
     assert registry.local_scope() == SiteScope("sindri")
 

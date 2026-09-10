@@ -3,6 +3,12 @@
 Identity, authorisation, secrets, signing, egress and the executor sandbox.
 SAD 5.2.
 
+One caveat, here rather than buried: the executor sandbox is a specification,
+not a control in force. Sindri runs training as a process on a shared
+appliance under Slurm, so the layer `sandbox` describes does not exist there.
+`containment` states what does, and names the difference. Every other module
+in this package is enforced on every call.
+
 Owns: OIDC authentication, RBAC enforcement, secrets brokering, plug-in
 signature verification, artefact signing, egress brokering, sandbox profiles.
 Must not: Make policy about what a run computes.
@@ -15,7 +21,8 @@ Must not: Make policy about what a run computes.
 | `secrets` | A lease that outlives its job, and a secret in a rendered plan |
 | `scanning` | Registration of an artefact carrying a credential |
 | `egress` | An outbound call to a destination nobody declared |
-| `sandbox` | An executor with a network, a capability, or a writable artefact |
+| `sandbox` | An executor with a network -- **where jobs are containers** |
+| `containment` | Nothing; it describes what is in force, and the shortfall |
 | `integrity` | A load whose bytes are not what the specification expects |
 | `envelope` | An envelope that verifies under no accepted algorithm |
 | `pki` | An unsigned plug-in, and an unknown signer |

@@ -40,7 +40,7 @@ from draupnir.core.domain.states import (
     assert_allowed,
     evaluate,
 )
-from draupnir.interfaces.testing import sample_spec
+from tests.specs import submittable_mapping
 
 pytestmark = pytest.mark.contract
 
@@ -65,6 +65,9 @@ class FakeWriter:
         """Start from whatever runs the chain is supposed to already hold."""
         self.facts = facts or {}
         self.approvals: dict[str, LedgerEntry] = {}
+        #: Where the chain says each artefact's bytes are. Empty means nothing
+        #: recorded a location, which the publication path refuses (RF-05).
+        self.artefact_uris: dict[str, str] = {}
         self.written: list[tuple[str, str, str]] = []
 
     @property
@@ -121,6 +124,30 @@ class FakeWriter:
     def released_entry_for(self, artefact_sha256: str) -> LedgerEntry | None:
         """The approval that released these bytes, if this double holds one."""
         return self.approvals.get(artefact_sha256)
+
+    def publication_facts(self, artefact_sha256: str) -> Any:
+        """Everything a publication is decided against. RF-05.
+
+        This double answers with an approval and no artefact location, which
+        is the state a chain is in when nothing recorded where the bytes went.
+        The handler refuses that — correctly — so the tests below that expect a
+        publication to succeed carry a URI, and the ones that expect a refusal
+        do not have to.
+        """
+        from draupnir.core.application.orchestrator import PublicationFacts
+        from draupnir.core.domain.evidence import EvidenceLog
+
+        approval = self.approvals.get(artefact_sha256)
+        if approval is None:
+            return None
+        return PublicationFacts(
+            approval=approval,
+            evidence=EvidenceLog(),
+            built_formats=(),
+            artefact_uri=self.artefact_uris.get(artefact_sha256, ""),
+            release_seq=approval.seq,
+            anchored_through=approval.seq,
+        )
 
     def _applied(self, run_id: UUID, name: str, state: RunState, transition: str) -> Applied:
         return Applied(
@@ -255,6 +282,27 @@ def test_ingest_and_curate_append_corpus_entries(installed: FakeWriter) -> None:
     ]
 
 
+def test_the_accepted_entries_are_the_ones_the_worker_drains(installed: FakeWriter) -> None:
+    """The two halves of RF-12, joined.
+
+    The handler records and the worker consumes, and they are in different
+    deployable units -- so the transition string is the whole of the contract
+    between them. This asserts the handler writes the one the queue reads,
+    because a rename on either side would leave a curator pressing Ingest, a
+    202 coming back, and nothing ever happening: which is what the finding was.
+    """
+    from draupnir.worker import corpora
+
+    assert client().post("/v1/corpora/GBR/ingest", headers=headers()).status_code == 202
+    assert client().post("/v1/corpora/GBR/curate", headers=headers()).status_code == 202
+
+    subjects = {kind for kind, _, _ in installed.written}
+    transitions = [transition for _, _, transition in installed.written]
+
+    assert subjects == {corpora.CORPUS_SUBJECT}
+    assert transitions == [corpora.INGEST_ACCEPTED, corpora.CURATE_ACCEPTED]
+
+
 # ---------------------------------------------------------------------------
 # Decisions
 # ---------------------------------------------------------------------------
@@ -266,7 +314,7 @@ def test_approving_a_gate_records_the_transition(installed: FakeWriter) -> None:
 
     response = client().post(
         f"/v1/gates/{facts.run_id}/decide",
-        json={"decision": "approved", "reason": "the gates pass", "signature": "sig"},
+        json=_approval("the gates pass", facts.run_id),
         headers=headers({"id": str(facts.run_id)}),
     )
 
@@ -285,7 +333,7 @@ def test_the_sole_approver_exception_is_computed_not_supplied(installed: FakeWri
         client()
         .post(
             f"/v1/gates/{same.run_id}/decide",
-            json={"decision": "approved", "reason": "one identity", "signature": "sig"},
+            json=_approval("one identity", same.run_id, exception=True),
             headers=headers({"id": str(same.run_id)}),
         )
         .json()
@@ -294,7 +342,7 @@ def test_the_sole_approver_exception_is_computed_not_supplied(installed: FakeWri
         client()
         .post(
             f"/v1/gates/{other.run_id}/decide",
-            json={"decision": "approved", "reason": "two identities", "signature": "sig"},
+            json=_approval("two identities", other.run_id),
             headers=headers({"id": str(other.run_id)}),
         )
         .json()
@@ -311,7 +359,7 @@ def test_deciding_a_run_that_is_not_awaiting_approval_is_refused(installed: Fake
 
     response = client().post(
         f"/v1/gates/{facts.run_id}/decide",
-        json={"decision": "approved", "reason": "too early", "signature": "sig"},
+        json=_approval("too early", facts.run_id),
         headers=headers({"id": str(facts.run_id)}),
     )
 
@@ -327,7 +375,7 @@ def test_deciding_a_run_this_site_does_not_hold_is_a_404(installed: FakeWriter) 
 
     response = client().post(
         f"/v1/gates/{absent}/decide",
-        json={"decision": "approved", "reason": "nothing here", "signature": "sig"},
+        json=_approval("nothing here", absent),
         headers=headers({"id": str(absent)}),
     )
 
@@ -431,10 +479,25 @@ def test_publishing_without_an_approval_is_refused(installed: FakeWriter) -> Non
     assert installed.written == []
 
 
-def test_publishing_an_approved_artefact_records_the_publication(
+def test_publishing_refuses_when_the_chain_records_no_artefact_location(
     installed: FakeWriter,
 ) -> None:
-    """The approval permits it; the publication is a second event."""
+    """RF-05. An approval alone is no longer enough to publish.
+
+    This test used to assert a 202 here, and that was the finding: the handler
+    read one entry from the chain and, if it existed, recorded a `published`
+    entry. Its own docstring described four controls -- AC-S8's re-hash, AC-F9's
+    per-format evidence, the approval signature and AC-S13's anchor -- and
+    called none of them.
+
+    Now the first of those applies. Nothing recorded where these bytes are, so
+    they cannot be re-hashed, so the release is not admitted. Building a path
+    from a naming convention instead would hash whatever happened to be there,
+    which is the opposite of the control.
+
+    The admitted path needs a real store and a real artefact, so it lives in
+    `tests/integration/test_api_writes.py`.
+    """
     artefact = "7" * 64
     run_id = new_id()
     installed.approvals[artefact] = _entry(
@@ -446,6 +509,8 @@ def test_publishing_an_approved_artefact_records_the_publication(
             "artefact_sha256": artefact,
             "model": "cim-gbr-v1.0",
             "formats": ["nvfp4", "mlx4"],
+            "signature": "a" * 64,
+            "decision": "approved",
         },
     )
 
@@ -453,16 +518,31 @@ def test_publishing_an_approved_artefact_records_the_publication(
         f"/v1/releases/{artefact}/publish", headers=headers({"artefact": artefact})
     )
 
-    assert response.status_code == 202, response.text
+    assert response.status_code == 409, response.text
     body = response.json()
-    assert body["model"] == "cim-gbr-v1.0"
-    assert body["formats"] == ["nvfp4", "mlx4"]
-    assert installed.written == [("release", artefact, "published")]
+    assert body["code"] == "release-inadmissible"
+    assert "re-hashed" in body["detail"]
 
 
-# ---------------------------------------------------------------------------
-# Submission
-# ---------------------------------------------------------------------------
+def test_a_refused_publication_records_nothing(installed: FakeWriter) -> None:
+    """A refusal must leave the chain exactly as it was.
+
+    Otherwise the refusal is itself an event somebody has to explain, and the
+    ledger stops being a record of what happened to releases and becomes a
+    record of what was attempted.
+    """
+    artefact = "7" * 64
+    installed.approvals[artefact] = _entry(
+        "run",
+        str(new_id()),
+        "AWAITING_APPROVAL->RELEASED",
+        {"approver": "akuma", "artefact_sha256": artefact, "signature": "a" * 64},
+    )
+    before = list(installed.written)
+
+    client().post(f"/v1/releases/{artefact}/publish", headers=headers({"artefact": artefact}))
+
+    assert installed.written == before, "a refused publication wrote to the chain"
 
 
 def test_a_submission_records_the_run_and_its_retry_budget(installed: FakeWriter) -> None:
@@ -472,7 +552,7 @@ def test_a_submission_records_the_run_and_its_retry_budget(installed: FakeWriter
     caller supplies is a budget the caller can raise, one requeue at a time.
     """
     response = client().post(
-        "/v1/runs", json={"specification": sample_spec().as_mapping()}, headers=headers()
+        "/v1/runs", json={"specification": submittable_mapping()}, headers=headers()
     )
 
     assert response.status_code == 202, response.text
@@ -493,3 +573,165 @@ def test_a_conditional_write_without_if_match_is_still_refused(installed: FakeWr
 
     assert response.status_code == 428, response.text
     assert installed.written == []
+
+
+def _approval(reason: str, subject_id: Any, *, exception: bool = False) -> dict[str, Any]:
+    """A decision body carrying a signature that actually verifies. RF-06."""
+    from datetime import UTC, datetime
+
+    from tests.conftest import sign_decision
+
+    decided_at = datetime.now(UTC)
+    return {
+        "decision": "approved",
+        "reason": reason,
+        "decidedAt": decided_at.isoformat(),
+        "signature": sign_decision(
+            approver="akuma",
+            subject_id=subject_id,
+            decided_at=decided_at,
+            sole_approver_exception=exception,
+        ),
+    }
+
+
+def test_signing_a_payload_that_omits_the_exception_is_refused(installed: FakeWriter) -> None:
+    """RF-06's sharpest case, and the one the whole arrangement exists for.
+
+    The approver here *is* the submitter, so the sole-approver exception
+    applies. They sign a payload claiming it does not — which is precisely the
+    edit constraint C-11 forbids — and the signature no longer covers what the
+    server computed, so it does not verify.
+
+    The exception is computed from the chain and is inside the signed bytes.
+    Neither half works alone: computing it without signing it would let a
+    replayed signature carry the wrong flag, and signing it without computing
+    it would let the approver choose.
+    """
+    facts = facts_at(RunState.AWAITING_APPROVAL, submitter="akuma")
+    installed.facts[facts.run_id] = facts
+
+    response = client().post(
+        f"/v1/gates/{facts.run_id}/decide",
+        json=_approval("suppressing the exception", facts.run_id, exception=False),
+        headers=headers({"id": str(facts.run_id)}),
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["code"] == "approval-signature-invalid"
+    assert installed.written == [], "a refused decision moved the run"
+
+
+def test_a_decision_with_no_instant_is_refused(installed: FakeWriter) -> None:
+    """`decidedAt` is inside the signed payload, so it has to be supplied.
+
+    The first version of this endpoint generated the instant server-side, which
+    meant no client could ever produce a signature that verified.
+    """
+    facts = facts_at(RunState.AWAITING_APPROVAL)
+    installed.facts[facts.run_id] = facts
+
+    response = client().post(
+        f"/v1/gates/{facts.run_id}/decide",
+        json={"decision": "approved", "reason": "undated", "signature": "a" * 64},
+        headers=headers({"id": str(facts.run_id)}),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "decision-undated"
+
+
+def test_a_decision_dated_far_from_now_is_refused(installed: FakeWriter) -> None:
+    """A signature prepared long in advance, or replayed long afterwards."""
+    from datetime import UTC, datetime, timedelta
+
+    from tests.conftest import sign_decision
+
+    facts = facts_at(RunState.AWAITING_APPROVAL)
+    installed.facts[facts.run_id] = facts
+    stale = datetime.now(UTC) - timedelta(hours=2)
+
+    response = client().post(
+        f"/v1/gates/{facts.run_id}/decide",
+        json={
+            "decision": "approved",
+            "reason": "prepared earlier",
+            "decidedAt": stale.isoformat(),
+            "signature": sign_decision(approver="akuma", subject_id=facts.run_id, decided_at=stale),
+        },
+        headers=headers({"id": str(facts.run_id)}),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "decision-stale"
+
+
+# ---------------------------------------------------------------------------
+# Arrays. RF-13.
+# ---------------------------------------------------------------------------
+
+
+def test_submitting_an_array_records_one_accepted_entry(installed: FakeWriter) -> None:
+    """One entry for the array, not fifty-six for its elements.
+
+    The array is the subject: fifty-six entries would be fifty-six things to
+    read back and join up, and the thing an operator asks about is the array.
+    """
+    from draupnir.motsognir import arrays
+
+    response = client().post("/v1/arrays", json={}, headers=headers())
+
+    assert response.status_code == 202, response.text
+    assert installed.written == [("array", "cim-56-adapters", arrays.ARRAY_ACCEPTED)]
+
+
+def test_an_array_over_a_jurisdiction_outside_the_programme_is_refused(
+    installed: FakeWriter,
+) -> None:
+    """RF-11's rule, applied to every element before any of them is submitted.
+
+    An element for a jurisdiction nobody assigned would train a fifty-seventh
+    model against whichever base a defaulted tier named.
+    """
+    response = client().post("/v1/arrays", json={"subjects": ["GBR", "IRL"]}, headers=headers())
+
+    assert response.status_code == 422, response.text
+    assert response.json()["code"] == "jurisdiction-unassigned"
+    assert "IRL" in response.json()["detail"]
+    assert installed.written == [], "a refused array submission wrote to the chain"
+
+
+def test_requeueing_an_element_records_a_request_for_that_element(
+    installed: FakeWriter,
+) -> None:
+    """S12's primary action, which had no operation at all (RF-13).
+
+    The index is in the entry, so what the worker does is bounded by what was
+    asked for: a requeue that recorded only "requeue this array" would leave
+    the worker choosing which element, and there is no correct choice.
+    """
+    from draupnir.motsognir import arrays
+
+    response = client().post("/v1/arrays/cim-56-adapters/elements/17/requeue", headers=headers())
+
+    assert response.status_code == 202, response.text
+    assert installed.written == [("array", "cim-56-adapters", arrays.ELEMENT_REQUEUE_ACCEPTED)]
+
+
+def test_an_array_submission_replays_rather_than_submitting_twice(
+    installed: FakeWriter,
+) -> None:
+    """Fifty-six elements are most of a week of compute.
+
+    A console that retried a request whose response was lost must not queue the
+    array again.
+    """
+    key = {"Idempotency-Key": "array-1"}
+
+    first = client().post("/v1/arrays", json={}, headers=key)
+    second = client().post("/v1/arrays", json={}, headers=key)
+
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert second.json() == first.json()
+    assert len(installed.written) == 1, "a replayed submission queued the array twice"

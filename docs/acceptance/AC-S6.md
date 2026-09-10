@@ -7,7 +7,7 @@
 
 ## How it is demonstrated
 
-The emitter redacts brokered secrets, and the pre-registration scan blocks a planted test secret.
+The emitter redacts brokered secrets, and an ingest carrying a planted test secret is refused before the rename that publishes it -- so nothing is sealed, lineaged or registered (RF-09).
 
 
 ```bash
@@ -16,7 +16,10 @@ make test-unit
 
 ## Evidence
 
+- `draupnir/hodd/ingest.py`
 - `draupnir/svalinn/scanning.py`
+- `scripts/vault_admin.py`
+- `tests/unit/test_hodd_ingest.py`
 - `tests/unit/test_svalinn_security.py`
 
 ---

@@ -128,6 +128,15 @@ jobs:
         # build rather than reading as covered.
         run: python tasks.py acceptance
 
+      - name: "2.4b egress reconciliation (RF-E17)"
+        # Fails when the divergence between this repository's allow list and the
+        # site router's policy at VLD-INF-SINDRI-001 section 10.5 *changes* --
+        # a new blocked host somebody introduced here, or a baseline entry that
+        # stopped being blocked, which means the section was amended and the
+        # transcription is a revision behind. It does not fail on the
+        # divergence that exists today, which cannot be fixed from here.
+        run: python tasks.py egress-policy
+
       - name: "2.5 API contract (OpenAPI diff, breaking change gate)"
         run: |
           python tasks.py openapi
@@ -155,26 +164,126 @@ jobs:
       - name: Set up buildx
         uses: docker/setup-buildx-action@v3
 
+      # The images are linux/arm64 and the runner is not. Emulation is what
+      # lets stage 3.1a start one; without it the build is the only thing that
+      # ever happens to an artefact that ships.
+      - name: Set up qemu
+        uses: docker/setup-qemu-action@v3
+
+      # Registry credentials, on `main` only. A pull request from a fork has no
+      # access to them and must still build, which is why the push below is
+      # conditional rather than the build.
+      - name: Sign in to the registry
+        if: github.ref == 'refs/heads/main' && vars.DRAUPNIR_REGISTRY != ''
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.DRAUPNIR_REGISTRY }}
+          username: ${{ secrets.DRAUPNIR_REGISTRY_USER }}
+          password: ${{ secrets.DRAUPNIR_REGISTRY_TOKEN }}
+
       - name: "3.1 aarch64 images (rootless, distroless base)"
+        # RF-04: these were built with `--output type=cacheonly` and tagged
+        # locally, and no step anywhere pushed one. `rollout.sh` then ran
+        # `podman pull registry.<site>.veldris.internal/draupnir-api:<revision>`
+        # against a registry that had never received an image, and
+        # `draupnir-run.sh` uses `--pull=never`, so the unit could not recover
+        # either. Stage 4 of SAD 11H was unrunnable.
+        #
+        # `--load` as well as `--push`, because stage 3.1a starts the image it
+        # built and a pushed image is not a loaded one.
+        env:
+          REGISTRY: ${{ vars.DRAUPNIR_REGISTRY }}
         run: |
+          publish=""
+          if [ "${GITHUB_REF}" = "refs/heads/main" ] && [ -n "${REGISTRY}" ]; then
+            publish="yes"
+          fi
+
           for target in api web; do
+            tags=( --tag "draupnir-${target}:${GITHUB_SHA}" )
+            if [ -n "${publish}" ]; then
+              tags+=( --tag "${REGISTRY}/draupnir-${target}:${GITHUB_SHA}" )
+            fi
+
             docker buildx build \
               --platform linux/arm64 \
               --file "docker/${target}.Dockerfile" \
-              --tag "draupnir-${target}:${GITHUB_SHA}" \
+              "${tags[@]}" \
               --build-arg "VERSION=0.1.0" \
               --build-arg "REVISION=${GITHUB_SHA}" \
               --cache-from type=gha \
               --cache-to type=gha,mode=max \
-              --output type=cacheonly \
+              --load \
               .
+
+            if [ -n "${publish}" ]; then
+              docker push "${REGISTRY}/draupnir-${target}:${GITHUB_SHA}"
+            fi
           done
+
+          if [ -z "${publish}" ]; then
+            echo "::notice::Built locally and not pushed: this is not main, or no registry is configured."
+          fi
+
+      - name: "3.1a the built image starts (RF-E23)"
+        # Stage 3.1 built two images and nothing ever started one, so a
+        # dependency that resolved in the checkout and not in the image was
+        # invisible until deployment. That is not hypothetical: `psycopg` sat
+        # in the dev group, the image built with `uv sync --no-dev`, and the
+        # process would have failed inside its lifespan before the first
+        # request.
+        #
+        # Importing the module is not the check. SQLAlchemy imports a DBAPI
+        # when the engine is *created*, and both engines are created in the
+        # lifespan -- so `import draupnir.api.app` would have passed on the
+        # broken image. This builds them, which is the operation that failed,
+        # and needs no database to do it.
+        run: |
+          docker run --rm --platform linux/arm64 "draupnir-api:${GITHUB_SHA}" -c '
+          from sqlalchemy import create_engine as sync_engine
+
+          from draupnir.api.app import create_app
+          from draupnir.core.infrastructure.config import get_settings
+          from draupnir.core.infrastructure.database import create_engine
+
+          create_app()
+          settings = get_settings()
+          create_engine()
+          sync_engine(settings.database_url_sync, future=True)
+
+          import draupnir.worker.loop
+
+          print("api, worker and both database drivers import in the image")
+          '
+
+      - name: "3.1b CON-A local view (S30), the wheel DVALIN installs"
+        # Built here because it was built nowhere: not a workspace member, not
+        # in an image, not in deploy/. VLD-INF-SINDRI-001 Procedure S12 step 10
+        # puts an `xterm` on the panel instead, and the reason is that the
+        # alternative had no artefact to install.
+        run: python tasks.py con-a
 
       - name: "3.2 client regeneration (CLI + TS from OpenAPI, fails if drifted)"
         run: python tasks.py clients-check
 
       - name: "3.3 CycloneDX SBOM for the release"
         run: python tasks.py sbom
+
+      - name: "3.4a sign plug-in distributions (RF-02)"
+        # The SBOM was signed and no plug-in was, so `PkiVerifier` had an empty
+        # signature record and refused every driver -- which is why both
+        # production call sites took a verifier that verifies nothing. The
+        # digest is computed by the same function the verifier uses, so a
+        # signer and a verifier that hashed a distribution differently fail
+        # here rather than at a forge.
+        env:
+          DRAUPNIR_SIGNING_KEY: ${{ secrets.DRAUPNIR_SIGNING_KEY }}
+        run: |
+          if [ -z "${DRAUPNIR_SIGNING_KEY}" ]; then
+            echo "::warning::No signing key configured; plug-in distributions are unsigned."
+            exit 0
+          fi
+          python -m scripts.sign_artefacts --distributions --out sbom/plugin-signatures.json
 
       - name: "3.4 sign artefacts (internal PKI)"
         env:
@@ -199,8 +308,10 @@ jobs:
           name: acceptance-evidence-${{ github.sha }}
           path: |
             sbom/
+            dist/
             coverage.xml
             docs/api/openapi.json
+            docs/egress-policy.md
             web/playwright-report/
           retention-days: 30
           if-no-files-found: warn

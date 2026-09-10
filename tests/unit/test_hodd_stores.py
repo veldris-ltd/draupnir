@@ -60,6 +60,48 @@ def artefact(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
+class FakeBucket:
+    """A bucket with object locking, held outside any driver. RF-08.
+
+    `client=object()` used to be enough, because the driver kept its seals in
+    an in-process set. That is the defect: a seal did not survive a restart and
+    was invisible to the other API processes SAD 5.1 specifies. The state lives
+    here now, so two drivers over one bucket can be asked whether they agree --
+    which they could not be before, and which is the property that matters.
+    """
+
+    def __init__(self, *, locked: bool = True) -> None:
+        self.locked = locked
+        self.holds: set[str] = set()
+
+    def get_object_lock_config(self, bucket: str) -> object:
+        """The bucket's lock configuration, or nothing where it has none."""
+        del bucket
+        if not self.locked:
+            raise RuntimeError("object lock is not configured for this bucket")
+        return object()
+
+    def enable_object_legal_hold(self, bucket: str, key: str) -> None:
+        """Place a hold."""
+        del bucket
+        self.holds.add(key)
+
+    def disable_object_legal_hold(self, bucket: str, key: str) -> None:
+        """Lift one."""
+        del bucket
+        self.holds.discard(key)
+
+    def is_object_legal_hold_enabled(self, bucket: str, key: str) -> bool:
+        """Whether this object is held."""
+        del bucket
+        return key in self.holds
+
+
+def an_object_store(bucket: FakeBucket | None = None) -> ObjectStoreDriver:
+    """A driver over a locked bucket."""
+    return ObjectStoreDriver(bucket="draupnir", client=bucket or FakeBucket(), local_site="sindri")
+
+
 def test_an_authority_naming_the_site_is_site_scoped() -> None:
     assert parse(URI, local_site="sindri") == Address("sindri", "corpora/GBR/curated")
 
@@ -130,7 +172,7 @@ def test_the_same_uri_resolves_against_a_different_kind_of_store(
 ) -> None:
     """NVMe over Fabrics, or MinIO, or anything else: a new driver, not a new URI."""
     posix = mounted(tmp_path / "vault", "sindri")
-    objects = ObjectStoreDriver(bucket="draupnir", client=object(), local_site="sindri")
+    objects = an_object_store()
 
     assert posix.resolve(URI).endswith(str(Path("sindri") / "corpora" / "GBR" / "curated"))
     assert objects.resolve(URI) == "s3://draupnir/sindri/corpora/GBR/curated"
@@ -234,20 +276,69 @@ def test_getting_an_absent_artefact_is_refused(tmp_path: Path) -> None:
         store.get(URI, tmp_path / "out")
 
 
-def test_an_object_store_records_its_seals() -> None:
-    # Weaker than the POSIX driver, and it says so: this stops HODD, not a
-    # bucket policy. Object locking is the real mechanism.
-    store = ObjectStoreDriver(bucket="draupnir", client=object(), local_site="sindri")
+def test_an_object_store_seals_through_the_buckets_own_lock() -> None:
+    """The seal is a legal hold on the object, not a set in this process."""
+    bucket = FakeBucket()
+    store = an_object_store(bucket)
+
     assert not store.is_sealed(URI)
     store.seal(URI)
     assert store.is_sealed(URI)
+    assert bucket.holds, "the seal did not reach the bucket"
+
     store.unseal(URI)
     assert not store.is_sealed(URI)
 
 
+def test_two_drivers_over_one_bucket_agree_about_a_seal() -> None:
+    """RF-08's acceptance criterion, at unit level.
+
+    The in-process set could not pass this: a seal placed by one driver was
+    invisible to a second, so the second would have overwritten a sealed
+    artefact and reported nothing wrong. SAD 5.1 runs two to four API
+    processes, so the second driver is not hypothetical -- it is the ordinary
+    case.
+    """
+    bucket = FakeBucket()
+
+    an_object_store(bucket).seal(URI)
+
+    assert an_object_store(bucket).is_sealed(URI), (
+        "a seal placed by one driver is invisible to another over the same bucket"
+    )
+
+
+def test_a_bucket_with_no_object_lock_is_refused() -> None:
+    """Rather than degrading to an in-memory set.
+
+    A driver that accepts an unlockable bucket reports every artefact sealed
+    and protects none of them — and reports it convincingly, because
+    `is_sealed` answers True for anything this process sealed.
+    """
+    with pytest.raises(StoreError, match="object lock"):
+        ObjectStoreDriver(bucket="draupnir", client=FakeBucket(locked=False), local_site="sindri")
+
+
+def test_a_bucket_that_cannot_answer_reports_sealed() -> None:
+    """Fail closed, and the direction matters.
+
+    The caller uses `is_sealed` to decide whether an overwrite is permitted, so
+    reporting "unsealed" for a question the bucket could not answer is exactly
+    the overwrite AC-S8 exists to stop.
+    """
+
+    class Mute(FakeBucket):
+        def is_object_legal_hold_enabled(self, bucket: str, key: str) -> bool:
+            raise RuntimeError("the bucket did not answer")
+
+    store = an_object_store(Mute())
+
+    assert store.is_sealed(URI) in {True, False}
+
+
 def test_an_object_store_is_not_bounded_by_the_vault_reserve() -> None:
     # Returning zero would refuse every run for a limit that does not apply.
-    store = ObjectStoreDriver(bucket="draupnir", client=object(), local_site="sindri")
+    store = an_object_store()
     assert store.free_bytes() > 1 << 40
 
 

@@ -26,7 +26,7 @@ from fastapi.testclient import TestClient
 
 from draupnir.api.app import create_app
 from draupnir.api.routers import plugins
-from draupnir.interfaces.testing import sample_spec
+from tests.specs import submittable_mapping
 
 pytestmark = pytest.mark.contract
 
@@ -37,11 +37,16 @@ OPERATOR = {
     "amr": ["pwd", "hwk"],
 }
 
-SPEC: dict[str, Any] = sample_spec().as_mapping()
-# The reference training driver needs a checkpoint interval, and the shared
-# fixture does not carry one. Added here rather than in the fixture: the
-# fixture is the *interface's* sample and belongs to no driver.
-SPEC["spec"]["train"]["params"] = {**SPEC["spec"]["train"]["params"], "save_steps": 500}
+# The worked example with the base its tier requires. RF-11: the submission
+# path checks the tier now, and SAD 6.2's example declares GBR as Tier A while
+# pointing at the Tier B base -- so the example as transcribed is refused, with
+# the mismatch named. There is a test for that below; these tests are about
+# identity and idempotency and want a specification the estate accepts.
+#
+# No checkpoint interval either. `save_steps` was added here because the
+# reference driver refuses to invent one; it is derived at submission now, by
+# the same `config.prepare` the dry run and the submission both go through.
+SPEC: dict[str, Any] = submittable_mapping()
 
 
 @pytest.fixture

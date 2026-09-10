@@ -14,6 +14,7 @@ root_packages =
     draupnir_local_subprocess
     draupnir_targz_export
     draupnir_motsognir_slurm
+    draupnir_motsognir_slurmrest
     draupnir_hamarr_llamafactory
     draupnir_brisingamen_mergekit
     draupnir_raun_lmeval
@@ -134,6 +135,7 @@ source_modules =
     draupnir_local_subprocess
     draupnir_targz_export
     draupnir_motsognir_slurm
+    draupnir_motsognir_slurmrest
     draupnir_hamarr_llamafactory
     draupnir_brisingamen_mergekit
     draupnir_raun_lmeval

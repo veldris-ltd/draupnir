@@ -22,6 +22,30 @@ export interface Operation {
 }
 
 export const OPERATIONS = {
+  callback: {
+    operationId: "callback",
+    method: "GET",
+    path: "/auth/callback",
+    summary: "Complete the authorisation-code flow",
+    pathParams: [],
+    hasBody: false,
+  },
+  beginLogin: {
+    operationId: "beginLogin",
+    method: "GET",
+    path: "/auth/login",
+    summary: "Begin the authorisation-code flow",
+    pathParams: [],
+    hasBody: false,
+  },
+  logout: {
+    operationId: "logout",
+    method: "GET",
+    path: "/auth/logout",
+    summary: "Discard the session",
+    pathParams: [],
+    hasBody: false,
+  },
   getHealth: {
     operationId: "getHealth",
     method: "GET",
@@ -76,6 +100,14 @@ export const OPERATIONS = {
     path: "/v1/corpora/{iso3}/ingest",
     summary: "Ingest and hash a jurisdiction's sources",
     pathParams: ["iso3"],
+    hasBody: false,
+  },
+  getEstateTelemetry: {
+    operationId: "getEstateTelemetry",
+    method: "GET",
+    path: "/v1/estate/telemetry",
+    summary: "Appliance thermal, throttle and fabric measurements",
+    pathParams: [],
     hasBody: false,
   },
   streamSiteEvents: {

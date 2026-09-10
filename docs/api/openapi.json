@@ -148,7 +148,7 @@
         "description": "One element of an adapter array. S12, SAD 5.2 MOTSOGNIR.",
         "properties": {
           "attempts": {
-            "description": "How many times it has been submitted.",
+            "description": "How many times it has been submitted. Counted from the chain, not derived from a retry budget (RF-13).",
             "title": "Attempts",
             "type": "integer"
           },
@@ -206,6 +206,12 @@
         "additionalProperties": false,
         "description": "The adapter array and its element states.",
         "properties": {
+          "concurrency": {
+            "default": 1,
+            "description": "How many elements run at once.",
+            "title": "Concurrency",
+            "type": "integer"
+          },
           "elements": {
             "description": "Every element, in index order.",
             "items": {
@@ -213,6 +219,18 @@
             },
             "title": "Elements",
             "type": "array"
+          },
+          "jobId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scheduler's identifier for the array.",
+            "title": "Jobid"
           },
           "name": {
             "description": "What the array is producing.",
@@ -223,6 +241,12 @@
             "description": "How many elements.",
             "title": "Size",
             "type": "integer"
+          },
+          "slurmArray": {
+            "default": "",
+            "description": "The `--array` directive this was submitted with, e.g. `0-55%3`.",
+            "title": "Slurmarray",
+            "type": "string"
           },
           "summary": {
             "additionalProperties": {
@@ -240,6 +264,39 @@
           "summary"
         ],
         "title": "ArrayOut",
+        "type": "object"
+      },
+      "ArraySubmission": {
+        "additionalProperties": false,
+        "description": "An array over many subjects, submitted as one scheduler array. RF-13.",
+        "properties": {
+          "name": {
+            "default": "cim-56-adapters",
+            "description": "What the array is called, and what its elements are named after.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "retryBudget": {
+            "default": 2,
+            "description": "How many times an element may be retried.",
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Retrybudget",
+            "type": "integer"
+          },
+          "subjects": {
+            "description": "The jurisdictions to build elements for. Empty means all fifty-six.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 256,
+            "title": "Subjects",
+            "type": "array"
+          }
+        },
+        "title": "ArraySubmission",
         "type": "object"
       },
       "ArtefactOut": {
@@ -480,6 +537,19 @@
         "additionalProperties": false,
         "description": "An approver's signed decision. SAD 7.1 `approval`.",
         "properties": {
+          "decidedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the approver decided, with an explicit offset. Part of the signed payload, so the approver has to supply the instant they signed over -- a server-generated one could not be signed by anybody. Refused if it is further than five minutes from now, which stops a signature being prepared long in advance or replayed long after.",
+            "title": "Decidedat"
+          },
           "decision": {
             "description": "The decision taken.",
             "enum": [
@@ -643,6 +713,37 @@
           "command"
         ],
         "title": "DryRunOut",
+        "type": "object"
+      },
+      "EstateTelemetryResponse": {
+        "additionalProperties": false,
+        "description": "Every reading behind CON-B's thermal and fabric dashboards.",
+        "properties": {
+          "readAt": {
+            "description": "When this answer was assembled, with an explicit offset.",
+            "title": "Readat",
+            "type": "string"
+          },
+          "readings": {
+            "description": "One entry per appliance per metric, plus the fabric. Appliances Prometheus knows nothing about are present with a reason, because a panel that simply omitted a machine would look identical to a smaller estate.",
+            "items": {
+              "$ref": "#/components/schemas/Measurement"
+            },
+            "title": "Readings",
+            "type": "array"
+          },
+          "source": {
+            "description": "The collector these came from.",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "readAt",
+          "source",
+          "readings"
+        ],
+        "title": "EstateTelemetryResponse",
         "type": "object"
       },
       "GateOut": {
@@ -1006,6 +1107,58 @@
           "complete"
         ],
         "title": "LineageOut",
+        "type": "object"
+      },
+      "Measurement": {
+        "additionalProperties": false,
+        "description": "One reading, or the reason there is not one.\n\n`value` and `reason` are both nullable and exactly one is set. They are on\none model rather than two because a client that had to pick a model would\npick by testing `value`, and `0.0` is falsy — which is how a throttle\nbitmask of zero, meaning nothing is throttling, becomes an error tile.",
+        "properties": {
+          "metric": {
+            "description": "What was measured, e.g. `gpu_temperature`.",
+            "title": "Metric",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why there is no value. Null when there is one. Never both, never neither.",
+            "title": "Reason"
+          },
+          "subject": {
+            "description": "The appliance, or `baugr` for the ring fabric.",
+            "title": "Subject",
+            "type": "string"
+          },
+          "unit": {
+            "description": "The unit of `value`. `C`, `GB/s`, or `bitmask`.",
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The measurement. Null where there is none — never zero. A zero here is a real reading and means the measured quantity is zero.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "metric",
+          "subject",
+          "unit"
+        ],
+        "title": "Measurement",
         "type": "object"
       },
       "ModelDetailOut": {
@@ -2546,6 +2699,325 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/auth/callback": {
+      "get": {
+        "description": "Exchange the code for a token and set the session cookie.",
+        "operationId": "callback",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Complete the authorisation-code flow",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
+    "/auth/login": {
+      "get": {
+        "description": "Redirect to MEGINGJORD, carrying a PKCE challenge and a state value.",
+        "operationId": "beginLogin",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "return_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Return To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Begin the authorisation-code flow",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
+    "/auth/logout": {
+      "get": {
+        "description": "Clear the session cookie.",
+        "operationId": "logout",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Discard the session",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
     "/healthz": {
       "get": {
         "description": "Return liveness. This touches no dependency by design.",
@@ -2817,7 +3289,7 @@
     },
     "/v1/arrays": {
       "get": {
-        "description": "The fifty-six element adapter array. S12, SAD 5.2 MOTSOGNIR.\n\n    Built from the runs at this site rather than from a separate array record,\n    because that is what the array *is*: one element per jurisdiction, each of\n    which becomes a run. An element that has no run yet is `PENDING`, which is\n    a real state and not a missing row -- the array monitor exists to show the\n    elements that have not started as much as the ones that have.\n    \n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
+        "description": "The fifty-six element adapter array. S12, SAD 5.2 MOTSOGNIR.\n\n    Read from the array the chain records (RF-13). This was built from the runs\n    at the site: they were listed, sorted and numbered `0..n`, so `size` was the\n    number of runs rather than fifty-six, `attempts` was `max(1, 4 -\n    retry_budget)` -- a formula rather than a count -- and a site with sixty\n    runs from other work reported a sixty-element array. An array that had been\n    submitted and had not started reported size zero.\n\n    A site that has submitted no array gets an empty one that says so, rather\n    than one derived from whatever runs happen to exist. That is the answer the\n    old handler could not give, because it always had a number.\n    \n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
         "operationId": "getArray",
         "parameters": [
           {
@@ -2939,6 +3411,289 @@
           }
         },
         "summary": "The adapter array and its element states",
+        "tags": [
+          "models"
+        ]
+      },
+      "post": {
+        "description": "Accept an array submission. Returns 202. RF-13.\n\n    Recorded here and submitted by the worker, like every other piece of work\n    the API accepts: SAD 5.1 puts the scheduler behind the worker, and a\n    handler that submitted would be an HTTP request blocking on the scheduler\n    (AC-B9).\n\n    The subjects default to the whole programme, because that is what CIM-56\n    is: fifty-six jurisdictions, one element each. They are validated against\n    the tier table rather than taken as given -- an array over a jurisdiction\n    outside the programme would train a fifty-seventh model, and `tiers.tier_of`\n    never guesses (RF-11).\n    \n\nRequires: `operator`.",
+        "operationId": "submitArray",
+        "parameters": [
+          {
+            "description": "Replaying a request with the same key returns the original result.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replaying a request with the same key returns the original result.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArraySubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Submit an array over many subjects as one scheduler array",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/v1/arrays/{name}/elements/{index}/requeue": {
+      "post": {
+        "description": "Requeue one element. S12's primary action, and AC-F6.\n\n    One element, never the array. Slurm restarts every element of a resubmitted\n    array, discarding the compute of the ones that succeeded -- for fifty-six\n    elements against three appliances, most of a week. So this records a\n    request for `--array=<index>` and the worker submits exactly that.\n\n    S12 named this as the screen's primary action and there was no operation\n    behind it (RF-13).\n    \n\nRequires: `operator`.",
+        "operationId": "requeueArrayElement",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "index",
+            "required": true,
+            "schema": {
+              "minimum": 0,
+              "title": "Index",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Replaying a request with the same key returns the original result.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replaying a request with the same key returns the original result.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Resubmit one element of an array, leaving the others untouched",
         "tags": [
           "models"
         ]
@@ -3332,6 +4087,115 @@
         "summary": "Ingest and hash a jurisdiction's sources",
         "tags": [
           "corpora"
+        ]
+      }
+    },
+    "/v1/estate/telemetry": {
+      "get": {
+        "description": "Read the site's measurements back out of its own collector.\n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
+        "operationId": "getEstateTelemetry",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstateTelemetryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Appliance thermal, throttle and fabric measurements",
+        "tags": [
+          "operations"
         ]
       }
     },
@@ -5482,7 +6346,7 @@
         ]
       },
       "post": {
-        "description": "Validate, hash into a run identity, and queue. Returns 202. AC-B9.\n\n    Nothing here waits for an allocation, let alone for training. The\n    specification is validated and recorded, and the client watches the stream.\n    \n\nRequires: `operator`.",
+        "description": "Validate, hash into a run identity, and queue. Returns 202. AC-B9.\n\n    Nothing here waits for an allocation, let alone for training. The\n    specification is validated and recorded, and the client watches the stream.\n\n    Validated through `admit`, which is the same door `dryRunSpecification`\n    uses (RF-11). This said \"validate\" and checked only that the specification\n    was not empty: one the dry run refused with 422 was accepted here with 202\n    and failed later, having consumed a run identifier, a ledger entry and a\n    place in the queue.\n    \n\nRequires: `operator`.",
         "operationId": "submitRun",
         "parameters": [
           {
@@ -6026,7 +6890,7 @@
     },
     "/v1/runs/{run_id}/events": {
       "get": {
-        "description": "Server-sent events carrying state deltas, never list refreshes.\n\n    A reconnecting client sends `Last-Event-ID` and receives what it missed. A\n    client asking for a point the buffer has dropped is told to resynchronise\n    rather than served from the oldest event it happens to still hold, because\n    a silent gap leaves the client's state wrong with nothing to detect it.\n    \n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
+        "description": "Server-sent events for one run, carrying state deltas. RF-15.\n\n    Two things this did not do. It took `run_id` and used it only in a log\n    line, so a run's stream carried every other run's events; and it yielded\n    the buffered frames plus one keep-alive comment and closed, so it was a\n    page of history rather than a stream. A console watching one run saw\n    fifty-five other runs' changes and then had its connection closed.\n\n    Now it filters on the run and stays open, the way the site stream does. A\n    reconnecting client sends `Last-Event-ID` and receives what it missed; a\n    client asking for a point the buffer has dropped is told to resynchronise\n    rather than served from the oldest event it happens to still hold, because\n    a silent gap leaves the client's state wrong with nothing to detect it.\n    \n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
         "operationId": "streamRunEvents",
         "parameters": [
           {

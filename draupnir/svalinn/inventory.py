@@ -31,6 +31,7 @@ from datetime import datetime
 from typing import Any, Final
 
 from draupnir.svalinn.envelope import SUPPORTED, Algorithm
+from draupnir.svalinn.identity import TOKEN_ALGORITHMS
 
 SCHEMA: Final = "draupnir/crypto-inventory/v1"
 
@@ -105,6 +106,19 @@ def _cryptography_version() -> str:
     return f"cryptography {version}"
 
 
+def tls_configured() -> bool:
+    """Whether this deployment has a certificate and a key to terminate with.
+
+    Read at build time from the same settings `install.sh` writes, so the
+    inventory describes the deployment it was generated on rather than an
+    intention.
+    """
+    from draupnir.core.infrastructure.config import get_settings
+
+    settings = get_settings()
+    return bool(settings.tls_certificate and settings.tls_private_key)
+
+
 def entries() -> tuple[Entry, ...]:
     """The inventory rows, from what this build uses. SAD 9.5, transcribed.
 
@@ -117,14 +131,45 @@ def entries() -> tuple[Entry, ...]:
 
     return (
         Entry(
+            purpose="Bearer token verification, every authenticated request",
+            algorithm=", ".join(TOKEN_ALGORITHMS),
+            key_bits=None,
+            module=f"PyJWT over {module}",
+            reference="RFC 7518; NCSC recommended asymmetric signature algorithms",
+            migration="EdDSA preferred as MEGINGJORD's key material allows",
+            notes=(
+                "Asymmetric only, and the exclusion is the control: an HMAC algorithm "
+                "in this list would let the issuer's public key be used as a shared "
+                "secret, so anyone holding the JWKS could mint a token that verifies. "
+                "`none` is absent for the same reason. The list is passed to the "
+                "verifier rather than read from the token's `alg` header, which is "
+                "attacker controlled."
+            ),
+        ),
+        Entry(
             purpose="Transport",
             algorithm="TLS 1.3",
             key_bits=None,
             module=openssl,
             reference="NCSC TLS guidance; ISO/IEC 18033",
             migration="Hybrid X25519 with ML-KEM once the library estate supports it",
-            notes="TLS 1.3 only. mTLS between control plane components and between "
-            "GULLINBURSTI and MEGINGJORD.",
+            # Derived, not asserted. This row said `in_use: yes` unconditionally
+            # while nothing in `deploy/` terminated TLS at all -- an inventory
+            # generated from constants that claims a transport nobody terminates
+            # is precisely the failure AC-S16 exists to prevent, and it is worse
+            # than a hand-written one because it carries the authority of having
+            # been generated (RF-03).
+            in_use=tls_configured(),
+            notes=(
+                "TLS 1.3 only. mTLS between control plane components and between "
+                "GULLINBURSTI and MEGINGJORD."
+                if tls_configured()
+                else (
+                    "NOT IN USE: no certificate is configured, so this deployment "
+                    "terminates no TLS. `install.sh --check` refuses to commission in "
+                    "this state; a development machine is expected to be in it."
+                )
+            ),
         ),
         Entry(
             purpose="Hashing, artefact manifests and ledger chaining",
@@ -239,6 +284,22 @@ class Inventory:
             raise InventoryError(msg)
 
         listed = {_normalise(item.algorithm) for item in self.rows}
+
+        # Both directions, and both vocabularies. The envelope signs artefacts;
+        # `TOKEN_ALGORITHMS` verifies every request that reaches the API. An
+        # algorithm added to either and not to the inventory is exactly what
+        # AC-S16 exists to catch, and the second set was invisible to this
+        # check until RF-01 put a verifier behind the API.
+        spelled = " ".join(item.algorithm for item in self.rows)
+        absent = [name for name in TOKEN_ALGORITHMS if name not in spelled]
+        if absent:
+            msg = (
+                f"tokens are verified under {', '.join(absent)} and the inventory does "
+                "not list it. Every algorithm that decides whether a request is "
+                "authenticated is an algorithm in use (AC-S16)."
+            )
+            raise InventoryError(msg)
+
         missing = [str(item) for item in Algorithm if _normalise(str(item)) not in listed]
         if missing:
             msg = (

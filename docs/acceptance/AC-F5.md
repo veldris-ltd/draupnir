@@ -20,7 +20,9 @@ make test-unit
 
 - `draupnir/motsognir/arrays.py`
 - `plugins/motsognir_slurm/draupnir_motsognir_slurm/__init__.py`
+- `plugins/motsognir_slurmrest/draupnir_motsognir_slurmrest/__init__.py`
 - `tests/unit/test_placement_and_arrays.py`
+- `tests/unit/test_slurm_driver.py`
 
 ---
 

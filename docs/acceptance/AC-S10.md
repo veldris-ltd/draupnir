@@ -18,9 +18,11 @@ make test-unit
 
 - `draupnir/hodd/quota.py`
 - `draupnir/hodd/stores.py`
+- `draupnir/worker/stages.py`
 - `tests/integration/test_degraded_modes.py`
 - `tests/unit/test_hodd_quota_and_retention.py`
 - `tests/unit/test_hodd_reconcile.py`
+- `tests/unit/test_worker_staging.py`
 
 ---
 

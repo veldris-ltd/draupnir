@@ -26,7 +26,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from draupnir.core.domain.evidence import SHA256
+from draupnir.core.domain.evidence import (
+    BASELINE_CAPTURED,
+    BASELINE_SUBJECT,
+    SHA256,
+    baseline_subject,
+)
 
 
 class BaselineError(Exception):
@@ -209,9 +214,65 @@ def capture(
     )
 
 
+#: Re-exported so a caller reading `raun.baselines` finds the whole vocabulary
+#: in one place. The names live in the core because the orchestrator reads
+#: these entries and may not import a module.
+__all__ = [
+    "BASELINE_CAPTURED",
+    "BASELINE_SUBJECT",
+    "Baseline",
+    "BaselineError",
+    "BaselineRegistry",
+    "NoBaselineError",
+    "baseline_subject",
+    "capture",
+    "from_payload",
+    "registry_of",
+]
+
+
 def registry_of(baselines: Iterable[Baseline]) -> BaselineRegistry:
     """A registry holding these baselines."""
     registry = BaselineRegistry()
     for item in baselines:
         registry.capture(item)
     return registry
+
+
+def from_payload(payload: Mapping[str, Any]) -> Baseline:
+    """Rebuild a baseline from what the chain recorded. RF-10.
+
+    The inverse of `as_payload`, and it raises rather than tolerating: a
+    baseline that will not reconstruct must not become a baseline of `None`,
+    because a relative gate compared against nothing fails for want of a value
+    and reads as a bad model rather than as a missing record.
+    """
+    measurements = payload.get("measurements")
+    if not isinstance(measurements, Mapping):
+        msg = "a recorded baseline carries a measurements object"
+        raise BaselineError(msg)
+
+    jurisdiction = payload.get("jurisdiction")
+    return Baseline(
+        artefact_sha256=str(payload.get("artefactSha256") or payload.get("artefact_sha256") or ""),
+        artefact_kind=str(payload.get("artefactKind") or payload.get("artefact_kind") or ""),
+        suite=str(payload.get("suite") or ""),
+        suite_version=str(payload.get("suiteVersion") or payload.get("suite_version") or ""),
+        measurements={str(key): float(value) for key, value in measurements.items()},
+        captured_at=_moment(payload.get("capturedAt") or payload.get("captured_at")),
+        jurisdiction=str(jurisdiction) if jurisdiction else None,
+        label=str(payload.get("label") or ""),
+    )
+
+
+def _moment(raw: Any) -> datetime:
+    """An offset-aware instant from a recorded one, or a refusal."""
+    try:
+        found = datetime.fromisoformat(str(raw))
+    except (TypeError, ValueError) as error:
+        msg = f"{raw!r} is not an instant a baseline could have been captured at"
+        raise BaselineError(msg) from error
+    if found.tzinfo is None:
+        msg = "baseline timestamps carry an explicit offset (SAD 11E.2)"
+        raise BaselineError(msg)
+    return found

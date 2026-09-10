@@ -19,6 +19,7 @@ make test-unit
 - `draupnir/hodd/ingest.py`
 - `draupnir/hodd/manifest.py`
 - `draupnir/svalinn/integrity.py`
+- `draupnir/worker/stages.py`
 - `tests/unit/test_hodd_ingest.py`
 - `tests/unit/test_svalinn_security.py`
 

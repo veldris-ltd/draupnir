@@ -17,6 +17,7 @@ make test-contract
 ## Evidence
 
 - `draupnir/api/routers/approvals.py`
+- `draupnir/core/infrastructure/config.py`
 - `draupnir/gleipnir/approvals.py`
 - `draupnir/skidbladnir/modelcard.py`
 - `draupnir/svalinn/identity.py`

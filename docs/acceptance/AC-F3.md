@@ -7,19 +7,22 @@
 
 ## How it is demonstrated
 
-M1 to M3 of the procedure ingest, hash, register and curate; the raw tree is made read only and a write to it is attempted and refused.
+M1 to M3 of the procedure ingest, hash, register and curate; the raw tree is made read only and a write to it is attempted and refused. The API's ingest and curate are performed too, by a worker duty draining the accepted entries out of the chain -- they were recorded and consumed by nothing (RF-12) -- and curation deduplicates, filters and decontaminates against the evaluation sets rather than reporting three retention figures nobody measured.
 
 
 ```bash
-make procedure
+make test-integration
 ```
 
 ## Evidence
 
+- `draupnir/hodd/curation.py`
 - `draupnir/hodd/stores.py`
 - `draupnir/procedures/sindri.py`
+- `draupnir/worker/corpora.py`
 - `scripts/procedure.py`
 - `tests/integration/test_procedures.py`
+- `tests/unit/test_corpus_queue.py`
 - `tests/unit/test_hodd_ingest.py`
 
 ---

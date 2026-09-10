@@ -21,6 +21,7 @@ make test-contract
 - `draupnir/skidbladnir/publish.py`
 - `tests/contract/test_api_write_path.py`
 - `tests/integration/test_api_transitions.py`
+- `tests/integration/test_release_publication.py`
 - `tests/unit/test_gleipnir_approvals.py`
 
 ---

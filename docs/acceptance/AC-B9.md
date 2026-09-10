@@ -7,7 +7,7 @@
 
 ## How it is demonstrated
 
-Every long operation returns 202 with a run identifier; nothing blocks a request on training.
+Every long operation returns 202 with a run identifier; nothing blocks a request on training. Each of them is now performed too: the accepted entry is drained from the chain by a worker duty rather than being recorded and forgotten (RF-12 for corpora, RF-13 for arrays).
 
 
 ```bash
@@ -18,8 +18,10 @@ make test-contract
 
 - `draupnir/api/deps.py`
 - `draupnir/api/routers/corpora.py`
+- `draupnir/api/routers/models.py`
 - `draupnir/api/routers/runs.py`
 - `draupnir/api/schemas.py`
+- `draupnir/worker/accepted.py`
 - `skills/draupnir-endpoint/scripts/new_endpoint.py`
 - `tests/contract/test_api_surface.py`
 - `tests/unit/test_api_conventions.py`

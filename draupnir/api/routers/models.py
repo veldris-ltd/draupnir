@@ -22,15 +22,27 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Path, Query, status
 
-from draupnir.api import telemetry
-from draupnir.api.deps import Cursor, Guarded, PageSize, Reading
+from draupnir.api import telemetry, writing
+from draupnir.api.deps import (
+    Cursor,
+    Guarded,
+    IdempotencyKey,
+    PageSize,
+    Reading,
+    accepted,
+    complete,
+    release,
+    replay_or_reserve,
+    require_idempotency_key,
+)
 from draupnir.api.guards import needs
 from draupnir.api.problems import ProblemError
 from draupnir.api.schemas import (
-    ArrayElementOut,
+    Accepted,
     ArrayOut,
+    ArraySubmission,
     ModelDetailOut,
     ModelPage,
     ReleasePackageOut,
@@ -38,6 +50,9 @@ from draupnir.api.schemas import (
     SweepOut,
     SweepPointOut,
 )
+from draupnir.core.domain.identifiers import new_id
+from draupnir.hamarr import tiers
+from draupnir.motsognir import arrays as array_domain
 from draupnir.svalinn.roles import Permission
 
 router = APIRouter(tags=["models"])
@@ -151,37 +166,143 @@ async def get_release(artefact: Artefact, ctx: Guarded, reading: Reading) -> Rel
 async def get_array(ctx: Guarded, reading: Reading, limit: PageSize) -> ArrayOut:
     """The fifty-six element adapter array. S12, SAD 5.2 MOTSOGNIR.
 
-    Built from the runs at this site rather than from a separate array record,
-    because that is what the array *is*: one element per jurisdiction, each of
-    which becomes a run. An element that has no run yet is `PENDING`, which is
-    a real state and not a missing row -- the array monitor exists to show the
-    elements that have not started as much as the ones that have.
+    Read from the array the chain records (RF-13). This was built from the runs
+    at the site: they were listed, sorted and numbered `0..n`, so `size` was the
+    number of runs rather than fifty-six, `attempts` was `max(1, 4 -
+    retry_budget)` -- a formula rather than a count -- and a site with sixty
+    runs from other work reported a sixty-element array. An array that had been
+    submitted and had not started reported size zero.
+
+    A site that has submitted no array gets an empty one that says so, rather
+    than one derived from whatever runs happen to exist. That is the answer the
+    old handler could not give, because it always had a number.
     """
-    page = await reading.runs(ctx.site_id, limit=limit, cursor=None)
-    ordered = sorted(page.items, key=lambda run: (run.jurisdiction or "ZZZ", run.name))
-
-    elements = [
-        ArrayElementOut(
-            index=index,
-            subject=run.jurisdiction or run.name,
-            state=_element_state(str(run.state)),
-            attempts=max(1, 4 - run.retry_budget_remaining),
-            run_id=run.id,
-            node=run.node,
+    del limit
+    found = await reading.array(ctx.site_id)
+    if found is None:
+        telemetry.log("array.read", size=0, submitted=False)
+        return ArrayOut(
+            name="no array submitted",
+            size=0,
+            elements=[],
+            summary={},
         )
-        for index, run in enumerate(ordered)
-    ]
-    summary: dict[str, int] = {}
-    for element in elements:
-        summary[element.state] = summary.get(element.state, 0) + 1
 
-    telemetry.log("array.read", size=len(elements))
-    return ArrayOut(
-        name="CIM-56 adapter array",
-        size=len(elements),
-        elements=elements,
-        summary=summary,
-    )
+    telemetry.log("array.read", size=found.size, submitted=True, slurmArray=found.slurm_array)
+    return found
+
+
+@router.post(
+    "/arrays",
+    summary="Submit an array over many subjects as one scheduler array",
+    operation_id="submitArray",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=Accepted,
+)
+@needs(Permission.SUBMIT_RUN)
+async def submit_array(
+    body: ArraySubmission, ctx: Guarded, idempotency_key: IdempotencyKey = None
+) -> Accepted:
+    """Accept an array submission. Returns 202. RF-13.
+
+    Recorded here and submitted by the worker, like every other piece of work
+    the API accepts: SAD 5.1 puts the scheduler behind the worker, and a
+    handler that submitted would be an HTTP request blocking on the scheduler
+    (AC-B9).
+
+    The subjects default to the whole programme, because that is what CIM-56
+    is: fifty-six jurisdictions, one element each. They are validated against
+    the tier table rather than taken as given -- an array over a jurisdiction
+    outside the programme would train a fifty-seventh model, and `tiers.tier_of`
+    never guesses (RF-11).
+    """
+    key = require_idempotency_key(idempotency_key)
+    replayed = replay_or_reserve(key, ctx, body.model_dump(mode="json"))
+    if replayed is not None and replayed.body:
+        return Accepted.model_validate(replayed.body)
+
+    subjects = list(body.subjects) if body.subjects else list(tiers.ALL)
+    unknown = [item for item in subjects if item not in set(tiers.ALL)]
+    if unknown:
+        release(key, ctx)
+        raise ProblemError(
+            status=422,
+            code="jurisdiction-unassigned",
+            title="An array element names a jurisdiction outside the programme",
+            detail=(
+                f"{', '.join(sorted(unknown))} is not a CIM-56 jurisdiction. The "
+                f"programme covers {len(tiers.ALL)} Commonwealth member states; there "
+                "is no default tier, and an element for a jurisdiction nobody assigned "
+                "would train a model nobody asked for."
+            ),
+        )
+
+    run_id = new_id()
+    with telemetry.span("arrays.submit", telemetry.EDGE, size=len(subjects)):
+        await writing.writer().record(
+            site_id=ctx.site_id,
+            actor=ctx.actor,
+            subject_type=array_domain.ARRAY_SUBJECT,
+            subject_id=body.name,
+            transition=array_domain.ARRAY_ACCEPTED,
+            payload={
+                "name": body.name,
+                "subjects": subjects,
+                "retryBudget": body.retry_budget,
+                "run_id": str(run_id),
+            },
+        )
+        telemetry.log("array.accepted", name=body.name, size=len(subjects))
+
+    result = accepted(run_id, detail=f"submitting {len(subjects)} elements as one array")
+    complete(key, ctx, status=status.HTTP_202_ACCEPTED, body=result)
+    return Accepted.model_validate(result)
+
+
+@router.post(
+    "/arrays/{name}/elements/{index}/requeue",
+    summary="Resubmit one element of an array, leaving the others untouched",
+    operation_id="requeueArrayElement",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=Accepted,
+)
+@needs(Permission.SUBMIT_RUN)
+async def requeue_element(
+    name: Annotated[str, Path(min_length=1, max_length=64)],
+    index: Annotated[int, Path(ge=0)],
+    ctx: Guarded,
+    idempotency_key: IdempotencyKey = None,
+) -> Accepted:
+    """Requeue one element. S12's primary action, and AC-F6.
+
+    One element, never the array. Slurm restarts every element of a resubmitted
+    array, discarding the compute of the ones that succeeded -- for fifty-six
+    elements against three appliances, most of a week. So this records a
+    request for `--array=<index>` and the worker submits exactly that.
+
+    S12 named this as the screen's primary action and there was no operation
+    behind it (RF-13).
+    """
+    key = require_idempotency_key(idempotency_key)
+    replayed = replay_or_reserve(key, ctx, {"name": name, "index": index, "action": "requeue"})
+    if replayed is not None and replayed.body:
+        return Accepted.model_validate(replayed.body)
+
+    run_id = new_id()
+    with telemetry.span("arrays.requeue", telemetry.EDGE, index=index):
+        await writing.writer().record(
+            site_id=ctx.site_id,
+            actor=ctx.actor,
+            subject_type=array_domain.ARRAY_SUBJECT,
+            subject_id=name,
+            transition=array_domain.ELEMENT_REQUEUE_ACCEPTED,
+            payload={"name": name, "index": index, "run_id": str(run_id)},
+        )
+        telemetry.log("array.requeue.accepted", name=name, index=index)
+
+    result = accepted(run_id, detail=f"resubmitting element {index} of {name}")
+    complete(key, ctx, status=status.HTTP_202_ACCEPTED, body=result)
+    return Accepted.model_validate(result)
 
 
 #: How a run state reads as an array element state. Distinct vocabularies on

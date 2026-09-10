@@ -19,6 +19,8 @@ make test-skills
 - `.github/workflows/deploy.yaml`
 - `migrations/versions/0001_initial_schema.py`
 - `migrations/versions/0002_projection_checkpoint.py`
+- `migrations/versions/0003_idempotency_key.py`
+- `migrations/versions/0004_ledger_notify.py`
 - `skills/draupnir-migration/scripts/new_migration.py`
 - `tasks.py`
 - `tests/unit/test_projector.py`

@@ -150,3 +150,64 @@ def generate_key_pair() -> tuple[bytes, bytes]:
         private.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()),
         private.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo),
     )
+
+
+class ApproverKeyError(SigningError):
+    """Raised when an approver's key cannot be found or read.
+
+    Its own type because the two answers differ. An approver with no
+    registered key is a 409 -- the estate is not set up to accept their
+    decision, and no signature they could produce would change that. A
+    signature that does not verify is a 422, which is about the request.
+    """
+
+
+def approver_keys(directory: str) -> dict[str, Ed25519PublicKey]:
+    """Every registered approver's public key, by subject. RF-06.
+
+    Same shape and the same failure mode as the plug-in trust store: a
+    directory of PEM public keys, named for the subject they belong to, and an
+    unreadable directory raises rather than producing an empty mapping. An
+    empty mapping refuses every approval, which looks like a broken deployment
+    and gets worked around rather than fixed.
+
+    Read per call rather than cached. Approvers are added and removed by
+    somebody putting a file in a directory, and a cache would mean a
+    revocation took effect at the next restart -- which is the wrong moment for
+    a key somebody has decided to stop trusting.
+    """
+    from pathlib import Path
+
+    root = Path(directory)
+    if not root.is_dir():
+        msg = (
+            f"the approver key store at {directory} is not a directory. Refusing to "
+            "verify against an empty one: that would refuse every approval, which "
+            "reads as a broken deployment rather than as a missing directory."
+        )
+        raise ApproverKeyError(msg)
+
+    found: dict[str, Ed25519PublicKey] = {}
+    for pem in sorted(root.glob("*.pem")):
+        try:
+            found[pem.stem] = load_public_key(pem.read_bytes())
+        except (OSError, ValueError, SigningError) as error:
+            msg = f"the approver key {pem.name} could not be read: {error}"
+            raise ApproverKeyError(msg) from error
+    return found
+
+
+def verify_approval(payload: bytes, signature: str, public_key: Ed25519PublicKey) -> bool:
+    """Whether `signature` is this approver's, over exactly these bytes.
+
+    Returns rather than raises, because the caller turns both answers into a
+    response and neither is exceptional: a decision arriving with a bad
+    signature is a request that was refused, not a fault in the system.
+    """
+    from cryptography.exceptions import InvalidSignature
+
+    try:
+        public_key.verify(bytes.fromhex(signature), payload)
+    except (InvalidSignature, ValueError):
+        return False
+    return True

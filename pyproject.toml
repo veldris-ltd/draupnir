@@ -28,10 +28,29 @@ dependencies = [
   # Infrastructure
   "sqlalchemy[asyncio]>=2.0.36",
   "asyncpg>=0.30",
+  # The synchronous driver is a runtime dependency, not a test one. The
+  # repositories are synchronous (SAD 11B), so `api/app.py` builds a second
+  # engine on `database_url_sync` at startup and alembic uses the same URL.
+  # SQLAlchemy imports the DBAPI when the engine is created rather than when it
+  # is first used, so a missing psycopg is not a slow failure on the write
+  # path: it is the process refusing to start. The image builds with
+  # `uv sync --no-dev`, and while this sat in the dev group it built an image
+  # that could not come up.
+  "psycopg[binary]>=3.2",
   "alembic>=1.14",
   "minio>=7.2",
   # Signing, SAD 11H stage 3.4 and Decision S9
   "cryptography>=44.0",
+  # Token verification. A runtime dependency rather than a dev one, and the
+  # reasoning is RF-E23's: the API's middleware verifies a bearer token on
+  # every request, so an image built with `uv sync --no-dev` that lacked this
+  # would answer 401 to everything -- which is the state RF-01 found it in.
+  #
+  # A library rather than `cryptography` directly. Hand-rolled JWS verification
+  # is where algorithm-confusion bugs come from: the `alg` header is attacker
+  # controlled, and the defence is to pass an explicit algorithm allow-list to
+  # the verifier rather than to read the header and dispatch on it.
+  "pyjwt[crypto]>=2.10",
   # Identifiers: UUIDv7, SAD 11E.2
   "uuid6>=2024.7.10",
   # Observability, SAD 11E.4
@@ -61,7 +80,6 @@ dev = [
   "pytest-cov>=6.0",
   "hypothesis>=6.119",
   "testcontainers[postgres,minio]>=4.8",
-  "psycopg[binary]>=3.2",
   # The Docker SDK reaches Docker Desktop over a named pipe, which it can
   # only open with pywin32. Without it every integration test errors out on
   # a Windows development machine while `docker ps` works fine.
@@ -86,6 +104,7 @@ dev = [
   "veldris-draupnir-posix-store",
   "veldris-draupnir-quantise",
   "veldris-draupnir-slurm",
+  "veldris-draupnir-slurmrest",
   "veldris-draupnir-spdx-policy",
   "veldris-draupnir-targz-export",
 ]
@@ -119,6 +138,7 @@ veldris-draupnir-mergekit = { workspace = true }
 veldris-draupnir-posix-store = { workspace = true }
 veldris-draupnir-quantise = { workspace = true }
 veldris-draupnir-slurm = { workspace = true }
+veldris-draupnir-slurmrest = { workspace = true }
 veldris-draupnir-spdx-policy = { workspace = true }
 veldris-draupnir-targz-export = { workspace = true }
 
@@ -169,7 +189,10 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # `copyright` is a GLEIPNIR module name taken from SAD 9A.2, and importing it
 # shadows a builtin nobody uses.
-"tests/**" = ["S101", "A004", "D100", "D102", "D103", "D104", "D107", "ANN"]
+# S105/S106: a test that proves a wrong credential is refused has to carry a
+# wrong credential. Every occurrence is a literal chosen to be obviously not
+# a secret, and the assertion beneath it is that the system rejected it.
+"tests/**" = ["S101", "S105", "S106", "A004", "D100", "D102", "D103", "D104", "D107", "ANN"]
 "scripts/**" = ["T20"]
 # A skill's scaffold is a command line tool, and what it prints is its
 # output. Its generated worked example is exercised by tests/contract/
@@ -191,6 +214,7 @@ ignore = [
 known-first-party = [
   "draupnir",
   "draupnir_local_subprocess",
+  "draupnir_motsognir_slurmrest",
   "draupnir_posix_store",
   "draupnir_spdx_policy",
   "draupnir_targz_export",
@@ -219,7 +243,9 @@ files = ["draupnir", "draupnirctl", "plugins", "scripts", "skills", "tests"]
 exclude = ["^docs/build/"]
 
 [[tool.mypy.overrides]]
-module = ["uuid6.*"]
+# `uuid6` has no stubs. `asyncpg` ships none either and is used in exactly one
+# place -- the ledger listener's `LISTEN`, which SQLAlchemy does not expose.
+module = ["uuid6.*", "asyncpg.*"]
 ignore_missing_imports = true
 
 # --------------------------------------------------------------------------

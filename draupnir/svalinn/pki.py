@@ -28,17 +28,20 @@ ordinary case.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import json
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Final
 
 from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519
 from cryptography.hazmat.primitives.asymmetric.utils import Prehashed
 from cryptography.hazmat.primitives.hashes import SHA256
 
-from draupnir.interfaces.signing import SignatureStatus
+from draupnir.core import plugins
+from draupnir.interfaces.signing import SignatureStatus, UnverifiedVerifier
 from draupnir.svalinn.envelope import Algorithm
 
 #: The self-hosted transparency log of Decision S9. Internal by construction:
@@ -204,18 +207,80 @@ class PluginSignature:
     sha256: str
 
 
+class TrustStoreError(Exception):
+    """Raised when the trust store cannot be read.
+
+    Its own type because the alternative is an empty trust store, and an empty
+    trust store is not a strict verifier -- it is a verifier that refuses
+    everything, which somebody then works around. A store that cannot be read
+    is a deployment fault and says so.
+    """
+
+
+def digest_of(distribution: str) -> tuple[str, str]:
+    """Hash the files `distribution` actually has on disk.
+
+    Returns the digest and the first file that could not be read, if any.
+
+    **This is what RF-02 was about.** `verify` used to check the signature over
+    `found.sha256` -- the digest recorded *at signing time* -- and never looked
+    at the installed files. So a distribution whose bytes were modified after
+    signing still verified, while the refusal message it never reached claimed
+    "the distribution has been modified since signing". The control described
+    the check it was not performing.
+
+    Canonical order, because a digest that depended on the filesystem's
+    enumeration order would differ between the machine that signed and the
+    machine that verifies, and the difference would look like tampering.
+
+    `RECORD` and the signature files themselves are excluded: `RECORD` holds
+    the hashes of everything else and is rewritten by the installer, and a
+    signature cannot be an input to the thing it signs.
+    """
+    import hashlib
+    from importlib.metadata import PackageNotFoundError, files
+
+    try:
+        found = files(distribution)
+    except PackageNotFoundError:
+        return "", f"{distribution} is not installed"
+    if not found:
+        return "", f"{distribution} reports no files"
+
+    digest = hashlib.sha256()
+    for entry in sorted(found, key=lambda item: str(item).replace("\\", "/")):
+        name = str(entry).replace("\\", "/")
+        if name.endswith((".dist-info/RECORD", ".dist-info/RECORD.jws", ".pyc")):
+            continue
+        # The path is part of the digest, so moving a file is a change even
+        # when its bytes are not.
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        try:
+            digest.update(entry.read_binary())
+        except OSError:
+            return "", name
+
+    return digest.hexdigest(), ""
+
+
 @dataclass
 class PkiVerifier:
     """The real plug-in verifier. Replaces `UnverifiedVerifier` in deployment.
 
     Fails closed everywhere: no signature is a refusal, an unknown signer is a
-    refusal, a version mismatch is a refusal. `SignatureStatus.verified` is
-    never True without a signature that checked out against a held key.
+    refusal, a version mismatch is a refusal, and a distribution whose files no
+    longer hash to what was signed is a refusal. `SignatureStatus.verified` is
+    never True without a signature that checked out against a held key **over a
+    digest recomputed from the installed files**.
     """
 
     signatures: dict[tuple[str, str], PluginSignature] = field(default_factory=dict)
     trust_store: dict[str, ed25519.Ed25519PublicKey] = field(default_factory=dict)
     signing_ca: str = SIGNING_CA
+    #: Injected so a test can present a distribution's digest without
+    #: installing one. Production passes nothing and the environment is read.
+    digest: Callable[[str], tuple[str, str]] = digest_of
 
     def register(self, signature: PluginSignature) -> None:
         """Record a signature for a distribution at a version."""
@@ -253,12 +318,106 @@ class PkiVerifier:
                 signer=found.key_id,
                 reason=(
                     f"the signature on {distribution} {version} did not verify against "
-                    f"{found.key_id}. The distribution has been modified since signing, "
-                    "or it was signed over different contents."
+                    f"{found.key_id}. The signature record was altered, or it was "
+                    "signed over different contents."
+                ),
+            )
+
+        # And now the half that was missing. Everything above proves the
+        # *record* is authentic; this proves the record describes what is
+        # installed. Without it a signed digest and a modified distribution
+        # verify together, which is the state RF-02 found this in.
+        installed, unreadable = self.digest(distribution)
+        if unreadable:
+            return SignatureStatus(
+                verified=False,
+                signer=found.key_id,
+                reason=(
+                    f"{distribution} {version} could not be hashed: {unreadable}. A "
+                    "distribution whose contents cannot be read cannot be shown to be "
+                    "the one that was signed."
+                ),
+            )
+        if installed != found.sha256:
+            return SignatureStatus(
+                verified=False,
+                signer=found.key_id,
+                reason=(
+                    f"{distribution} {version} hashes to {installed[:16]}... and was "
+                    f"signed over {found.sha256[:16]}.... The distribution has been "
+                    "modified since signing. The signature itself is valid, which is "
+                    "why this is checked separately."
                 ),
             )
 
         return SignatureStatus(verified=True, signer=found.key_id)
+
+    @classmethod
+    def from_settings(cls, trust_store: str, manifest: str) -> PkiVerifier:
+        """Build a verifier from a key directory and a signature manifest.
+
+        **Fails closed, and the distinction matters.** An unreadable trust
+        store raises rather than producing an empty one. An empty trust store
+        is not a strict verifier: it refuses every plug-in, which looks like a
+        broken deployment, and the fix somebody reaches for is `DRAUPNIR_DEV=1`
+        — turning a missing directory into an estate that loads unsigned code.
+        Raising names the directory instead.
+
+        A *missing manifest* is different and is not an error. A forge that has
+        installed no signed distributions yet has nothing to record, and every
+        plug-in is then refused for the honest reason that no signature exists
+        for it.
+        """
+        from pathlib import Path
+
+        keys: dict[str, ed25519.Ed25519PublicKey] = {}
+        root = Path(trust_store)
+        if not root.is_dir():
+            msg = (
+                f"the trust store at {trust_store} is not a directory. Refusing to "
+                "start with an empty one: an empty trust store refuses every plug-in, "
+                "which reads as a broken deployment and gets worked around with "
+                "DRAUPNIR_DEV rather than fixed."
+            )
+            raise TrustStoreError(msg)
+
+        for pem in sorted(root.glob("*.pem")):
+            try:
+                loaded = serialization.load_pem_public_key(pem.read_bytes())
+            except (OSError, ValueError) as error:
+                msg = f"the trust store key {pem.name} could not be read: {error}"
+                raise TrustStoreError(msg) from error
+            if not isinstance(loaded, ed25519.Ed25519PublicKey):
+                msg = (
+                    f"the trust store key {pem.name} is a {type(loaded).__name__} and "
+                    "plug-in signatures are Ed25519. A key of the wrong type is a "
+                    "configuration mistake, not a key to skip."
+                )
+                raise TrustStoreError(msg)
+            keys[pem.stem] = loaded
+
+        if not keys:
+            msg = (
+                f"the trust store at {trust_store} holds no Ed25519 public key. See "
+                "above: an empty trust store is refused rather than used."
+            )
+            raise TrustStoreError(msg)
+
+        verifier = cls(trust_store=keys)
+        record = Path(manifest)
+        if record.is_file():
+            for entry in json.loads(record.read_text(encoding="utf-8")).get("signatures", []):
+                verifier.register(
+                    PluginSignature(
+                        distribution=str(entry["distribution"]),
+                        version=str(entry["version"]),
+                        key_id=str(entry["keyId"]),
+                        signature=str(entry["signature"]),
+                        signed_at=datetime.fromisoformat(str(entry["signedAt"])),
+                        sha256=str(entry["sha256"]),
+                    )
+                )
+        return verifier
 
 
 def transparency_log_is_internal(url: str = TRANSPARENCY_LOG) -> bool:
@@ -271,3 +430,37 @@ def transparency_log_is_internal(url: str = TRANSPARENCY_LOG) -> bool:
 
     host = urlparse(url).hostname or ""
     return host.endswith(".veldris.internal") and host not in PUBLIC_TRANSPARENCY_LOGS
+
+
+def registry(environ: Mapping[str, str] | None = None) -> plugins.PluginRegistry:
+    """The one place a production registry is built. RF-02.
+
+    Here rather than in `core.plugins` because it needs `PkiVerifier`, and
+    the core may not name a security implementation (SAD 5.2, and the import
+    contract that enforces it). SVALINN is above the core and is the layer
+    that owns verification, so this is where the two are put together.
+
+    Both call sites — the plug-ins router and the Sindri procedure — used to
+    call `plugins.PluginRegistry.discover()` with no verifier and take the default,
+    which verified nothing. One helper rather than two call sites, so that the
+    configured verifier is not something a third call site can forget.
+
+    **The development escape stays and stays loud.** `DRAUPNIR_DEV=1` still
+    loads unsigned plug-ins and still logs `plugin.unverified` for each one.
+    What changes is that it is no longer the only configuration in which
+    anything loads at all.
+    """
+    from draupnir.core.infrastructure.config import get_settings
+
+    settings = get_settings()
+    if plugins.developer_mode(environ):
+        # No trust store is required here, and none is read. The loader logs
+        # each unverified load, which is the whole of the concession: a
+        # developer machine has no signing CA and no signed distributions.
+        return plugins.PluginRegistry.discover(UnverifiedVerifier(), environ=environ)
+
+    verified = PkiVerifier.from_settings(
+        trust_store=settings.plugin_trust_store,
+        manifest=settings.plugin_signature_manifest,
+    )
+    return plugins.PluginRegistry.discover(verified, environ=environ)

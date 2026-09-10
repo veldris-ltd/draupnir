@@ -23,7 +23,7 @@ import os
 import shutil
 import stat
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit
@@ -355,7 +355,33 @@ class ObjectStoreDriver:
     capabilities: frozenset[str] = frozenset({"s3", "versioned"})
     local_site: str = "sindri"
     sites: frozenset[str] = frozenset()
-    _sealed: set[str] = field(default_factory=set, repr=False)
+
+    def __post_init__(self) -> None:
+        """Refuse a bucket that cannot hold a seal. RF-08.
+
+        Rather than degrading to an in-memory set, which is what this did. A
+        driver that accepts an unlockable bucket and records seals in a process
+        is a driver that reports every artefact sealed and protects none of
+        them -- and it reports it convincingly, because `is_sealed` answers
+        `True` for anything this process sealed.
+        """
+        if not self._object_lock_available():
+            msg = (
+                f"the bucket {self.bucket!r} has no object lock configured, so a seal "
+                "cannot be a property of the store. Refusing to construct: the "
+                "alternative is an in-process set, which does not survive a restart, is "
+                "invisible to the other API processes, and stops HODD rather than "
+                "stopping a write (SAD 7.2, AC-S8). Create the bucket with object "
+                "locking enabled, or use the POSIX driver."
+            )
+            raise StoreError(msg)
+
+    def _object_lock_available(self) -> bool:
+        """Whether this bucket can hold a legal hold."""
+        try:
+            return self.client.get_object_lock_config(self.bucket) is not None
+        except Exception:
+            return False
 
     def resolve(self, uri: str) -> str:
         """Return the `s3://bucket/key` this URI addresses."""
@@ -403,16 +429,46 @@ class ObjectStoreDriver:
         return self.stat(uri)
 
     def seal(self, uri: str) -> None:
-        """Record the artefact as sealed."""
-        self._sealed.add(str(self._address(uri)))
+        """Place a legal hold on the object. RF-08.
+
+        This was `self._sealed.add(...)` -- an in-process set. So a seal did not
+        survive a restart, was invisible to the second and third API processes
+        SAD 5.1 specifies, and stopped HODD rather than stopping a write. The
+        docstring said as much ("object locking or a versioned bucket is the
+        real mechanism"), which made it an honest description of a control that
+        was not one.
+
+        A legal hold rather than a retention period, because the two answer
+        different questions. A retention period says "not before this date",
+        which requires guessing a date at seal time; a legal hold says "not
+        until somebody with the authority lifts it", which is what a ledgered
+        retention action is. AC-F16's retention sweep proposes, a human
+        decides, and `unseal` is the only thing that lifts it.
+        """
+        self.client.enable_object_legal_hold(self.bucket, self._key(self._address(uri)))
 
     def is_sealed(self, uri: str) -> bool:
-        """Whether this driver has sealed the artefact."""
-        return str(self._address(uri)) in self._sealed
+        """Whether the *store* holds this object under a legal hold.
+
+        Asked of the bucket rather than of this process, which is the whole
+        point: two drivers now agree, and they agree after a restart.
+        """
+        try:
+            held: bool = self.client.is_object_legal_hold_enabled(
+                self.bucket, self._key(self._address(uri))
+            )
+        except Exception:
+            # Fail closed, and the direction matters. The caller uses this to
+            # decide whether an overwrite is permitted, so reporting "unsealed"
+            # for a question the bucket could not answer is exactly the
+            # overwrite AC-S8 exists to stop. An object that is not there at
+            # all cannot be overwritten and is reported unsealed.
+            return self.stat(uri).exists
+        return held
 
     def unseal(self, uri: str) -> None:
-        """Release the seal. Only a ledgered retention action reaches this."""
-        self._sealed.discard(str(self._address(uri)))
+        """Lift the legal hold. Only a ledgered retention action reaches this."""
+        self.client.disable_object_legal_hold(self.bucket, self._key(self._address(uri)))
 
     def delete(self, uri: str) -> int:
         """Remove the object and return how many bytes went."""
@@ -472,3 +528,44 @@ def readable_size(count: int) -> str:
 def is_writable(path: Path) -> bool:
     """Whether the current process could write to `path`. Used by AC-F3."""
     return os.access(path, os.W_OK)
+
+
+def store_for(settings: Any) -> Any:
+    """Build the artefact store this deployment is configured for. RF-08.
+
+    `ObjectStoreDriver` took `client: Any` and was constructed only in tests,
+    with `client=object()`. Nothing in the application built a MinIO client,
+    despite the endpoint and credentials sitting in `config.py` — so artefacts
+    never reached HODD or MinIO at all, and the driver that would have put them
+    there was an orphan.
+
+    **Refuses rather than degrades**, in both directions. An object store whose
+    bucket has no object lock cannot hold a seal, and `ObjectStoreDriver` says
+    so at construction. A POSIX vault with no marker is not a mounted vault,
+    and `require_vault` already says so — reused here rather than re-checked,
+    because two checks of one property are two answers waiting to disagree.
+
+    Which driver is a matter of configuration and not of guessing: a forge with
+    a vault root uses it, and a deployment with only an object store endpoint
+    uses that. A deployment with neither is a development machine, and gets the
+    POSIX driver over its scratch directory.
+    """
+    if settings.vault_root:
+        from draupnir.hodd.reconcile import require_vault
+
+        posix = PosixStoreDriver(root=Path(settings.vault_root), local_site=settings.site_id)
+        require_vault(posix)
+        return posix
+
+    from minio import Minio
+
+    return ObjectStoreDriver(
+        bucket=settings.object_store_bucket,
+        client=Minio(
+            settings.object_store_endpoint,
+            access_key=settings.object_store_access_key,
+            secret_key=settings.object_store_secret_key,
+            secure=settings.object_store_secure,
+        ),
+        local_site=settings.site_id,
+    )

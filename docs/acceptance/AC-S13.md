@@ -17,10 +17,20 @@ make test-degraded
 ## Evidence
 
 - `draupnir/api/routers/approvals.py`
+- `draupnir/core/application/orchestrator.py`
+- `draupnir/core/domain/federation.py`
 - `draupnir/gullinbursti/agent.py`
 - `draupnir/megingjord/anchors.py`
+- `draupnir/skidbladnir/publish.py`
+- `draupnir/worker/duties.py`
+- `draupnir/worker/loop.py`
+- `tests/contract/test_api_write_path.py`
 - `tests/integration/test_degraded_modes.py`
+- `tests/integration/test_release_publication.py`
+- `tests/integration/test_worker_loop.py`
+- `tests/unit/test_anchor_record.py`
 - `tests/unit/test_federation.py`
+- `tests/unit/test_worker.py`
 - `web/packages/api-client/src/generated/schema.d.ts`
 
 ---

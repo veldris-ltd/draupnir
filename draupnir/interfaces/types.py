@@ -318,6 +318,99 @@ class ValidationError:
 
 
 @dataclass(frozen=True, slots=True)
+class ArraySpec:
+    """A job array: how many elements, and how many run at once.
+
+    VLD-INF-SINDRI-001 Procedure M6: "The directive `--array=0-55%3` is the
+    whole placement strategy: fifty six jobs are queued, exactly three execute
+    at any moment, one per appliance."
+
+    The throttle is the point, and it is a throttle rather than a count. All
+    `size` elements exist at submission and the scheduler runs `throttle` of
+    them; the control plane does not top a queue up, so utilisation does not
+    depend on it being awake (SAD 11.2).
+    """
+
+    size: int
+    throttle: int
+    #: Which elements this submission places. Empty means all of them, which is
+    #: the ordinary case and renders `0-(N-1)%M`.
+    #:
+    #: A retry names one (RF-13, AC-F6). Resubmitting the array would restart
+    #: every element and discard the compute of the ones that succeeded, which
+    #: for fifty-six elements against three appliances is most of a week -- so
+    #: `--array=17` places element seventeen and touches nothing else. `size`
+    #: stays the array's size: this is a submission of part of an array, not a
+    #: smaller array.
+    indices: tuple[int, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Refuse an array that cannot be submitted."""
+        if self.size < 1:
+            msg = "an array has at least one element"
+            raise ValueError(msg)
+        outside = [index for index in self.indices if not 0 <= index <= self.size - 1]
+        if outside:
+            msg = (
+                f"this array has {self.size} elements; "
+                f"{', '.join(str(item) for item in outside)} is not among them. Slurm "
+                "addresses elements by index, and an index the array does not have "
+                "addresses nothing."
+            )
+            raise ValueError(msg)
+        if self.throttle < 1:
+            msg = (
+                "an array runs at least one element at a time; a throttle of zero is a "
+                "submission that would never start"
+            )
+            raise ValueError(msg)
+
+    @property
+    def last_index(self) -> int:
+        """The highest element index. Arrays are zero based."""
+        return self.size - 1
+
+    def directive(self) -> str:
+        """The `--array` value: `0-(N-1)%M`, or the elements this places.
+
+        No throttle on an explicit list. A throttle is what stops N queued
+        elements from all running at once; a submission of one element has
+        nothing to throttle, and `--array=17%1` would say otherwise to anyone
+        reading the job.
+        """
+        if self.indices:
+            return ",".join(str(index) for index in sorted(set(self.indices)))
+        return f"0-{self.last_index}%{self.throttle}"
+
+    def element(self, job_id: str, index: int) -> str:
+        """How one element is addressed: `<job>_<index>`.
+
+        Passing the array's own identifier where an element's was meant
+        cancels fifty six jobs instead of one, so the two are never the same
+        string by accident.
+        """
+        if not 0 <= index <= self.last_index:
+            msg = f"this array has {self.size} elements; there is no index {index}"
+            raise ValueError(msg)
+        return f"{job_id}_{index}"
+
+
+@dataclass(frozen=True, slots=True)
+class NodeState:
+    """What a scheduler says about one machine.
+
+    `available` is the question MOTSOGNIR asks: a node that is DOWN, DRAINED,
+    DRAINING or FAILing cannot take work, and a ring run planned against an
+    estate that includes it would be planned against a machine that will not
+    run it.
+    """
+
+    name: str
+    state: str
+    available: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ResourceRequest:
     """What a job asks the scheduler for."""
 
@@ -325,6 +418,18 @@ class ResourceRequest:
     nodes: int = 1
     gpus_per_node: int = 0
     time_limit_minutes: int | None = None
+    #: The generic resource, fully formed, as the estate declares it: at Sindri
+    #: `gpu:gb10:1`. Set by MOTSOGNIR at placement rather than by a driver or a
+    #: specification, because the accelerator is a fact about the machines and
+    #: a specification has to stay portable across the Forge Matrix (SAD 6.2).
+    #:
+    #: Empty means the estate declares no accelerator, and a scheduler driver
+    #: falls back to an untyped count. An untyped count against a typed GRES
+    #: resolves on some Slurm configurations and not others, which is why the
+    #: typed form is preferred wherever the estate gives one.
+    gres: str = ""
+    #: The array this job is, where it is one. `None` for a single job.
+    array: ArraySpec | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -341,6 +446,16 @@ class JobPlan:
     workdir: str = "."
     resources: ResourceRequest = field(default_factory=lambda: ResourceRequest(partition="default"))
     expected_artefacts: tuple[str, ...] = ()
+    #: How the executor is to be confined: the rendered `svalinn.sandbox`
+    #: profile. RF-09.
+    #:
+    #: A mapping rather than a `SandboxProfile`, because SVALINN and MOTSOGNIR
+    #: are siblings in the layering and neither may import the other -- so the
+    #: plan carries the profile's payload and the composition root is the only
+    #: place that puts the two together. Empty means no profile was composed,
+    #: which is a plan a caller can refuse rather than a default that quietly
+    #: runs unconfined.
+    sandbox: Mapping[str, Any] = field(default_factory=dict)
 
     def as_mapping(self) -> dict[str, Any]:
         """Return the plan in a shape that serialises deterministically."""
@@ -355,6 +470,7 @@ class JobPlan:
                 "timeLimitMinutes": self.resources.time_limit_minutes,
             },
             "expectedArtefacts": list(self.expected_artefacts),
+            "sandbox": dict(self.sandbox),
         }
 
     def canonical(self) -> bytes:

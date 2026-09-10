@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -21,7 +22,7 @@ from draupnir.core.domain.ledger import GENESIS_HASH, LedgerEntry, append
 from draupnir.core.domain.states import RunState
 from draupnir.hodd.retention import RETENTION
 from draupnir.hodd.stores import VaultUnavailableError
-from draupnir.interfaces.types import JobHandle, JobPlan
+from draupnir.interfaces.types import JobHandle, JobPlan, JobState, JobStatus
 from draupnir.worker import duties, stages
 from draupnir.worker.duties import Duty, Timetable
 from draupnir.worker.loop import ORDER, WorkerSettings, ordered
@@ -129,6 +130,10 @@ def test_a_duty_done_is_not_due_again_until_its_period_has_passed() -> None:
 
 
 class _Chain:
+    def head(self) -> Any:
+        """The chain's last entry. Added with the anchor duty (RF-07)."""
+        return None
+
     """A chain that answers the three questions a duty asks of one."""
 
     def __init__(self, entries: tuple[LedgerEntry, ...] = (), divergent: int | None = None) -> None:
@@ -210,26 +215,100 @@ def test_anchor_freshness_alarms_when_stale_and_when_never_anchored() -> None:
     assert not duties.freshness(NOW - timedelta(minutes=1), now=NOW).alarm
 
 
-def test_the_fabric_probe_runs_the_benchmark_sad_11_3_names() -> None:
-    plan = duties.probe_plan(Path("."), nodes=3)
-    assert plan.command[0] == duties.NCCL_TESTS
+SINDRI_PROBE = duties.FabricProbe(
+    binary="/forge/tools/nccl-tests/build/all_reduce_perf",
+    interface="enp1s0f0np0",
+    hca="rocep1s0f0,rocep1s0f1,roceP2p1s0f0,roceP2p1s0f1",
+    baseline_gbps=235.0,
+)
+
+
+def test_the_fabric_probe_runs_as_a_collective_across_the_ring() -> None:
+    """RF-E13. It rendered a bare binary name with no launcher.
+
+    That would have run one process on whichever node Slurm picked and
+    reported it as the fabric -- a probe run on one node measures a machine,
+    which is the thing this duty exists not to do.
+    """
+    plan = duties.probe_plan(Path("."), SINDRI_PROBE)
+
+    assert plan.command[0] == "srun", "the probe has no launcher, so it is not a collective"
+    assert "--nodes=3" in plan.command
+    assert "--ntasks=3" in plan.command
     assert plan.resources.partition == "ring"
     assert plan.resources.nodes == 3
 
 
-def test_an_absent_benchmark_is_reported_rather_than_alarmed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """No ring on this machine is not a degraded fabric on the estate.
+def test_the_probe_binary_is_an_absolute_path_from_configuration() -> None:
+    """The probe binary is an absolute path from configuration.
 
-    The scheduler is deliberately one that would raise if it were used: a
-    finding that names the missing benchmark must be reached without placing
-    anything.
+    VLD-INF-SINDRI-001 Procedure S5 builds nccl-tests under /forge/tools on
+    each appliance, and it is on no PATH.
     """
-    monkeypatch.setattr(duties, "probe_installed", lambda: False)
-    finding = duties.probe(_NoScheduler(), workdir=Path("."))
+    plan = duties.probe_plan(Path("."), SINDRI_PROBE)
+    binary = next(part for part in plan.command if part.endswith(duties.NCCL_TESTS))
+    assert binary == SINDRI_PROBE.binary
+    assert binary.startswith("/")
+
+
+def test_the_probe_carries_the_nccl_variables_every_ring_job_sets() -> None:
+    """The probe carries the NCCL variables every ring job sets.
+
+    Without them NCCL falls back to sockets over Fabric 2 and measures the
+    Ethernet rather than BAUGR, which is a reading, and a wrong one.
+
+    From configuration rather than constants: section 48.2 warns that a driver
+    update can rename an interface, and correcting one should be a
+    configuration change rather than a release.
+    """
+    plan = duties.probe_plan(Path("."), SINDRI_PROBE)
+
+    assert plan.environment["NCCL_SOCKET_IFNAME"] == "enp1s0f0np0"
+    assert plan.environment["NCCL_IB_HCA"] == SINDRI_PROBE.hca
+    assert plan.environment["NCCL_IB_DISABLE"] == "0"
+
+
+def test_the_probe_sweeps_the_sizes_the_baseline_was_measured_over() -> None:
+    """The comparison is meaningless otherwise.
+
+    Acceptance test A3 records the baseline from `-b 512M -e 8G`, and
+    `Avg bus bandwidth` is an average over whatever range was swept. This
+    swept from 8 bytes, averaging in the small-message sizes where the
+    collective is latency bound -- a figure several times lower than the
+    baseline it is compared against, so the 80 per cent alarm would have fired
+    on a healthy fabric from the first tick.
+    """
+    plan = duties.probe_plan(Path("."), SINDRI_PROBE)
+    command = list(plan.command)
+
+    assert command[command.index("-b") + 1] == "512M"
+    assert command[command.index("-e") + 1] == "8G"
+
+
+def test_an_unconfigured_forge_is_unmeasured_rather_than_alarmed() -> None:
+    """No fabric here is not a degraded fabric on the estate.
+
+    The scheduler is deliberately one that would raise if it were used: the
+    finding must be reached without placing anything.
+    """
+    finding = duties.probe(_NoScheduler(), workdir=Path("."), settings=duties.FabricProbe())
     assert not finding.alarm
-    assert duties.NCCL_TESTS in finding.detail
+    assert "no fabric probe is configured" in finding.detail
+
+
+def test_the_probe_is_not_gated_on_this_machines_filesystem() -> None:
+    """The defect. It asked `which all_reduce_perf` on the control plane.
+
+    The binary lives on the appliances, on no PATH, so the answer was always
+    no -- and the fabric would have reported itself unmeasured for ever on a
+    fully commissioned estate, with a reason that sounded plausible.
+    """
+    assert not hasattr(duties, "probe_installed"), (
+        "the probe still asks the control plane whether the appliances' benchmark exists"
+    )
+    assert "shutil" not in vars(duties), (
+        "duties still imports shutil, which it needed only for that question"
+    )
 
 
 def test_a_probe_that_reported_nothing_is_not_a_reading_of_zero() -> None:
@@ -358,3 +437,446 @@ def test_the_genesis_hash_is_what_a_fresh_chain_starts_from() -> None:
         None, subject_type="run", subject_id=str(uuid4()), transition="registered", payload={}
     )
     assert first.prev_hash == GENESIS_HASH
+
+
+# ---------------------------------------------------------------------------
+# RF-E12: a job the scheduler has merely accepted is not one that is training.
+# ---------------------------------------------------------------------------
+
+
+class _Queueing:
+    """A scheduler that queues before it runs, the way a real one does."""
+
+    def __init__(self, states: list[JobState], known: bool = False) -> None:
+        self.states = states
+        self.known = known
+        self.submitted: list[str] = []
+        self.polls = 0
+
+    def submit(self, plan: JobPlan, name: str = "") -> JobHandle:
+        del plan
+        self.submitted.append(name)
+        return JobHandle(driver="stub", job_id="900", node=None)
+
+    def poll(self, handle: JobHandle) -> JobStatus:
+        del handle
+        state = self.states[min(self.polls, len(self.states) - 1)]
+        self.polls += 1
+        return JobStatus(state=state, node="dvalin")
+
+    def find(self, name: str) -> JobHandle | None:
+        del name
+        return JobHandle(driver="stub", job_id="900") if self.known else None
+
+    def cancel(self, handle: JobHandle) -> JobStatus:
+        del handle
+        return JobStatus(state=JobState.CANCELLED)
+
+    def logs(self, handle: JobHandle) -> str:
+        del handle
+        return ""
+
+
+class _RecordingOrchestrator:
+    """Records transitions so a test can assert none was made."""
+
+    def __init__(self) -> None:
+        self.transitions: list[Any] = []
+
+    def transition(self, run_id: Any, target: Any, **kwargs: Any) -> Any:
+        self.transitions.append((run_id, target, kwargs))
+        return SimpleNamespace(state=target)
+
+    def history(self, run_id: Any) -> Any:
+        """An empty chain. `_corpus_of` falls back to a staged corpus file."""
+        del run_id
+        return iter(())
+
+
+def _dispatch_context(scheduler: Any, orchestrator: Any, tmp_path: Path) -> stages.Context:
+    """A context that plans with the development executor.
+
+    These tests are about what the worker does with a *scheduler's* answers --
+    queued, started, rejected before it ran -- and not about what it dispatches.
+    Since RF-10 the ordinary path renders the run's specification through the
+    plug-in registry, which needs a specification in the chain and a driver
+    installed; neither has anything to do with the question here, and a
+    `_RecordingOrchestrator` holds no chain to record a specification in.
+
+    So the stand-in is asked for explicitly, which is the only way to get it.
+    That is the property RF-10 wanted: a simulation is something a caller opts
+    into by name, not the default nobody chose.
+    """
+    return stages.Context(
+        orchestrator=orchestrator,
+        scheduler=scheduler,
+        scratch=tmp_path,
+        may_dispatch=True,
+        stand_in=True,
+    )
+
+
+def test_a_job_the_scheduler_has_queued_leaves_the_run_queued(tmp_path: Path) -> None:
+    """The finding. A pending job is not a training run.
+
+    On this estate it is not an edge case: the adapter array is
+    `--array=0-55%3`, so fifty three of fifty six elements are pending at any
+    moment by design. The board would have shown fifty six runs training
+    against three appliances.
+    """
+    scheduler = _Queueing([JobState.PENDING])
+    orchestrator = _RecordingOrchestrator()
+
+    outcome = stages.dispatch(
+        _dispatch_context(scheduler, orchestrator, tmp_path), facts(RunState.QUEUED)
+    )
+
+    assert outcome.result is stages.Result.DEFERRED
+    assert "queued on the scheduler" in outcome.detail
+    assert orchestrator.transitions == [], (
+        "a job the scheduler had merely accepted was recorded as TRAINING"
+    )
+
+
+def test_the_run_transitions_when_the_scheduler_says_it_started(tmp_path: Path) -> None:
+    """QUEUED already means "waiting to run", which is what pending is.
+
+    So no new lifecycle state was needed for RF-E12 -- only the transition
+    moved to where the run actually starts.
+    """
+    scheduler = _Queueing([JobState.RUNNING])
+    orchestrator = _RecordingOrchestrator()
+
+    outcome = stages.dispatch(
+        _dispatch_context(scheduler, orchestrator, tmp_path), facts(RunState.QUEUED)
+    )
+
+    assert outcome.result is stages.Result.PLACED
+    assert [target for _, target, _ in orchestrator.transitions] == [RunState.TRAINING]
+    recorded = orchestrator.transitions[0][2]["payload"]
+    assert recorded["scheduler_job_id"] == "900"
+    assert recorded["node"] == "dvalin", "the node the scheduler reported was not recorded"
+
+
+def test_a_run_already_submitted_is_not_submitted_again(tmp_path: Path) -> None:
+    """What replaces recording an allocation the moment it is made.
+
+    A worker that submitted and then died must not submit a second copy on the
+    next tick. It asks the scheduler instead: the job carries a name derived
+    from the run, so the question can be asked of the thing that knows.
+    """
+    scheduler = _Queueing([JobState.PENDING], known=True)
+    orchestrator = _RecordingOrchestrator()
+
+    outcome = stages.dispatch(
+        _dispatch_context(scheduler, orchestrator, tmp_path), facts(RunState.QUEUED)
+    )
+
+    assert scheduler.submitted == [], "the run was submitted twice"
+    assert outcome.result is stages.Result.DEFERRED
+    assert orchestrator.transitions == []
+
+
+def test_the_job_carries_a_name_derived_from_the_run(tmp_path: Path) -> None:
+    """The name is the only thing tying a queued job back to its run."""
+    scheduler = _Queueing([JobState.RUNNING])
+    run = facts(RunState.QUEUED)
+
+    stages.dispatch(_dispatch_context(scheduler, _RecordingOrchestrator(), tmp_path), run)
+
+    assert scheduler.submitted == [stages.job_name_for(run.run_id)]
+    assert str(run.run_id) in scheduler.submitted[0]
+
+
+def test_a_job_rejected_before_it_ran_leaves_the_run_queued(tmp_path: Path) -> None:
+    """An invalid partition or an unsatisfiable resource is not a run failing.
+
+    The run has not failed at anything it did, so it stays QUEUED and the
+    reason is reported every tick rather than once.
+    """
+    scheduler = _Queueing([JobState.FAILED])
+    orchestrator = _RecordingOrchestrator()
+
+    outcome = stages.dispatch(
+        _dispatch_context(scheduler, orchestrator, tmp_path), facts(RunState.QUEUED)
+    )
+
+    assert outcome.result is stages.Result.DEFERRED
+    assert "before starting" in outcome.detail
+    assert orchestrator.transitions == []
+
+
+def test_a_scheduler_that_cannot_be_asked_still_dispatches(tmp_path: Path) -> None:
+    """A local runner has no queue to search and starts immediately.
+
+    Requiring `find` of every driver would break the development path to fix
+    a problem it does not have.
+    """
+
+    class _Immediate(_Queueing):
+        find = None  # type: ignore[assignment]
+
+    scheduler = _Immediate([JobState.RUNNING])
+    orchestrator = _RecordingOrchestrator()
+
+    outcome = stages.dispatch(
+        _dispatch_context(scheduler, orchestrator, tmp_path), facts(RunState.QUEUED)
+    )
+
+    assert outcome.result is stages.Result.PLACED
+    assert scheduler.submitted, "nothing was submitted"
+
+
+# ---------------------------------------------------------------------------
+# Anchoring. RF-07.
+# ---------------------------------------------------------------------------
+
+
+class StubRegistry:
+    """MEGINGJORD's anchoring half, without a network."""
+
+    def __init__(self, outcome: str = "countersigned", reason: str = "") -> None:
+        self.outcome = outcome
+        self.reason = reason
+        self.submitted: list[int] = []
+
+    def countersign(self, head: Any, *, at: Any, countersignature: str) -> Any:
+        from draupnir.core.domain.federation import Anchor, AnchorOutcome, Receipt
+
+        del countersignature
+        self.submitted.append(head.head.seq)
+        outcome = AnchorOutcome(self.outcome)
+        if outcome not in {AnchorOutcome.COUNTERSIGNED, AnchorOutcome.DUPLICATE}:
+            return Receipt(outcome, None, self.reason or "refused")
+        return Receipt(
+            outcome,
+            Anchor(head=head, countersigned_at=at, countersignature="c" * 64, outcome=outcome),
+            "",
+        )
+
+
+def a_head(seq: int = 7) -> Any:
+    """One chain head, ready to submit."""
+    from datetime import UTC, datetime
+
+    from draupnir.core.domain.federation import AnchorSubmission
+    from draupnir.core.domain.ledger import ChainHead
+
+    return AnchorSubmission(
+        head=ChainHead(site_id="sindri", seq=seq, entry_hash="a" * 64),
+        previous_hash="b" * 64,
+        submitted_at=datetime.now(UTC),
+        signature="s" * 64,
+        key_id="forge-1",
+    )
+
+
+def an_agent() -> Any:
+    """A site agent for `sindri`."""
+    from draupnir.gullinbursti.agent import Gullinbursti
+
+    return Gullinbursti(site_id="sindri", signing_key_id="forge-1")
+
+
+def test_a_successful_anchor_reports_no_alarm() -> None:
+    """RF-07. `freshness` alarmed on every tick, for ever, because nothing anchored."""
+    from datetime import UTC, datetime
+
+    registry = StubRegistry()
+
+    finding, recorded = duties.anchor(an_agent(), registry, a_head(), now=datetime.now(UTC))
+
+    assert not finding.alarm
+    assert registry.submitted == [7]
+    assert recorded is not None
+    assert recorded.accepted
+    assert recorded.seq == 7
+
+
+def test_a_forge_with_no_link_alarms_rather_than_pretending() -> None:
+    """Every estate today. The alarm names what is missing."""
+    from datetime import UTC, datetime
+
+    finding, recorded = duties.anchor(None, None, None, now=datetime.now(UTC))
+
+    assert finding.alarm
+    assert "not anchored anywhere" in finding.detail
+    assert "11A.3" in finding.detail
+    assert recorded is None
+
+
+def test_a_rejected_anchor_alarms_and_is_still_recorded() -> None:
+    """Both outcomes are a matter of record, not only the successful one.
+
+    A chain that recorded only successes could not tell "never tried" from
+    "tried and was refused", which are the two states an operator most needs
+    told apart during an outage.
+    """
+    from datetime import UTC, datetime
+
+    registry = StubRegistry(outcome="diverged", reason="sequence 7 does not follow 5")
+
+    finding, recorded = duties.anchor(an_agent(), registry, a_head(), now=datetime.now(UTC))
+
+    assert finding.alarm
+    assert "does not follow" in finding.detail
+    assert recorded is not None
+    assert not recorded.accepted
+    assert recorded.as_payload()["anchored_through"] == 0
+
+
+def test_a_rejection_says_training_continues() -> None:
+    """Decision S8. A partitioned forge trains and does not release.
+
+    The message matters: an operator reading "the registry did not anchor"
+    without this sentence would reasonably stop submitting work.
+    """
+    from datetime import UTC, datetime
+
+    finding, _ = duties.anchor(
+        an_agent(), StubRegistry(outcome="rejected"), a_head(), now=datetime.now(UTC)
+    )
+
+    assert "Training and evaluation continue" in finding.detail
+    assert "release is unavailable" in finding.detail
+
+
+def test_a_link_that_blinked_does_not_alarm_about_a_fresh_anchor() -> None:
+    """SAD 11A.3 alarms when the last successful anchor is stale.
+
+    Not when an attempt fails. A link down between two ticks would otherwise
+    raise an alarm about a chain anchored ninety seconds ago, and an alarm
+    firing on a condition an operator cannot act on is one they learn to close
+    without reading.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime.now(UTC)
+    finding, _ = duties.anchor(
+        an_agent(),
+        StubRegistry(outcome="rejected", reason="the registry is unreachable"),
+        a_head(),
+        now=now,
+        last_anchored_at=now - timedelta(minutes=2),
+    )
+
+    assert not finding.alarm, "an alarm about a chain anchored two minutes ago"
+    # The reason is still reported. Silence is not the same as no alarm: the
+    # operator reads what happened, and the duty simply does not escalate it.
+    assert "did not anchor" in finding.detail
+    assert "anchored 2 minutes ago" in finding.detail
+
+
+def test_a_link_down_past_the_interval_does_alarm() -> None:
+    """The other half. An hour without an anchor is the condition SAD 11A.3 names."""
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime.now(UTC)
+    finding, _ = duties.anchor(
+        an_agent(),
+        StubRegistry(outcome="rejected", reason="the registry is unreachable"),
+        a_head(),
+        now=now,
+        last_anchored_at=now - timedelta(hours=4),
+    )
+
+    assert finding.alarm
+    assert "release is unavailable" in finding.detail, (
+        "the alarm does not say that training continues, so an operator reading it "
+        "would reasonably stop submitting work (Decision S8)"
+    )
+
+
+def test_a_rejection_does_not_refresh_the_clock() -> None:
+    """A rejection is recorded, but it is not an anchor.
+
+    Letting one count would silence the very alarm that says the chain's end is
+    unprotected -- which is the state a rejection puts the forge in.
+    """
+    from datetime import UTC, datetime
+
+    _finding, recorded = duties.anchor(
+        an_agent(), StubRegistry(outcome="rejected"), a_head(), now=datetime.now(UTC)
+    )
+
+    assert recorded is not None
+    assert recorded.as_payload()["anchored_through"] == 0
+    assert recorded.as_payload()["anchored_at"] == "", (
+        "a rejection carries an anchoring instant, so the freshness clock would be "
+        "refreshed by a failure"
+    )
+
+
+def test_the_anchor_payload_is_sealed() -> None:
+    """AC-S13's boundary: hashes, names, timestamps and numbers, and nothing else."""
+    from datetime import UTC, datetime
+
+    from draupnir.core.domain.federation import sealed
+
+    _finding, recorded = duties.anchor(an_agent(), StubRegistry(), a_head(), now=datetime.now(UTC))
+
+    assert recorded is not None
+    assert sealed(recorded.as_payload(), name="anchor record") == recorded.as_payload()
+
+
+def test_a_payload_carrying_a_weight_is_refused() -> None:
+    """The check is the constructor, so a payload that skipped it never existed."""
+    import pytest as _pytest
+
+    from draupnir.core.domain.federation import ContentLeakError, sealed
+
+    # A slice of an adapter, which is what a leak looks like on the wire: too
+    # long to be a name and not a hash. The check is on shape rather than on a
+    # field name, which is the point -- a field called `notes` carrying a
+    # tensor is the case a name-based rule would miss.
+    with _pytest.raises(ContentLeakError):
+        sealed({"seq": 7, "notes": "z" * 400}, name="anchor record")
+
+
+def test_the_remote_registry_refuses_a_countersignature_that_is_not_there() -> None:
+    """Countersigned and unsigned is not countersigned.
+
+    Accepting it would record an anchor nobody can verify, which is worse than
+    no anchor: the freshness duty goes quiet and the truncation SAD 11A.3
+    exists to detect goes unnoticed.
+    """
+    from datetime import UTC, datetime
+
+    from draupnir.gullinbursti import federation
+
+    class Answer:
+        status_code = 200
+
+        def json(self) -> Any:
+            return {"outcome": "countersigned", "anchoredAt": "2026-09-09T00:00:00+00:00"}
+
+    class Client:
+        def post(self, url: str, *, json: Any = None, headers: Any = None) -> Any:
+            del url, json, headers
+            return Answer()
+
+    receipt = federation.RemoteRegistry(client=Client()).countersign(
+        a_head(), at=datetime.now(UTC), countersignature=""
+    )
+
+    assert not receipt.accepted
+    assert "no countersignature" in receipt.reason
+
+
+def test_an_unreachable_registry_is_a_receipt_not_an_exception() -> None:
+    """A partition is a degraded mode, not a fault that reaches a run."""
+    from datetime import UTC, datetime
+
+    from draupnir.gullinbursti import federation
+
+    class Client:
+        def post(self, url: str, *, json: Any = None, headers: Any = None) -> Any:
+            del url, json, headers
+            raise OSError("connection refused")
+
+    receipt = federation.RemoteRegistry(client=Client()).countersign(
+        a_head(), at=datetime.now(UTC), countersignature=""
+    )
+
+    assert not receipt.accepted
+    assert "could not be reached" in receipt.reason

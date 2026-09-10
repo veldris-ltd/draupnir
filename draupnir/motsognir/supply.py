@@ -25,6 +25,41 @@ allocation; killing it wastes the work and the power spent on it. A job that
 has not started yet will not finish before the battery does. So the queue stops
 dispatching and the running work is checkpointed, which is the ordering that
 loses least.
+
+The contract
+------------
+
+`SCHEMA` names it, so a site can be told what to produce and a later revision
+can add a required key without silently changing what an existing file means.
+
+**v1 is the block `upsc` prints**, deliberately, because that is a format the
+daemon already produces. NUT with `usbhid-ups` writes it; a site running NUT
+needs a one-line timer and no translation layer, and a translation layer nobody
+needs is a translation layer nobody notices has stopped running. `adapters`
+converts the other common daemon's output for a site that has one.
+
+Lines are `key: value`. Two keys are read and the rest ignored, because a
+parser that required the whole block would break on a supply model that reports
+one field differently:
+
+| Key | Required | Meaning |
+|---|---|---|
+| `ups.status` | yes | NUT flags: `OL` on line, `OB` on battery, `LB` low. They combine |
+| `battery.charge` | no, defaults to 100 | Percentage remaining |
+| `draupnir.schema` | no | The contract version. Absent means v1, so a bare `upsc` dump is valid |
+
+**Staleness is part of the contract and is the failure that matters.** A file
+whose daemon died reads exactly like a healthy one reporting mains: `OL`, one
+hundred per cent, no error. Nothing about it is malformed. A monitor without a
+freshness check concludes mains for as long as the file sits there, which
+includes the whole of the outage it exists for -- and the file it is reading
+was last written before the power went out, which is precisely when it was
+still true.
+
+So the file carries its own recency in its modification time, and a reading
+older than `MAX_AGE_SECONDS` raises rather than being believed. The estate then
+has no supply signal, which is a worse position than having one and a much
+better position than having a wrong one.
 """
 
 from __future__ import annotations
@@ -41,6 +76,22 @@ from typing import Any
 #: commissioned runtime, not of a nameplate rating: a battery at twenty per
 #: cent has minutes, and a halt takes one of them.
 LOW_BATTERY_PERCENT = 20.0
+
+#: The status file contract. Versioned so that a later revision can require a
+#: key without changing what an existing file means, and so that a site can be
+#: told what to produce by name rather than by example.
+SCHEMA = "draupnir/supply-status/v1"
+
+#: The optional key naming the version. Optional because v1 *is* `upsc` output,
+#: and requiring a marker would mean a site running NUT could not simply
+#: redirect the command it already has.
+SCHEMA_KEY = "draupnir.schema"
+
+#: How old a reading may be before it is refused. Three minutes is four missed
+#: polls at the sixty-second interval the deployment configures, which is long
+#: enough not to alarm on a slow host and short enough that a dead daemon is
+#: found before the next power cut rather than during it.
+MAX_AGE_SECONDS = 180.0
 
 #: What NUT reports. `OL` on line, `OB` on battery, `LB` low battery, and they
 #: combine -- a supply on battery and low reports `OB LB`.
@@ -68,10 +119,49 @@ class ActionKind(StrEnum):
     #: Mains restored. Dispatch again; running jobs resume from their forced
     #: checkpoint rather than from the last periodic one.
     RESUME = "RESUME"
+    #: The status file could not be read or believed. Nothing is done to the
+    #: estate -- see `signal_lost` for why not -- and an operator is told.
+    SIGNAL_LOST = "SIGNAL_LOST"
 
 
 class SupplyError(Exception):
     """Raised when a supply reading cannot be read or believed."""
+
+
+class StaleSupplyError(SupplyError):
+    """Raised when the status file stopped being written.
+
+    Its own type because the response differs. An unreadable file is a
+    configuration fault -- wrong path, wrong permissions -- and is found the
+    first time the worker starts. A stale one means the daemon was running and
+    is not any more, which is a fault that appears later and looks like
+    nothing at all.
+    """
+
+    def __init__(self, path: Path, age_seconds: float, limit: float) -> None:
+        """Name the file, its age, and what would have been acceptable."""
+        self.path = path
+        self.age_seconds = age_seconds
+        super().__init__(
+            f"the supply status at {path} was last written {age_seconds:.0f}s ago, past "
+            f"the {limit:.0f}s limit. A file whose daemon died reads exactly like a "
+            "healthy one reporting mains, so it is refused rather than believed: no "
+            "supply signal is a worse position than a working one and a much better "
+            "position than a wrong one."
+        )
+
+
+class SchemaError(SupplyError):
+    """Raised when the file declares a contract version this cannot read."""
+
+    def __init__(self, declared: str) -> None:
+        """Name what was declared and what is understood."""
+        self.declared = declared
+        super().__init__(
+            f"the supply status declares {declared!r} and this reads {SCHEMA!r}. A file "
+            "written to a later contract may mean something different by the same key, "
+            "and guessing is how a monitor concludes mains during a power cut."
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +211,10 @@ def parse_status(text: str, *, at: datetime) -> Reading:
         if separator:
             fields[key.strip()] = value.strip()
 
+    declared = fields.get(SCHEMA_KEY, "")
+    if declared and declared != SCHEMA:
+        raise SchemaError(declared)
+
     status = fields.get("ups.status", "")
     if not status:
         msg = "the supply status block carries no `ups.status`; nothing can be concluded from it"
@@ -143,16 +237,23 @@ def parse_status(text: str, *, at: datetime) -> Reading:
     return Reading(state=state, charge_percent=charge, at=at, raw=status)
 
 
-def read_status_file(path: Path, *, at: datetime) -> Reading:
+def read_status_file(
+    path: Path, *, at: datetime, max_age_seconds: float = MAX_AGE_SECONDS
+) -> Reading:
     """Read the status file the supply's daemon maintains.
 
     A file rather than a device, because that is the interface that exists: the
     daemon owns the USB link and publishes what it found. It also means this
     can be exercised for real without a supply, by writing the file the daemon
     would have written.
+
+    Refuses a file older than `max_age_seconds`. See the module docstring for
+    why that check is not optional: a stale file is well formed, reports mains,
+    and is wrong in exactly the circumstance the monitor exists for.
     """
     try:
         text = path.read_text(encoding="utf-8")
+        modified = path.stat().st_mtime
     except OSError as error:
         msg = (
             f"the supply status at {path} cannot be read: {error}. A monitor that "
@@ -160,6 +261,11 @@ def read_status_file(path: Path, *, at: datetime) -> Reading:
             "event it exists for."
         )
         raise SupplyError(msg) from error
+
+    age = at.timestamp() - modified
+    if age > max_age_seconds:
+        raise StaleSupplyError(path, age, max_age_seconds)
+
     return parse_status(text, at=at)
 
 
@@ -272,6 +378,28 @@ class SupplyMonitor:
         )
 
 
+def signal_lost(error: SupplyError) -> Action:
+    """The supply cannot be read. Say so, and change nothing.
+
+    **Deliberately not a drain.** The tempting response is to stop dispatching
+    until the signal returns, on the grounds that running blind during a power
+    cut is what this module exists to prevent. It is the wrong response: a
+    daemon restart, a slow host or a rotated file would then stop the estate,
+    the drain would outlast the cause, and within a month somebody would set
+    the path to empty to make it stop.
+
+    So an unreadable supply is reported and not acted on. The estate runs as it
+    would with no supply fitted, which is the state it was in before one was --
+    and the operator is told, once per tick, that the protection they think
+    they have is not there.
+    """
+    return Action(
+        ActionKind.SIGNAL_LOST,
+        f"the supply signal cannot be read: {error}. Dispatch continues, because a "
+        "drain that outlasts a daemon restart is a drain somebody disables.",
+    )
+
+
 def describe(actions: Iterable[Action]) -> str:
     """Render actions for an operator's log line."""
     return "; ".join(
@@ -282,13 +410,19 @@ def describe(actions: Iterable[Action]) -> str:
 
 __all__ = [
     "LOW_BATTERY_PERCENT",
+    "MAX_AGE_SECONDS",
+    "SCHEMA",
+    "SCHEMA_KEY",
     "Action",
     "ActionKind",
     "Reading",
+    "SchemaError",
+    "StaleSupplyError",
     "SupplyError",
     "SupplyMonitor",
     "SupplyState",
     "describe",
     "parse_status",
     "read_status_file",
+    "signal_lost",
 ]

@@ -667,9 +667,13 @@ def test_a_plugin_signed_by_an_unknown_key_fails_to_load() -> None:
 
 
 def test_a_correctly_signed_plugin_verifies() -> None:
+    """The signature checks out *and* the installed files hash to what it covers."""
     key = ed25519.Ed25519PrivateKey.generate()
     digest = "aa" * 32
-    verifier = PkiVerifier(trust_store={"veldris-plugin-1": key.public_key()})
+    verifier = PkiVerifier(
+        trust_store={"veldris-plugin-1": key.public_key()},
+        digest=lambda _name: (digest, ""),
+    )
     verifier.register(
         PluginSignature(
             distribution="veldris-draupnir-slurm",
@@ -687,17 +691,32 @@ def test_a_correctly_signed_plugin_verifies() -> None:
     assert status.signer == "veldris-plugin-1"
 
 
-def test_a_modified_distribution_fails_verification() -> None:
+def test_a_distribution_modified_after_signing_is_refused() -> None:
+    """RF-02, and the defect the old refusal message described but never found.
+
+    Everything about the signature record is correct here: it is signed by a
+    held key, over the digest it claims, and the signature verifies. What
+    changed is the distribution on disk. The verifier used to check the
+    signature over the *recorded* digest and never look at the installed files,
+    so this case verified -- while the refusal it never reached said "the
+    distribution has been modified since signing".
+    """
     key = ed25519.Ed25519PrivateKey.generate()
-    verifier = PkiVerifier(trust_store={"veldris-plugin-1": key.public_key()})
+    signed = "aa" * 32
+    installed = "bb" * 32
+
+    verifier = PkiVerifier(
+        trust_store={"veldris-plugin-1": key.public_key()},
+        digest=lambda _name: (installed, ""),
+    )
     verifier.register(
         PluginSignature(
             distribution="veldris-draupnir-slurm",
             version="1.0.0",
             key_id="veldris-plugin-1",
-            signature=key.sign(bytes.fromhex("aa" * 32)).hex(),
+            signature=key.sign(bytes.fromhex(signed)).hex(),
             signed_at=AT,
-            sha256="bb" * 32,  # The contents changed after signing.
+            sha256=signed,
         )
     )
 
@@ -705,6 +724,152 @@ def test_a_modified_distribution_fails_verification() -> None:
 
     assert not status.verified
     assert "modified since signing" in (status.reason or "")
+    assert "The signature itself is valid" in (status.reason or ""), (
+        "the refusal does not say the signature verified, which is the fact that "
+        "makes this a separate check rather than the same one"
+    )
+
+
+def test_an_altered_signature_record_is_refused_as_such() -> None:
+    """A different failure from the one above, and it should read differently.
+
+    Here the record itself does not verify. Saying "the distribution has been
+    modified" would send somebody to compare files that are fine.
+    """
+    key = ed25519.Ed25519PrivateKey.generate()
+    verifier = PkiVerifier(
+        trust_store={"veldris-plugin-1": key.public_key()},
+        digest=lambda _name: ("bb" * 32, ""),
+    )
+    verifier.register(
+        PluginSignature(
+            distribution="veldris-draupnir-slurm",
+            version="1.0.0",
+            key_id="veldris-plugin-1",
+            signature=key.sign(bytes.fromhex("aa" * 32)).hex(),
+            signed_at=AT,
+            sha256="bb" * 32,
+        )
+    )
+
+    status = verifier.verify("veldris-draupnir-slurm", "1.0.0")
+
+    assert not status.verified
+    assert "signature record was altered" in (status.reason or "")
+
+
+def test_a_distribution_that_cannot_be_hashed_is_refused() -> None:
+    """Unreadable is not the same as unchanged."""
+    key = ed25519.Ed25519PrivateKey.generate()
+    verifier = PkiVerifier(
+        trust_store={"veldris-plugin-1": key.public_key()},
+        digest=lambda _name: ("", "site-packages/thing.py"),
+    )
+    verifier.register(
+        PluginSignature(
+            distribution="veldris-draupnir-slurm",
+            version="1.0.0",
+            key_id="veldris-plugin-1",
+            signature=key.sign(bytes.fromhex("aa" * 32)).hex(),
+            signed_at=AT,
+            sha256="aa" * 32,
+        )
+    )
+
+    status = verifier.verify("veldris-draupnir-slurm", "1.0.0")
+
+    assert not status.verified
+    assert "thing.py" in (status.reason or ""), "the refusal does not name the file"
+
+
+def test_the_digest_covers_the_files_actually_installed() -> None:
+    """And is stable, because a signer and a verifier have to agree.
+
+    A digest that depended on the filesystem's enumeration order would differ
+    between the machine that signed and the machine that verifies, and the
+    difference would present as tampering.
+    """
+    once, error = pki.digest_of("veldris-draupnir-slurm")
+    twice, _ = pki.digest_of("veldris-draupnir-slurm")
+
+    assert not error
+    assert once == twice
+    assert len(once) == 64
+
+
+def test_a_distribution_that_is_not_installed_is_named_as_such() -> None:
+    """Distinguished from a read failure, because the remedies differ."""
+    _, error = pki.digest_of("veldris-draupnir-not-a-real-thing")
+
+    assert "not installed" in error
+
+
+# ---------------------------------------------------------------------------
+# The trust store fails closed
+# ---------------------------------------------------------------------------
+
+
+def test_an_unreadable_trust_store_is_a_refusal_not_an_empty_one(tmp_path: Path) -> None:
+    """RF-02's acceptance criterion, and the reason it matters.
+
+    An empty trust store is not a strict verifier. It refuses every plug-in,
+    which looks like a broken deployment -- and the fix somebody reaches for is
+    `DRAUPNIR_DEV=1`, turning a missing directory into an estate that loads
+    unsigned code.
+    """
+    with pytest.raises(pki.TrustStoreError, match="not a directory"):
+        PkiVerifier.from_settings(str(tmp_path / "absent"), str(tmp_path / "m.json"))
+
+
+def test_a_trust_store_with_no_keys_is_a_refusal(tmp_path: Path) -> None:
+    """A directory that exists and holds nothing is the same failure."""
+    (tmp_path / "trust").mkdir()
+
+    with pytest.raises(pki.TrustStoreError, match="no Ed25519 public key"):
+        PkiVerifier.from_settings(str(tmp_path / "trust"), str(tmp_path / "m.json"))
+
+
+def test_a_key_of_the_wrong_type_is_a_refusal_not_a_skip(tmp_path: Path) -> None:
+    """Skipping it would leave a trust store quietly smaller than intended."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    trust = tmp_path / "trust"
+    trust.mkdir()
+    wrong = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    (trust / "wrong.pem").write_bytes(
+        wrong.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+    )
+
+    with pytest.raises(pki.TrustStoreError, match="Ed25519"):
+        PkiVerifier.from_settings(str(trust), str(tmp_path / "m.json"))
+
+
+def test_a_missing_manifest_is_not_an_error(tmp_path: Path) -> None:
+    """A forge with no signed distributions yet has nothing to record.
+
+    Every plug-in is then refused for the honest reason that no signature
+    exists for it, which is different from the trust store being broken.
+    """
+    from cryptography.hazmat.primitives import serialization
+
+    trust = tmp_path / "trust"
+    trust.mkdir()
+    key = ed25519.Ed25519PrivateKey.generate()
+    (trust / "forge-1.pem").write_bytes(
+        key.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+    )
+
+    built = PkiVerifier.from_settings(str(trust), str(tmp_path / "absent.json"))
+
+    assert built.trust_store.keys() == {"forge-1"}
+    assert built.signatures == {}
 
 
 def test_the_transparency_log_is_internal() -> None:
@@ -818,3 +983,46 @@ def test_the_inventory_renders_as_a_build_artefact() -> None:
     assert built.to_markdown().startswith("# Cryptographic inventory")
     assert "Ed25519" in built.to_json()
     assert built.declared_not_implemented
+
+
+def test_the_tls_row_reports_no_when_no_tls_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """RF-03. An inventory that asserts a transport nobody terminates.
+
+    This row read `in_use: yes` unconditionally while nothing in `deploy/`
+    terminated TLS. That is worse than a hand-written claim, because a
+    generated document carries the authority of having been derived from the
+    code — which is exactly what AC-S16 exists to establish.
+    """
+    from draupnir.core.infrastructure import config
+
+    unconfigured = config.get_settings().model_copy(
+        update={"tls_certificate": "", "tls_private_key": ""}
+    )
+    monkeypatch.setattr("draupnir.core.infrastructure.config.get_settings", lambda: unconfigured)
+
+    row = next(item for item in inventory.entries() if item.algorithm == "TLS 1.3")
+
+    assert row.in_use is False
+    assert "NOT IN USE" in row.notes
+
+
+def test_the_tls_row_reports_yes_once_a_certificate_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other direction, so the derivation is a derivation and not a constant."""
+    from draupnir.core.infrastructure import config
+
+    configured = config.get_settings().model_copy(
+        update={
+            "tls_certificate": "/etc/draupnir/tls.pem",
+            "tls_private_key": "/etc/draupnir/tls.key",
+        }
+    )
+    monkeypatch.setattr("draupnir.core.infrastructure.config.get_settings", lambda: configured)
+
+    row = next(item for item in inventory.entries() if item.algorithm == "TLS 1.3")
+
+    assert row.in_use is True
+    assert "mTLS" in row.notes

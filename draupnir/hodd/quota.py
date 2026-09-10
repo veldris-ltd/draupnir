@@ -171,3 +171,40 @@ def check(
     if not projection.fits:
         raise QuotaExceededError(projection)
     return projection
+
+
+def room_for(
+    nbytes: int,
+    store: Store,
+    *,
+    what: str = "the artefact",
+    reserve_fraction: float = DEFAULT_RESERVE_FRACTION,
+) -> Estimate:
+    """What the vault can take, against a size that is no longer a guess. RF-08.
+
+    The planning check above projects, because at planning the bytes do not
+    exist yet and a crude pessimistic estimate is the best that can be had. By
+    the time the worker stages a checkpoint the file is on disk and its size is
+    a fact, so projecting it again would replace a measurement with a guess --
+    and the guess is deliberately several times too large, which would refuse
+    writes the vault could take.
+
+    The same reserve arithmetic either way. A vault at 100 per cent does not
+    merely refuse the next write: it fails writes already in flight, and on a
+    copy-on-write filesystem it can fail deletes too, which is the state an
+    operator can least easily get out of.
+    """
+    if not 0.0 <= reserve_fraction < 1.0:
+        msg = f"the reserve fraction is a proportion of the vault, not {reserve_fraction}"
+        raise ValueError(msg)
+
+    return Estimate(
+        projected_bytes=nbytes,
+        free_bytes=store.free_bytes(),
+        total_bytes=store.total_bytes(),
+        reserve_fraction=reserve_fraction,
+        workings=(
+            f"artefact       {what}",
+            f"measured       {readable_size(nbytes)} (not projected: the file exists)",
+        ),
+    )

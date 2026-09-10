@@ -20,7 +20,10 @@ from draupnir.core.domain.identifiers import new_id
 from draupnir.core.domain.ledger import GENESIS_HASH, compute_entry_hash
 
 #: The tables carrying a site scope, per the bold attributes of SAD 7.1.
-SITE_SCOPED_TABLES = ("ledger_entry", "artefact", "run")
+# `idempotency_key` joined them in RF-14: a key is scoped per site as well as
+# per actor, and without FORCE the application's own role would read every
+# forge's keys -- so a key from one site would resolve at another.
+SITE_SCOPED_TABLES = ("ledger_entry", "artefact", "run", "idempotency_key")
 
 pytestmark = pytest.mark.integration
 

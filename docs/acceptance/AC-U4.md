@@ -7,17 +7,19 @@
 
 ## How it is demonstrated
 
-A submitted run appears on the board within five seconds by server sent events, with zero list reads in the following six.
+A submitted run appears on the board within five seconds by server sent events, with zero list reads in the following six; and the transition that puts it there is committed by another operating system process, which is what the deployment does and what the journey alone could not show.
 
 
 ```bash
-make test-e2e
+make test-e2e && make test-integration
 ```
 
 ## Evidence
 
 - `draupnir/api/events.py`
 - `draupnir/api/routers/runs.py`
+- `migrations/versions/0004_ledger_notify.py`
+- `tests/integration/test_event_stream.py`
 - `web/apps/console/src/api/useEvents.ts`
 - `web/apps/console/src/screens/Runs.tsx`
 - `web/e2e/journeys/j2-operate.spec.ts`

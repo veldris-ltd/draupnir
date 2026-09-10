@@ -305,3 +305,74 @@ def test_ingesting_an_empty_tree_is_refused(ingestor: Ingestor, tmp_path: Path) 
 def test_a_source_without_a_register_is_refused(store: PosixStoreDriver, corpus: Path) -> None:
     with pytest.raises(IngestError, match="no licence register"):
         Ingestor(store).ingest(corpus, URI, kind="corpus_raw", source=source_record())
+
+
+# ---------------------------------------------------------------------------
+# The scanner runs before the point of no return. RF-09, AC-S6.
+# ---------------------------------------------------------------------------
+
+
+def scanned(store: PosixStoreDriver, register: LicenceRegister) -> Ingestor:
+    """An ingestor wired the way the composition root wires one."""
+    from draupnir.svalinn.scanning import scan_before_registration
+
+    return Ingestor(
+        store,
+        register,
+        clock=lambda: datetime(2026, 3, 2, 9, tzinfo=UTC),
+        scan=scan_before_registration,
+    )
+
+
+def test_a_corpus_carrying_a_credential_is_not_ingested(
+    store: PosixStoreDriver, register: LicenceRegister, corpus: Path
+) -> None:
+    """The scanner had good tests and no caller, which reads as coverage.
+
+    Without it a corpus carrying a credential was ingested, sealed and
+    lineaged, and the only way back out is a ledgered retention action. Every
+    downstream index has it by then.
+    """
+    from draupnir.svalinn.scanning import SecretDetectedError
+
+    (corpus / "acts" / "notes.txt").write_text(
+        "fetched with hf_abcdefghijklmnopqrstuvwxyz0123456789", encoding="utf-8"
+    )
+
+    with pytest.raises(SecretDetectedError):
+        scanned(store, register).ingest(corpus, URI, kind="corpus_raw", source=source_record())
+
+
+def test_a_refused_ingest_leaves_nothing_behind(
+    store: PosixStoreDriver, register: LicenceRegister, corpus: Path
+) -> None:
+    """Before the rename, deliberately.
+
+    Everything below that line is irreversible: the artefact is sealed, the
+    lineage references it and a retention action needs an approver. A scanner
+    that ran after the point of no return would report rather than refuse.
+    """
+    from draupnir.svalinn.scanning import SecretDetectedError
+
+    (corpus / "secret.txt").write_text("AKIAIOSFODNN7EXAMPLE", encoding="utf-8")
+
+    with pytest.raises(SecretDetectedError):
+        scanned(store, register).ingest(corpus, URI, kind="corpus_raw", source=source_record())
+
+    assert not store.stat(URI).exists, "a refused ingest published the artefact"
+    assert len(register) == 0, "a refused ingest recorded its source"
+    assert scanned(store, register).abandoned_staging() == (), (
+        "a refused ingest left a staged tree behind"
+    )
+
+
+def test_a_clean_corpus_is_ingested_as_before(
+    store: PosixStoreDriver, register: LicenceRegister, corpus: Path
+) -> None:
+    """The scanner refuses what it finds and is otherwise invisible."""
+    ingested = scanned(store, register).ingest(
+        corpus, URI, kind="corpus_raw", source=source_record()
+    )
+
+    assert ingested.uri == URI
+    assert store.is_sealed(URI)

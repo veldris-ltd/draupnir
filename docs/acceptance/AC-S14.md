@@ -18,6 +18,7 @@ make test-unit
 
 - `draupnir/core/domain/federation.py`
 - `draupnir/megingjord/registry.py`
+- `draupnir/svalinn/egress.py`
 - `tests/unit/test_federation.py`
 
 ---

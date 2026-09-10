@@ -45,6 +45,29 @@ SHA256 = re.compile(r"^[0-9a-f]{64}$")
 EVALUABLE_KINDS: frozenset[str] = frozenset({"substrate", "adapter", "merged", "quantised"})
 
 
+#: The transition a captured baseline is recorded under, and the subject type
+#: it is recorded against. RF-10.
+#:
+#: Here rather than in RAUN, which owns baselines, because the orchestrator
+#: reads these entries back and the core may not import a module. Two spellings
+#: of one transition name is a chain that silently stops answering the question
+#: it was written to answer.
+BASELINE_CAPTURED = "baseline.captured"
+BASELINE_SUBJECT = "baseline"
+
+
+def baseline_subject(suite: str, artefact_kind: str, jurisdiction: str | None) -> str:
+    """The subject a baseline's entries are recorded against.
+
+    Derived from what resolves it -- suite, artefact kind, jurisdiction --
+    rather than from a new identifier, so that re-capturing a baseline appends
+    to the history of the thing it replaces instead of starting a second one
+    nobody joins up. `BaselineRegistry.capture` refuses to overwrite silently
+    for the same reason: overwriting is how a regression disappears.
+    """
+    return f"{suite}/{artefact_kind}/{jurisdiction or 'general'}"
+
+
 class EvidenceError(Exception):
     """Raised when evidence cannot be recorded or trusted."""
 

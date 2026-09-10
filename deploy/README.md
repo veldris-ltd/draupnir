@@ -5,15 +5,29 @@ Commissioning and stage 4 of the pipeline in SAD 11H, run on ALVISS.
 | File | Stage | Notes |
 |---|---|---|
 | `install.sh` | commissioning | Puts the three control plane units on a host that has never had them |
-| `rollout.sh` | 4.2 | Pulls the image per unit and restarts the rootless systemd units |
+| `rollout.sh` | 4.2 | Pulls the image per unit and restarts the rootless units |
 | `rollback.sh` | 4.4 | Returns the units to the previous revision. The schema stays forward |
-| `lib.sh` | — | The units, and which image each one runs. Sourced by all three |
-| `units/` | — | The unit templates and the wrapper they start |
+| `lib.sh` | — | The units, which image each runs, and the service manager. Sourced by all three |
+| `units/` | — | Two templates per unit, systemd and launchd, and the wrapper both start |
 
-The units are rootless Podman containers under the user systemd instance,
-matching AC-Q7 and SAD 11.1. The scripts take a revision rather than reading
-one, so a manual rollback from a terminal is the same operation the pipeline
-performs.
+The units are rootless Podman containers under the host's user service
+manager, matching AC-Q7 and SAD 11.1. The scripts take a revision rather than
+reading one, so a manual rollback from a terminal is the same operation the
+pipeline performs.
+
+**Two service managers, one container.** SAD Decision S3 puts the control
+plane on ALVISS, and VLD-INF-SINDRI-001 Rev 3.3 section 6 makes ALVISS a Mac
+mini M4 Pro. So there is a systemd user unit and a launchd user agent for each
+of the three, and `install.sh` renders whichever the host has. Everything
+AC-Q7 asserts is a property of the container `units/draupnir-run.sh` starts,
+which is identical on both, and `lib.sh` is the only file that names a manager
+at all: `rollout.sh` and `rollback.sh` run unchanged on either.
+
+On macOS the agents live in `~/Library/LaunchAgents`, are labelled
+`com.veldris.draupnir.<part>`, and write to `~/Library/Logs/draupnir` because
+launchd has no journal. `podman` there talks to a Linux virtual machine, so
+`podman machine` must be running; the wrapper starts it if it is not, and
+`install.sh --check` refuses to proceed without it.
 
 ## Commissioning a site
 

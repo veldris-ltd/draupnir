@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  DRAUPNIR API (control plane, @SITE_ID@), as a launchd user agent.
+
+  The macOS counterpart of draupnir-api.service. VLD-INF-SINDRI-001 Rev 3.3
+  section 6 makes ALVISS a Mac mini M4 Pro, and SAD Decision S3 puts the
+  control plane there, so this is the manager the specified host actually has.
+
+  It starts the same wrapper, with the same argument, against the same image.
+  Everything AC-Q7 asserts is a property of the container that wrapper starts,
+  so nothing about rootlessness changes here.
+
+  Four systemd directives have no launchd equivalent and are handled elsewhere.
+
+    ExecStartPre=podman rm   moved into draupnir-run.sh, which now clears a
+                             stale container name before every start. launchd
+                             has no pre-start hook, and one place is better
+                             than four anyway.
+    ExecStop / ExecStopPost  launchd sends SIGTERM to the wrapper, which execs
+                             `podman run`; podman forwards it to the container
+                             and the container removes itself on exit. A hard
+                             kill is covered by the pre-start clean above.
+    After=network-online     launchd has no ordering against the network. The
+                             API is designed to start without its database and
+                             report the fact on /readyz, which is the same
+                             reason the systemd unit's ordering is soft.
+    journalctl               launchd has no journal, so the agent writes to
+                             ~/Library/Logs/draupnir. The runbook asks lib.sh
+                             for the right command rather than naming one.
+
+  PATH under launchd is minimal and does not include Homebrew, so the podman
+  binary is passed by absolute path rather than found. An agent that cannot
+  find podman fails identically to one whose image is missing, and the two
+  need very different remedies.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>@LABEL@</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>@LIBEXEC@/draupnir-run.sh</string>
+    <string>draupnir-api</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>DRAUPNIR_PODMAN</key>
+    <string>@PODMAN@</string>
+  </dict>
+
+  <!-- WantedBy=default.target. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Restart=on-failure. A clean exit is a stop somebody asked for. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <!-- RestartSec=5s. -->
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+
+  <!-- TimeoutStopSec=30s. -->
+  <key>ExitTimeOut</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>@LOGDIR@/draupnir-api.log</string>
+  <key>StandardErrorPath</key>
+  <string>@LOGDIR@/draupnir-api.log</string>
+</dict>
+</plist>

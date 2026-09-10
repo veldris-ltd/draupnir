@@ -42,7 +42,6 @@ from draupnir.interfaces.protocols import CURRENT_MAJOR, PROTOCOL_FOR_GROUP
 from draupnir.interfaces.signing import (
     SignatureStatus,
     SignatureVerifier,
-    UnverifiedVerifier,
 )
 from draupnir.interfaces.types import GROUPS, RunSpec
 
@@ -256,19 +255,30 @@ class PluginRegistry:
     @classmethod
     def discover(
         cls,
+        verifier: SignatureVerifier,
         *,
         groups: Sequence[str] = GROUPS,
-        verifier: SignatureVerifier | None = None,
         environ: Mapping[str, str] | None = None,
         points: Iterable[EntryPoint] | None = None,
     ) -> PluginRegistry:
         """Find, verify and load every installed plug-in.
 
+        **The verifier is positional and has no default.** It used to default
+        to `UnverifiedVerifier()`, which reports every distribution unverified
+        by design — and both production call sites took the default. So the
+        deployed system had two states and no third: with `DRAUPNIR_DEV` unset
+        all nine reference drivers were refused and nothing could be rendered
+        or placed, and with it set all nine loaded unsigned. Neither is the
+        control SAD 9.3 describes.
+
+        A default is what let that happen quietly, so there is no default. A
+        call site that omits it is a `TypeError` at the call rather than a
+        system that verifies nothing.
+
         `points` exists so that a test can present entry points without
         installing distributions; production passes nothing and the installed
         environment is read.
         """
-        verifier = verifier or UnverifiedVerifier()
         allow_unsigned = developer_mode(environ)
 
         loaded: list[LoadedPlugin] = []

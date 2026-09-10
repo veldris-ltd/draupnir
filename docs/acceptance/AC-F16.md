@@ -7,17 +7,21 @@
 
 ## How it is demonstrated
 
-The nine and the forty seven are one table; the union is validated at submission and a duplicate or omission fails.
+The nine and the forty seven are one table; the union is validated at submission -- on the submission path, not only in a test (RF-11) -- and a duplicate, an omission or a jurisdiction in both tiers fails, naming which. A jurisdiction outside the programme is refused rather than resolved to a default tier.
 
 
 ```bash
-make test-unit
+make test-contract
 ```
 
 ## Evidence
 
+- `draupnir/api/routers/runs.py`
 - `draupnir/hamarr/config.py`
 - `draupnir/hamarr/tiers.py`
+- `draupnir/hodd/stores.py`
+- `tests/contract/test_run_admission.py`
+- `tests/integration/test_api_writes.py`
 - `tests/unit/test_hamarr_configuration.py`
 - `tests/unit/test_tiers.py`
 

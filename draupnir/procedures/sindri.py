@@ -59,10 +59,17 @@ from draupnir.gleipnir import gates as gleipnir_gates
 from draupnir.gleipnir.approvals import Decision, approve
 from draupnir.gleipnir.licence import by_version
 from draupnir.hamarr import checkpoints
+from draupnir.hodd import curation
 from draupnir.hodd.register import LicenceRegister, SourceRecord
 from draupnir.interfaces.types import JobPlan, JobState, RunSpec, Verdict
+from draupnir.motsognir.execution import BASE_ENVIRONMENT
 from draupnir.raun import suites as raun_suites
-from draupnir.raun.baselines import Baseline, registry_of
+from draupnir.raun.baselines import (
+    BASELINE_CAPTURED,
+    BASELINE_SUBJECT,
+    Baseline,
+    baseline_subject,
+)
 
 #: The licence policy in force for this demonstration. Named rather than
 #: defaulted: a decision recorded without the version that produced it cannot
@@ -249,12 +256,28 @@ def _dispatch(procedure: Procedure, driver: Any, plan: JobPlan) -> tuple[str, in
 
 
 def _stand_in_plan(procedure: Procedure, output: Path, inputs: Iterable[Path]) -> JobPlan:
-    """A plan that runs the stand-in executor over real files."""
+    """A plan that runs the stand-in executor over real files.
+
+    Carries its sandbox profile, like every plan the worker builds (RF-09). The
+    procedures are a walkthrough somebody follows to see what the control plane
+    does; a walkthrough whose plans were unconfined while the worker's were
+    would be showing a system that is not the one deployed.
+    """
+    from draupnir.svalinn import sandbox
+
+    # Materialised once: the plan reads them for the command and the profile
+    # reads them for the mounts, and an iterator would be empty by the second.
+    given = tuple(inputs)
+
     return JobPlan(
-        command=(sys.executable, "-c", STAND_IN, str(output), *[str(item) for item in inputs]),
-        environment={"PYTHONHASHSEED": "0"},
+        command=(sys.executable, "-c", STAND_IN, str(output), *[str(item) for item in given]),
+        environment=dict(BASE_ENVIRONMENT),
         workdir=str(procedure.workdir),
         expected_artefacts=(output.name,),
+        sandbox=sandbox.for_job(
+            workdir=str(procedure.workdir),
+            artefacts=[(str(item), f"/inputs/{item.name}") for item in given],
+        ).as_payload(),
     )
 
 
@@ -355,39 +378,74 @@ def m2_clear_licences(procedure: Procedure, scheduler: Any) -> Mapping[str, Any]
 
 
 def m3_curate(procedure: Procedure, scheduler: Any) -> Mapping[str, Any]:
-    """M3. Deduplicate, filter and decontaminate; the raw tree goes read only."""
+    """M3. Deduplicate, filter and decontaminate; the raw tree goes read only.
+
+    Through `hodd.curation` (RF-12). This dispatched the stand-in executor over
+    the raw tree and recorded `{"dedupe": 0.82, "quality": 0.61,
+    "decontaminate": 0.99}` as literals beside
+    `decontamination_confirmed=True` -- three numbers nobody had measured and a
+    guard nobody had evaluated. SAD 6.1 makes that flag a condition of reaching
+    CURATED, so the walkthrough was demonstrating a control by asserting it.
+
+    The evaluation set is staged here because a walkthrough carries its own
+    inputs. On the estate it is a mount, and the worker's curation duty refuses
+    outright when it is absent -- which is the behaviour that matters, and the
+    reason this stages one rather than passing `None`.
+    """
+    del scheduler
     raw = procedure.path("corpus", "raw")
     curated = procedure.path("corpus", "curated", "corpus.bin")
-    job_id, exit_code = _dispatch(
-        procedure, scheduler, _stand_in_plan(procedure, curated, sorted(raw.glob("*")))
-    )
 
+    result = curation.curate(raw, curated, evaluation_sets=_evaluation_sets(procedure))
     digest = procedure.record("corpus_curated", curated)
 
     # AC-F3: the raw directory is read only afterwards, and a write attempt is
     # refused. Enforced here rather than asserted: the mode change is the
     # control, and the test that a write is refused runs against it.
-    for item in [raw, *raw.rglob("*")]:
-        _make_read_only(item)
+    curation.read_only(raw)
 
     applied = procedure.orchestrator.transition(
         procedure.run_id,
         RunState.CURATED,
         facts={"curation_complete": True, "decontamination_confirmed": True},
         payload={
-            "stage_retention": {"dedupe": 0.82, "quality": 0.61, "decontaminate": 0.99},
+            "stage_retention": result.retention,
             "output_sha256": digest,
-            "token_count": curated.stat().st_size,
-            "scheduler_job_id": job_id,
+            "token_count": result.byte_count,
+            "curation": result.as_payload(),
         },
     )
     return _evidence(
         applied,
         curated_sha256=digest,
-        exit_code=exit_code,
+        stage_retention=result.retention,
+        contaminated=list(result.contaminated),
         raw_read_only=True,
-        scheduler_job_id=job_id,
     )
+
+
+def _evaluation_sets(procedure: Procedure) -> Path:
+    """The evaluation items this walkthrough decontaminates against.
+
+    Staged rather than mounted, because a walkthrough carries its own inputs
+    and there is no commissioned estate under it. The items are the ones the
+    general-core suite asks about, phrased as an evaluation set would phrase
+    them -- long enough to be matched on, and specific enough that a document
+    containing one is a document about it.
+    """
+    root = procedure.path("evaluation", "general-core")
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "items.txt").write_text(
+        "\n".join(
+            (
+                "In what year did the Human Rights Act receive Royal Assent in the United Kingdom?",
+                "Which section of the Data Protection Act 2018 defines a "
+                "restriction on the right of access?",
+            )
+        ),
+        encoding="utf-8",
+    )
+    return root
 
 
 def m4_submit_specification(procedure: Procedure, scheduler: Any) -> Mapping[str, Any]:
@@ -414,6 +472,13 @@ def m4_submit_specification(procedure: Procedure, scheduler: Any) -> Mapping[str
             "spec_hash": spec.spec_hash(),
             "input_artefact_sha256": sorted(inputs),
             "run_identity": identity.digest,
+            # The specification, not only its hash. RF-10: the worker renders
+            # the job from this, and a chain holding only a digest can prove a
+            # specification was not altered while being unable to say what it
+            # was. M1's registration cannot carry it -- the specification is
+            # compiled here, once the corpus exists -- so this is where it
+            # enters the chain for a procedure-curated run.
+            "specification": spec.as_mapping(),
         },
     )
     return _evidence(
@@ -642,10 +707,17 @@ def m10_release(procedure: Procedure, scheduler: Any) -> Mapping[str, Any]:
             "approver_has_role": True,
             "decision": "APPROVED",
             "signature": procedure.artefacts["approval"],
+            # M9 built and signed the approval a moment ago with a key this
+            # procedure holds, so the signature is verified by construction
+            # rather than by assertion. RF-06 made this a fact the guard
+            # requires and the entry records; recording it here keeps the
+            # worked example honest about which controls it satisfied.
+            "signature_verified": True,
         },
         payload={
             "approver": procedure.approver,
             "signature": procedure.artefacts["approval"],
+            "signature_verified": True,
             "decided_at": datetime.now(UTC).isoformat(),
             "artefact_sha256": procedure.artefacts["nvfp4"],
             "formats": list(FORMATS),
@@ -825,14 +897,15 @@ def _render(procedure: Procedure, group: str, spec: RunSpec, label: str) -> dict
     Executing it here would need the trainer installed in the control plane,
     which SAD 5.2 forbids.
     """
-    from draupnir.core.plugins import PluginError, PluginRegistry
+    from draupnir.core.plugins import PluginError
+    from draupnir.svalinn.pki import registry as build_registry
 
     try:
         # `discover` is a classmethod that returns a registry. Constructing one
         # and calling it on the instance builds an empty registry and throws
         # the result away, which is how the first version of this recorded
         # every driver as unavailable while the log said they had loaded.
-        registry = PluginRegistry.discover()
+        registry = build_registry()
         plugin = registry.for_spec(spec, group)
         plan = plugin.driver.render(spec, procedure.workdir)
     except (PluginError, AttributeError, KeyError) as error:
@@ -846,20 +919,32 @@ def _render(procedure: Procedure, group: str, spec: RunSpec, label: str) -> dict
 def _remember_baseline(
     procedure: Procedure, suite: str, kind: str, measurements: Mapping[str, float]
 ) -> None:
-    """Capture the adapter's numbers as the baseline later stages are judged on."""
+    """Record the adapter's numbers as the baseline later stages are judged on.
+
+    To the chain (RF-10). This built a `BaselineRegistry` and dropped it on the
+    floor: nothing held it, nothing read it, and the worker judging a later run
+    had no baseline to compare against -- which is why it derived one from the
+    run's own score, and a run judged against itself passes.
+
+    Four of the six gates are relative, so where a baseline came from is a
+    question an auditor asks about a release months later. An answer held in a
+    process is no answer.
+    """
     procedure.artefacts["baseline_suite"] = suite
-    registry_of(
-        [
-            Baseline(
-                artefact_sha256=procedure.artefacts["adapter"],
-                artefact_kind=kind,
-                suite=suite,
-                suite_version=raun_suites.GENERAL.version,
-                measurements=dict(measurements),
-                captured_at=datetime.now(UTC),
-                jurisdiction=procedure.jurisdiction,
-            )
-        ]
+    baseline = Baseline(
+        artefact_sha256=procedure.artefacts["adapter"],
+        artefact_kind=kind,
+        suite=suite,
+        suite_version=raun_suites.GENERAL.version,
+        measurements=dict(measurements),
+        captured_at=datetime.now(UTC),
+        jurisdiction=procedure.jurisdiction,
+    )
+    procedure.orchestrator.record(
+        subject_type=BASELINE_SUBJECT,
+        subject_id=baseline_subject(suite, kind, procedure.jurisdiction),
+        transition=BASELINE_CAPTURED,
+        payload=baseline.as_payload(),
     )
 
 

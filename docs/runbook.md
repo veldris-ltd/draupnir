@@ -57,10 +57,23 @@ never in the middle of one.
 **What you do.**
 
 ```bash
-make api                       # or: systemctl start draupnir-api
-make worker                    # or: systemctl start draupnir-worker
+make api                       # development, from a checkout
+make worker
 curl -s localhost:8000/healthz
 ```
+
+On a commissioned host the units are already installed, so start them through
+the service manager instead. ALVISS is a Mac (VLD-INF-SINDRI-001 Rev 3.3
+section 6), so that is launchd:
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/com.veldris.draupnir.api"
+launchctl kickstart -k "gui/$(id -u)/com.veldris.draupnir.worker"
+tail -f ~/Library/Logs/draupnir/draupnir-api.log     # launchd has no journal
+```
+
+On a Linux host: `systemctl --user start draupnir-api draupnir-worker`, and
+`journalctl --user -u draupnir-api -f` for the same output.
 
 Both processes rebuild their view from the chain on start. There is nothing to
 replay by hand and nothing to reconcile. The worker holds nothing between ticks
@@ -86,6 +99,62 @@ by hand; a row you write into `run` is discarded by the next rebuild, silently.
 **Demonstrated by** `test_killing_the_control_plane_mid_run_loses_no_state` and
 `test_state_is_reconstructed_from_the_ledger_rather_than_from_memory`. The
 first kills a real API process with SIGKILL, mid-run.
+
+### After a power event, somebody has to be at ALVISS
+
+Everything above assumes the host is up and you can reach it. After an
+unplanned power event on ALVISS that is not true, and it is worth stating
+plainly because it sets the floor on recovery time for **every incident that
+begins with a power event**: the control plane does not return until a person
+is physically at the ALVISS console.
+
+Three separate things stop an unattended return, and removing any one of them
+changes nothing:
+
+1. **FileVault.** VLD-INF-SINDRI-001 Procedure S10 enables it, so the machine
+   boots to an unlock screen. Nothing runs before the disk is unlocked — not
+   launchd, not the podman machine, not the control plane.
+2. **The `gui` launchd domain.** The agents exist only while the service
+   account is logged in. This is the macOS counterpart of systemd lingering,
+   and macOS has no counterpart of `loginctl enable-linger`.
+3. **`podman machine`.** On macOS it is a per-user virtual machine tied to that
+   user's session, so even a system-domain daemon would have nothing to talk
+   to.
+
+**This is the decision, not an oversight** (RF-E22). Turning FileVault off
+would buy nothing on its own — walls 2 and 3 remain — and it would leave
+`secrets.env` as a plain file on an unencrypted disk. What FileVault protects
+on ALVISS is small (the control plane holds no state; everything is in
+PostgreSQL and MinIO on ANDVARI) but it is not nothing, and the benefit it
+would be traded for does not exist.
+
+**For a planned reboot, there is a way to avoid the trip:**
+
+```bash
+sudo fdesetup authrestart
+```
+
+That holds the unlock key in memory for exactly one restart, so the machine
+comes back to the login window without a password at the console. It does not
+help with a power cut, because nothing asked for it beforehand.
+
+**What actually shortens this** is the uninterruptible supply of gap G1, which
+turns a hard stop into a clean shutdown somebody can plan around — and note
+that as currently specified the UPS feeds PDU-A and **not** the PDU ALVISS is
+on, so it would not help either. See `docs/fixes/proposed-wiring-amendments.md`.
+
+**Recovery, in order:** restore mains, unlock ALVISS at the console, log in as
+the service account, then confirm the podman machine and the agents:
+
+```bash
+podman machine start                # if it did not start with the session
+launchctl kickstart -k "gui/$(id -u)/com.veldris.draupnir.api"
+launchctl kickstart -k "gui/$(id -u)/com.veldris.draupnir.worker"
+curl -s localhost:8000/healthz
+```
+
+ANDVARI keeps FileVault regardless, and there is no argument to be had about
+it: the vault, the ledger and the object store are all on it.
 
 ---
 
@@ -144,7 +213,7 @@ and `test_a_ring_run_refuses_to_plan_on_a_degraded_estate`.
 
 ## 4. HODD vault unavailable
 
-**How you find out.** `VaultUnavailableError: the vault at /mnt/hodd is not
+**How you find out.** `VaultUnavailableError: the vault at /forge/vault is not
 mounted`. New runs refuse to plan. Capacity reads refuse rather than answering.
 
 **What the system already did.** It refused. This is worth dwelling on, because

@@ -29,17 +29,28 @@ from draupnir.interfaces.types import RunSpec
 
 pytestmark = pytest.mark.contract
 
-#: The reference drivers are unsigned: the Veldris PKI verifier arrives in
-#: Prompt 6. Development mode is the one environment variable wide concession
-#: that lets them load, and the suite uses it explicitly rather than relying on
-#: whatever the developer's shell happens to have set.
+#: Development mode, kept for the one test that asserts the concession still
+#: works. Everything else now loads through the real verifier: RF-02 found that
+#: `discover()` defaulted to a verifier that verifies nothing, so the estate
+#: had two states -- refuse every driver, or load every driver unsigned -- and
+#: this suite only ever exercised the second.
 DEV_ENVIRONMENT = {DEV_VARIABLE: "1"}
 
 
 @pytest.fixture(scope="session")
 def registry() -> PluginRegistry:
-    """Every plug-in installed in this environment."""
-    return PluginRegistry.discover(environ=DEV_ENVIRONMENT)
+    """Every plug-in installed here, verified for real.
+
+    `DRAUPNIR_DEV` is explicitly *unset* for this fixture. The session's trust
+    store and signature manifest are built by `tests/conftest.py` using the
+    signer from `scripts/sign_artefacts.py`, over digests recomputed from the
+    installed files -- so this is the whole control, end to end, and a signer
+    and verifier that disagreed about how to hash a distribution would fail
+    here rather than at a forge.
+    """
+    from draupnir.svalinn.pki import registry as discover_plugins
+
+    return discover_plugins(environ={})
 
 
 def installed(registry: PluginRegistry, group: str, name: str) -> LoadedPlugin:
@@ -325,3 +336,58 @@ def test_the_reference_policy_records_the_rule_that_decided(
     # Personal data is decided before the licence is looked at: a permissive
     # licence does not make a DPIA unnecessary.
     assert approval.verdict is Verdict.REQUIRES_APPROVAL
+
+
+def test_every_reference_driver_verifies_with_development_mode_off(
+    registry: PluginRegistry,
+) -> None:
+    """RF-02's central acceptance criterion.
+
+    Before this, `PluginRegistry.discover()` defaulted to `UnverifiedVerifier`
+    and both production call sites took the default. With `DRAUPNIR_DEV` unset
+    every driver was refused — `POST /v1/runs/dry-run` answered 422 and the
+    worker could place nothing — and with it set every driver loaded unsigned.
+    There was no third configuration. This is the third configuration.
+    """
+    from draupnir.interfaces.types import GROUPS
+
+    assert registry.failures == (), "drivers were refused with the real verifier: " + "; ".join(
+        f"{item.distribution}: {item.reason}" for item in registry.failures
+    )
+
+    every = [item for group in GROUPS for item in registry.all(group)]
+    assert len(every) >= 9, f"only {len(every)} driver(s) loaded; the reference set is nine"
+    assert all(item.signature.verified for item in every), (
+        "a driver loaded without a verified signature"
+    )
+
+
+def test_a_registry_cannot_be_built_without_a_verifier() -> None:
+    """A `TypeError` at the call, not a default that verifies nothing.
+
+    The default is what let two production call sites silently take a verifier
+    that reports every distribution unverified. A future third call site now
+    cannot.
+    """
+    with pytest.raises(TypeError, match="verifier"):
+        PluginRegistry.discover()  # type: ignore[call-arg]
+
+
+def test_the_development_escape_still_works_and_is_still_loud() -> None:
+    """It is a concession, not a casualty. RF-02 kept it deliberately.
+
+    A developer machine has no signing CA and no signed distributions, so
+    without this the four journeys of AC-U1 are unrunnable outside a full PKI
+    deployment.
+    """
+    from draupnir.interfaces.signing import UnverifiedVerifier
+    from draupnir.interfaces.types import GROUPS
+
+    built = PluginRegistry.discover(UnverifiedVerifier(), environ=DEV_ENVIRONMENT)
+    every = [item for group in GROUPS for item in built.all(group)]
+
+    assert every, "development mode loads nothing"
+    assert not any(item.signature.verified for item in every), (
+        "development mode reports a signature as verified, which would make the "
+        "concession indistinguishable from the control"
+    )

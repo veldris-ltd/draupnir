@@ -17,6 +17,9 @@ make test-unit
 ## Evidence
 
 - `draupnir/svalinn/egress.py`
+- `draupnir/svalinn/site_egress.py`
+- `tests/unit/test_security_on_the_path.py`
+- `tests/unit/test_site_egress.py`
 - `tests/unit/test_svalinn_security.py`
 
 ---

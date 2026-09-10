@@ -144,8 +144,8 @@ def registry(
     *points: EntryPoint, verifier: Any = None, environ: dict[str, str] | None = None
 ) -> PluginRegistry:
     return PluginRegistry.discover(
+        verifier if verifier is not None else Verifier(verified=True),
         points=points,
-        verifier=verifier if verifier is not None else Verifier(verified=True),
         environ=environ if environ is not None else {},
     )
 

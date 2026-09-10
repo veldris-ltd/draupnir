@@ -9,7 +9,7 @@
 
 The sandbox profile denies outbound network and the attempt is logged.
 
-The profile is generated and its content asserted; enforcing it needs the appliance's kernel. The Sindri estate does not exist yet: SAD 1.3 puts the hardware build in VLD-INF-SINDRI-001 and out of scope here. Everything the control plane owns is implemented and exercised; the measurement this criterion asks for is taken at commissioning, on the estate, and is not one a developer machine can stand in for.
+The profile is generated, its content asserted, and every plan the control plane dispatches carries it (RF-09) -- and nothing applies it: the estate runs training as a process in a shared virtual environment under Slurm, not as a container, and the job needs an outbound network to reach MLflow on ANDVARI. So this deviation is the execution model rather than the absence of an appliance to test on -- hardware alone would not close it. Carrying the profile and applying it are different things: a plan travelling with an honest specification of how the job should be confined is the control plane's half and it is done, while rendering it into runtime arguments would claim a confinement this estate does not have, so nothing does. `draupnir/svalinn/containment.py` records what is in force and names the seven properties the container model has and it does not; four of them are configuration rather than architecture.
 
 
 ```bash
@@ -18,8 +18,11 @@ make test-unit
 
 ## Evidence
 
+- `draupnir/svalinn/containment.py`
 - `draupnir/svalinn/egress.py`
 - `draupnir/svalinn/sandbox.py`
+- `tests/unit/test_containment.py`
+- `tests/unit/test_security_on_the_path.py`
 - `tests/unit/test_svalinn_security.py`
 - `web/packages/jarngreipr/src/components.test.tsx`
 - `web/packages/jarngreipr/src/composites/index.tsx`

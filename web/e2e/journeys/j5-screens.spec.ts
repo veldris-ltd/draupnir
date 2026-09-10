@@ -193,6 +193,84 @@ test.describe('S31 — CON-B in kiosk mode', () => {
     );
   });
 
+  // The two tests below are the only ones in this file that intercept a
+  // response, and the reason is that the collector is not part of the seeded
+  // stack. Everything else here reads the database, which the seed fills;
+  // thermal comes from the DCGM exporter on an appliance, through Prometheus
+  // on REGIN, and neither exists in CI. Interception is how the panel's two
+  // states get exercised without inventing a fake estate.
+
+  test('renders the temperature the collector reported', async ({ page }) => {
+    await page.route('**/v1/estate/telemetry', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          readAt: '2026-09-08T12:00:00+00:00',
+          source: 'http://regin.sindri.veldris.internal:9090',
+          readings: [
+            { metric: 'gpu_temperature', subject: 'dvalin', unit: 'C', value: 63.5, reason: null },
+            {
+              metric: 'throttle_reasons',
+              subject: 'dvalin',
+              unit: 'bitmask',
+              value: 0,
+              reason: null,
+            },
+          ],
+        }),
+      });
+    });
+
+    await page.goto('/kiosk');
+    const tile = page.getByTestId('thermal-dvalin');
+    await expect(tile).toBeVisible({ timeout: 15_000 });
+
+    // A temperature, from the estate's own collector. Before RF-E15 this panel
+    // showed 'under load' or 'idle' derived from run state, which reads 'idle'
+    // in grey for an appliance that is idle *because* it is thermally
+    // throttled -- the one case the panel exists for.
+    await expect(tile).toContainText('63.5');
+    await expect(tile).toContainText('not throttling');
+
+    // A throttle bitmask of zero is a real reading, so it must not render as
+    // an absence.
+    expect(await tile.getByTestId('unmeasured').count()).toBe(0);
+  });
+
+  test('says unmeasured, and why, rather than showing a zero', async ({ page }) => {
+    await page.route('**/v1/estate/telemetry', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          readAt: '2026-09-08T12:00:00+00:00',
+          source: 'http://regin.sindri.veldris.internal:9090',
+          readings: [
+            {
+              metric: 'gpu_temperature',
+              subject: 'dvalin',
+              unit: 'C',
+              value: null,
+              reason: 'Prometheus reports no DCGM_FI_DEV_GPU_TEMP for dvalin.',
+            },
+          ],
+        }),
+      });
+    });
+
+    await page.goto('/kiosk');
+    const tile = page.getByTestId('thermal-dvalin');
+    await expect(tile).toBeVisible({ timeout: 15_000 });
+
+    // A panel showing 0 °C in green is worse than one saying it does not know:
+    // nobody stands close enough to a wall panel to question a number, so the
+    // fabricated one is simply believed.
+    await expect(tile).toContainText('unmeasured');
+    await expect(tile).toContainText('Prometheus reports no DCGM_FI_DEV_GPU_TEMP for dvalin.');
+    expect(await tile.locator('[data-measured="true"]').count()).toBe(0);
+  });
+
   test('fits the 1280 by 720 panel without horizontal scrolling', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/kiosk');
@@ -220,3 +298,37 @@ async function releasedModel(page: Page): Promise<string> {
   if (model === undefined) throw new Error('the seeded stack has no released model');
   return model.artefact;
 }
+
+test.describe('RF-03 — the sign-in button reaches something', () => {
+  test('activating "Continue to MEGINGJORD" is not a 404', async ({ page }) => {
+    // `SignIn.tsx` has navigated to `/auth/login?return_to=…` since it was
+    // written, and that path existed nowhere: not as an API route, not in the
+    // nginx configuration. The only button on the sign-in screen was a dead
+    // link. This asserts it now reaches an endpoint.
+    await page.goto('/signin');
+
+    const response = await page.request.get('/auth/login?return_to=%2Fruns', {
+      maxRedirects: 0,
+    });
+
+    expect(response.status()).not.toBe(404);
+    // 303 to the identity provider, or 303 back to /signin when none is
+    // configured. Either is an endpoint that exists and decided something.
+    expect(response.status()).toBe(303);
+    expect(response.headers().location).toBeTruthy();
+  });
+
+  test('the sign-in button is wired to that endpoint', async ({ page }) => {
+    await page.goto('/signin');
+
+    const button = page.getByRole('button', { name: /Continue to MEGINGJORD/i });
+    await expect(button).toBeVisible({ timeout: 15_000 });
+
+    // Navigation rather than a fetch: an OIDC flow is a browser redirect and
+    // an XHR cannot complete one.
+    await button.click();
+    await page.waitForURL((url) => !url.pathname.startsWith('/signin') || url.search !== '', {
+      timeout: 15_000,
+    });
+  });
+});

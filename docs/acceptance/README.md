@@ -4,7 +4,7 @@ Every criterion in SAD 12, one file each, generated from the specification and
 from the citations in the repository. The status is the vocabulary AC-D4 asks
 for: **IMPLEMENTED**, **DEVIATED** with reasons, or **NOT BUILT**.
 
-90 criteria: 78 implemented, 9 deviated,
+90 criteria: 77 implemented, 10 deviated,
 3 not built. Of the 68 marked **Must**,
 68 have evidence and
 0 do not.
@@ -36,7 +36,7 @@ make acceptance     # regenerate this pack
 | [AC-F3](AC-F3.md) | A corpus is ingested, hashed, licence registered and curated; the raw directory is read only aft… | Must | IMPLEMENTED |
 | [AC-F4](AC-F4.md) | A substrate run executes across all three appliances through the `ring` partition, and the run b… | Must | DEVIATED |
 | [AC-F5](AC-F5.md) | A fifty six element adapter array is submitted as one action and executes exactly three concurre… | Must | DEVIATED |
-| [AC-F6](AC-F6.md) | A failed array element is retried individually without disturbing the other elements | Must | IMPLEMENTED |
+| [AC-F6](AC-F6.md) | A failed array element is retried individually without disturbing the other elements | Must | DEVIATED |
 | [AC-F7](AC-F7.md) | Gates E1 to E6 execute against an adapter, results are recorded with baseline and margin, and a … | Must | IMPLEMENTED |
 | [AC-F8](AC-F8.md) | A merge executes with a weight sweep of at least five points, and each point's gate results are … | Must | IMPLEMENTED |
 | [AC-F9](AC-F9.md) | Quantisation to NVFP4, GGUF and MLX executes, and each output is re-gated automatically before i… | Must | DEVIATED |

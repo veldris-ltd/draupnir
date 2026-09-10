@@ -300,3 +300,387 @@ def test_the_placement_is_recorded_as_a_ledger_payload() -> None:
     assert payload["partition"] == "ring"
     assert payload["appliances"] == ["dvalin", "durin", "dain"]
     assert payload["nodesPerElement"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Venues. RF-E08: `export` was a Slurm partition the estate does not have.
+# ---------------------------------------------------------------------------
+
+
+def test_every_partition_has_a_policy() -> None:
+    """The table is the definition, so nothing may be missing from it.
+
+    Adding a partition and forgetting its row would give it a venue by
+    KeyError at the moment it was first planned, which is the worst place to
+    find out.
+    """
+    assert set(placement.POLICY) == set(placement.Partition)
+
+
+def test_all_or_nothing_is_derived_from_the_table() -> None:
+    """Two declarations of one fact is how one of them becomes false."""
+    assert (
+        frozenset({p for p, policy in placement.POLICY.items() if policy.all_or_nothing})
+        == placement.ALL_OR_NOTHING
+    )
+    assert frozenset({placement.Partition.RING}) == placement.ALL_OR_NOTHING
+
+
+def test_export_is_not_a_partition_the_scheduler_is_asked_for() -> None:
+    """The finding itself.
+
+    VLD-INF-SINDRI-001 section 34 declares `adapters` and `ring`, both over
+    `dvalin,durin,dain`. There is no `export` partition and ALVISS is not a
+    Slurm node, so `sbatch --partition=export` is answered with `Invalid
+    partition name specified`.
+    """
+    assert placement.cluster_partitions() == (
+        placement.Partition.ADAPTERS,
+        placement.Partition.RING,
+    )
+    assert placement.Partition.EXPORT not in placement.cluster_partitions()
+    assert placement.policy_for(placement.Partition.EXPORT).venue is placement.Venue.CONTROL_PLANE
+
+
+def test_export_work_runs_with_the_whole_estate_switched_off() -> None:
+    """The consequence of the venue, and the reason it is worth having.
+
+    Merge, quantisation and MLX evaluation happen on the control plane; they
+    have no appliances to lose. An operator who has powered the estate down
+    can still finish packaging a release, which is exactly when they want to.
+    """
+    dead = placement.Estate().without("dvalin", "durin", "dain")
+
+    placed = placement.plan(partition=placement.Partition.EXPORT, estate=dead)
+
+    assert placed.appliances == (), "an export placement named an appliance"
+    assert placed.concurrency == 1
+    assert "control plane" in placed.notes[0]
+
+
+def test_a_cluster_partition_still_refuses_when_the_estate_is_down() -> None:
+    """The venue changes nothing for the two partitions that are on it."""
+    dead = placement.Estate().without("dvalin", "durin", "dain")
+
+    with pytest.raises(placement.NoCapacityError):
+        placement.plan(partition=placement.Partition.ADAPTERS, estate=dead)
+
+
+def test_a_scheduler_missing_a_partition_is_refused_by_name() -> None:
+    """A commissioning failure rather than a 48-hour queue wait.
+
+    A run submitted to a partition that has never existed spends its budget
+    queued and is then rejected, which reads as a scheduling problem days
+    later rather than as the configuration mistake it is.
+    """
+    placement.verify_partitions(["adapters", "ring"])
+    placement.verify_partitions(["adapters", "ring", "debug"])
+
+    with pytest.raises(placement.UnknownPartitionError) as refusal:
+        placement.verify_partitions(["adapters"])
+
+    assert "ring" in str(refusal.value)
+    assert "adapters" in str(refusal.value), "the refusal does not say what the scheduler does have"
+
+
+def test_a_scheduler_is_not_asked_for_the_export_partition() -> None:
+    """A scheduler is never asked for the export partition.
+
+    The two the manual declares are enough. If `export` were still expected of
+    the scheduler, a correctly built Sindri would fail this check.
+    """
+    placement.verify_partitions(["adapters", "ring"])
+
+
+def test_a_run_longer_than_its_partition_allows_is_refused_with_the_limit() -> None:
+    """VLD-INF-SINDRI-001 section 34: `MaxTime` is 48 hours on `adapters`.
+
+    Slurm rejects such a submission itself, but only after the run has been
+    registered and has waited. Refusing here names the limit, and names it
+    before anything is written to the chain.
+    """
+    with pytest.raises(placement.TimeLimitError) as refusal:
+        placement.plan(
+            partition=placement.Partition.ADAPTERS,
+            estate=placement.Estate(),
+            time_limit_minutes=72 * 60,
+        )
+
+    assert refusal.value.limit == 48 * 60
+    assert "48 hours" in str(refusal.value)
+    assert "slurm.conf" in str(refusal.value), "the refusal does not say whose limit it is"
+
+
+def test_the_ring_allows_the_longer_limit_the_estate_gives_it() -> None:
+    """336 hours, because a substrate run is a fortnight of compute."""
+    placed = placement.plan(
+        partition=placement.Partition.RING,
+        estate=placement.Estate(),
+        nodes_per_element=3,
+        time_limit_minutes=300 * 60,
+    )
+    assert placed.nodes_per_element == 3
+
+
+def test_the_control_plane_partition_has_no_time_limit_to_exceed() -> None:
+    """It is not a Slurm partition, so there is no `MaxTime` to enforce.
+
+    Inventing one here would be DRAUPNIR making up a constraint the estate
+    does not have.
+    """
+    assert placement.policy_for(placement.Partition.EXPORT).max_minutes is None
+
+    placed = placement.plan(
+        partition=placement.Partition.EXPORT,
+        estate=placement.Estate(),
+        time_limit_minutes=10_000 * 60,
+    )
+    assert placed.partition is placement.Partition.EXPORT
+
+
+def test_every_export_kind_lands_on_the_control_plane() -> None:
+    """Every export kind lands on the control plane.
+
+    `partition_for` and the venue table have to agree about the work the manual
+    does by hand on ALVISS.
+    """
+    for kind in ("MergeRun", "ExportRun", "EvalRun"):
+        partition = placement.partition_for(kind)
+        assert placement.policy_for(partition).venue is placement.Venue.CONTROL_PLANE, (
+            f"{kind} is placed on {partition}, which is not on the control plane"
+        )
+
+    for kind in ("SubstrateRun", "AdapterRun"):
+        partition = placement.partition_for(kind)
+        assert placement.policy_for(partition).venue is placement.Venue.CLUSTER
+
+
+# ---------------------------------------------------------------------------
+# The accelerator. RF-E09: the estate's hardware, not the specification's.
+# ---------------------------------------------------------------------------
+
+
+def test_the_estate_declares_the_accelerator_it_is_configured_with() -> None:
+    """VLD-INF-SINDRI-001 section 34: `Name=gpu Type=gb10` in gres.conf.
+
+    From configuration rather than from the module constant. `SINDRI` names the
+    machines and their ranks, which are the estate; the accelerator type is
+    `gres.conf` on REGIN and differs between forges, so a second forge is a
+    variable rather than an edit.
+    """
+    sindri = placement.estate_for("sindri", "gb10")
+    assert sindri.accelerator == "gb10"
+    assert sindri.gres(1) == "gpu:gb10:1"
+
+    unconfigured = placement.estate_for("sindri")
+    assert unconfigured.accelerator == ""
+    assert unconfigured.gres(1) == "", "an unconfigured forge invented an accelerator"
+
+
+def test_a_placement_carries_the_gres_into_the_ledger() -> None:
+    """What the estate offered is part of what was decided, so it is recorded.
+
+    A run whose payload does not say what it asked for cannot be compared with
+    one submitted after the hardware changed.
+    """
+    placed = placement.plan(
+        partition=placement.Partition.ADAPTERS,
+        estate=placement.estate_for("sindri", "gb10"),
+    )
+    assert placed.gres == "gpu:gb10:1"
+    assert placed.as_payload["gres"] == "gpu:gb10:1"
+
+
+def test_an_estate_that_declares_no_accelerator_asks_for_none() -> None:
+    """A development machine. The drivers fall back to an untyped count."""
+    bare = placement.Estate(appliances=(placement.Appliance(name="dev"),))
+    assert bare.accelerator == ""
+    assert bare.gres(1) == ""
+
+
+def test_a_mixed_estate_refuses_to_guess_an_accelerator() -> None:
+    """Two kinds of machine have no single answer.
+
+    Inventing one would submit a job asking for hardware half the appliances
+    do not have, and Slurm would place it on whichever it happened to pick. An
+    estate like that needs a partition per accelerator, which is a
+    configuration decision rather than something to paper over here.
+    """
+    mixed = placement.Estate(
+        appliances=(
+            placement.Appliance(name="a", accelerator="gb10"),
+            placement.Appliance(name="b", accelerator="h100"),
+        )
+    )
+    assert mixed.accelerator == ""
+    assert mixed.gres(1) == ""
+
+
+def test_a_partly_declared_estate_refuses_too() -> None:
+    """One machine declaring and one not is not agreement.
+
+    The set of declared types has one member, which a careless check would
+    read as unanimity while one appliance has said nothing at all.
+    """
+    partial = placement.Estate(
+        appliances=(
+            placement.Appliance(name="a", accelerator="gb10"),
+            placement.Appliance(name="b"),
+        )
+    )
+    assert partial.accelerator == ""
+
+
+def test_a_control_plane_placement_asks_for_no_accelerator() -> None:
+    """Export work runs where there is no GPU to request."""
+    placed = placement.plan(
+        partition=placement.Partition.EXPORT,
+        estate=placement.estate_for("sindri", "gb10"),
+    )
+    assert placed.gres == ""
+
+
+def test_a_run_that_wants_no_gpu_asks_for_no_accelerator() -> None:
+    placed = placement.plan(
+        partition=placement.Partition.ADAPTERS,
+        estate=placement.estate_for("sindri", "gb10"),
+        gpus_per_node=0,
+    )
+    assert placed.gres == ""
+
+
+# ---------------------------------------------------------------------------
+# The declared ring. RF-E21.
+# ---------------------------------------------------------------------------
+
+
+def test_a_two_node_ring_plans() -> None:
+    """VLD-WIR-SINDRI-001 section 7.4's recovery configuration.
+
+    On an appliance failure the two survivors are recabled as a direct pair and
+    the ring partition is set to two nodes. Before this, `place()` refused
+    against `len(appliances)` and there was no way to tell DRAUPNIR the ring
+    had changed — so the configuration the wiring document specifies could not
+    be represented at all.
+    """
+    estate = placement.estate_for("sindri", "gb10", ring_members=("durin", "dain"))
+
+    placed = placement.plan(partition=placement.Partition.RING, estate=estate, nodes_per_element=2)
+
+    assert placed.appliances == ("durin", "dain")
+    assert placed.nodes_per_element == 2
+
+
+def test_a_three_node_specification_is_refused_naming_the_declared_size() -> None:
+    """The acceptance criterion, and the refusal that must not be a fault."""
+    estate = placement.estate_for("sindri", "gb10", ring_members=("durin", "dain"))
+
+    with pytest.raises(placement.RingSizeError) as raised:
+        placement.plan(partition=placement.Partition.RING, estate=estate, nodes_per_element=3)
+
+    assert raised.value.requested == 3
+    assert raised.value.declared == 2
+    assert raised.value.site == "sindri"
+    assert "configuration rather than a fault" in str(raised.value)
+
+
+def test_a_declared_ring_is_a_different_refusal_from_a_degraded_one() -> None:
+    """The distinction is the point of the finding.
+
+    A degraded ring sends somebody to a rack. A declared ring should not: no
+    appliance is necessarily down, the forge is simply configured as a smaller
+    ring, and nothing at the rack will change that.
+    """
+    declared = placement.estate_for("sindri", "gb10", ring_members=("durin", "dain"))
+    degraded = placement.estate_for("sindri", "gb10").without("dain")
+
+    with pytest.raises(placement.RingSizeError):
+        placement.plan(partition=placement.Partition.RING, estate=declared, nodes_per_element=3)
+
+    with pytest.raises(placement.DegradedRingError):
+        placement.plan(partition=placement.Partition.RING, estate=degraded, nodes_per_element=3)
+
+
+def test_the_ring_keeps_its_members_when_the_third_appliance_returns() -> None:
+    """Why members and not a size, which is where a count would have failed.
+
+    DVALIN fails, DURIN and DAIN are recabled as a pair, and DVALIN is later
+    repaired. The estate then has three appliances, all three usable for
+    adapter work, and a ring of exactly DURIN and DAIN — because ring
+    membership is which machines have a DAC cable between them. A declared
+    *size* of two would have picked DVALIN and DURIN by rank, which is a run
+    submitted across a cable that does not exist.
+    """
+    estate = placement.estate_for("sindri", "gb10", ring_members=("durin", "dain"))
+
+    repaired = estate.with_all_available()
+    placed = placement.plan(
+        partition=placement.Partition.RING, estate=repaired, nodes_per_element=2
+    )
+
+    assert placed.appliances == ("durin", "dain")
+    assert "dvalin" not in placed.appliances
+
+
+def test_a_declared_ring_whose_member_is_down_is_degraded() -> None:
+    """Two idle machines outside the ring do not make it whole.
+
+    The ring is DURIN and DAIN; DAIN is down. DVALIN being racked, powered and
+    available is irrelevant, because it is not cabled to either of them.
+    """
+    estate = placement.estate_for("sindri", "gb10", ring_members=("durin", "dain"))
+
+    with pytest.raises(placement.DegradedRingError) as raised:
+        placement.plan(
+            partition=placement.Partition.RING,
+            estate=estate.without("dain"),
+            nodes_per_element=2,
+        )
+
+    assert "durin" in str(raised.value)
+
+
+def test_the_placement_says_the_ring_was_declared() -> None:
+    """An operator reading a placement should not have to infer it."""
+    estate = placement.estate_for("sindri", "gb10", ring_members=("durin", "dain"))
+
+    placed = placement.plan(partition=placement.Partition.RING, estate=estate, nodes_per_element=2)
+
+    assert any("declares a ring of durin, dain" in note for note in placed.notes)
+    assert any("7.4" in note for note in placed.notes)
+
+
+def test_an_undeclared_ring_is_the_whole_estate() -> None:
+    """The ordinary case is unchanged, and says nothing extra."""
+    estate = placement.estate_for("sindri", "gb10")
+
+    assert estate.ring_size == 3
+    assert estate.ring_is_declared is False
+
+    placed = placement.plan(partition=placement.Partition.RING, estate=estate, nodes_per_element=3)
+    assert placed.appliances == ("dvalin", "durin", "dain")
+    assert not any("declares a ring" in note for note in placed.notes)
+
+
+def test_a_ring_of_one_is_refused() -> None:
+    """A collective over one rank measures nothing."""
+    estate = placement.estate_for("sindri", "gb10")
+
+    with pytest.raises(placement.PlacementError, match="is not a ring"):
+        estate.with_ring("dvalin")
+
+
+def test_a_ring_naming_a_machine_the_forge_does_not_have_is_refused() -> None:
+    """A typo in draupnir.env during a recovery must not become a silent ring."""
+    estate = placement.estate_for("sindri", "gb10")
+
+    with pytest.raises(placement.PlacementError, match="durrin"):
+        estate.with_ring("durrin", "dain")
+
+
+def test_the_declared_ring_survives_the_accelerator_being_stamped_on() -> None:
+    """`estate_for` does two things; neither may undo the other."""
+    estate = placement.estate_for("sindri", "gb10", ring_members=("durin", "dain"))
+
+    assert estate.accelerator == "gb10"
+    assert estate.ring_members == ("durin", "dain")

@@ -145,10 +145,29 @@ def _read_specification(path: Path) -> Any:
 
 
 @app.command(name="version", help="Print the client version and the contract it was built from.")
-def version() -> None:
-    """Print the client version and the OpenAPI version it was generated from."""
+def version(
+    revision: bool = typer.Option(
+        False, "--revision", help="Print the build revision alone, for a script to capture."
+    ),
+) -> None:
+    """Print the client version, or just the revision.
+
+    `--revision` exists because the default prints a sentence and something
+    captured it as a deployment revision: `deploy.yaml` recorded
+    `draupnirctl 0.1.0 (OpenAPI 1.0.0)` as the rollback target, which
+    `rollback.sh` turned into an image tag (RF-04). A caller that wants a
+    machine-readable answer now has one.
+
+    It is still not the right answer for a rollback -- that is
+    `deploy/current-revision.sh`, which reads what the *host* is running rather
+    than what this client was built from -- and the help text does not pretend
+    otherwise.
+    """
     from draupnir import __version__
 
+    if revision:
+        typer.echo(__version__)
+        return
     typer.echo(f"draupnirctl {__version__} (OpenAPI {GENERATED_FROM_OPENAPI_VERSION})")
 
 

@@ -593,3 +593,84 @@ def test_an_anchor_payload_is_sealed() -> None:
 
     assert payload["head"]["entryHash"] == entry_hash(1)
     assert payload["outcome"] == "countersigned"
+
+
+# ---------------------------------------------------------------------------
+# The brokered client can submit, not only fetch. RF-07.
+# ---------------------------------------------------------------------------
+
+
+class _Recording:
+    """An HTTP client that records rather than dials."""
+
+    def __init__(self) -> None:
+        self.posts: list[str] = []
+        self.gets: list[str] = []
+
+    def get(self, url: str, *, params: object = None) -> object:
+        del params
+        self.gets.append(url)
+        raise AssertionError("this test posts")
+
+    def post(self, url: str, *, json: object = None, headers: object = None) -> object:
+        del json, headers
+        self.posts.append(url)
+        return _Answered()
+
+
+class _Answered:
+    """A minimal successful response."""
+
+    status_code = 200
+
+    def json(self) -> dict[str, object]:
+        return {}
+
+
+def test_a_submission_to_an_undeclared_host_never_leaves_the_process() -> None:
+    """The broker decides a submission, and a refused one never leaves.
+
+    The client had only `get`, so the one caller that submits rather than
+    fetches had no brokered client it could be given. Either the anchor path
+    went unwired or it would have taken a raw client around the broker
+    entirely, which is threat T11 exactly. Outbound submission is the direction
+    that matters most: a fetch leaks a hostname, a post leaks a body, and
+    AC-S14 is about what a federation payload carries.
+    """
+    from draupnir.svalinn import egress
+
+    inner = _Recording()
+    client = egress.BrokeredClient(
+        inner=inner,
+        purpose=egress.FEDERATION_PURPOSE,
+        approving_policy=egress.FEDERATION_POLICY,
+    )
+
+    with pytest.raises(egress.UndeclaredDestinationError):
+        client.post("https://registry.example.com/v1/anchors", json={"seq": 1})
+
+    assert inner.posts == [], "a refused submission reached the network"
+
+
+def test_a_permitted_submission_is_recorded_with_its_purpose() -> None:
+    """Every outbound call leaves a record, and a body is not part of it."""
+    from draupnir.svalinn import egress
+
+    broker = egress.EgressBroker()
+    inner = _Recording()
+    client = egress.BrokeredClient(
+        inner=inner,
+        purpose=egress.FEDERATION_PURPOSE,
+        approving_policy=egress.FEDERATION_POLICY,
+        broker=broker,
+    )
+
+    client.post(
+        "https://megingjord.veldris.internal/v1/anchors",
+        json={"seq": 7, "entryHash": "a" * 64},
+    )
+
+    assert inner.posts == ["https://megingjord.veldris.internal/v1/anchors"]
+    (record,) = broker.records
+    assert record.permitted is True
+    assert "entryHash" not in str(record.as_log_context()), "the broker logs a request body"

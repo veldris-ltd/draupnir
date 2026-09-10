@@ -264,6 +264,26 @@ class LedgerRepository(ScopedRepository):
         ).all()
         return tuple(_entry(row) for row in rows)
 
+    def entries_of_type(self, subject_type: str) -> tuple[LedgerEntry, ...]:
+        """Every entry about subjects of one kind, oldest first. RF-10.
+
+        By subject type rather than by transition, because `(subject_type,
+        subject_id)` is the index this table carries and a transition predicate
+        would be a sequential scan of a chain AC-N5 sizes at a hundred
+        thousand entries. Scoped like everything else.
+        """
+        if not subject_type:
+            msg = "an empty subject type matches every entry; ask for something"
+            raise UnscopedQueryError(msg)
+        rows = self._connection.execute(
+            text(
+                f"SELECT {_LEDGER_COLUMNS} FROM ledger_entry "  # noqa: S608 -- literal columns
+                "WHERE site_id = :site_id AND subject_type = :subject_type ORDER BY seq"
+            ),
+            {"site_id": self.site_id, "subject_type": subject_type},
+        ).all()
+        return tuple(_entry(row) for row in rows)
+
     def entries_for_subject(self, subject_id: str) -> tuple[LedgerEntry, ...]:
         """Every entry about one subject, oldest first.
 

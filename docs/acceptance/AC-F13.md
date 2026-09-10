@@ -23,7 +23,9 @@ make test-contract
 - `draupnir/motsognir/arrays.py`
 - `plugins/local_subprocess/draupnir_local_subprocess/__init__.py`
 - `plugins/motsognir_slurm/draupnir_motsognir_slurm/__init__.py`
+- `plugins/motsognir_slurmrest/draupnir_motsognir_slurmrest/__init__.py`
 - `tests/contract/test_api_write_path.py`
+- `tests/contract/test_slurmrest_driver.py`
 - `tests/integration/test_api_transitions.py`
 - `tests/unit/test_placement_and_arrays.py`
 - `tests/unit/test_slurm_driver.py`

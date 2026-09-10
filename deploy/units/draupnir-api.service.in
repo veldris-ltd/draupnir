@@ -14,10 +14,9 @@ Type=simple
 ExecStart=@LIBEXEC@/draupnir-run.sh draupnir-api
 ExecStop=@PODMAN@ stop --ignore --time=20 draupnir-api
 ExecStopPost=@PODMAN@ rm --ignore --force draupnir-api
-# The container is removed on start as well as on stop: a unit killed hard
-# leaves the name taken, and the next start then fails on a name clash rather
-# than on whatever caused the kill.
-ExecStartPre=-@PODMAN@ rm --ignore --force draupnir-api
+# The stale-name clean that used to be an ExecStartPre here is now in
+# draupnir-run.sh, so that the launchd agent of the same unit gets it too:
+# launchd has no pre-start hook, and one copy of the rule is better than four.
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=30s

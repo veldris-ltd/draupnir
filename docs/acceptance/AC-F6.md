@@ -3,11 +3,13 @@
 > A failed array element is retried individually without disturbing the other elements
 
 **Priority:** Must
-**Status:** IMPLEMENTED
+**Status:** DEVIATED
 
 ## How it is demonstrated
 
 One element is retried by index without touching the others, and the retry budget is spent per element.
+
+`motsognir.slurm/v1` implements this and cannot run at Sindri: the control plane reaches Slurm over slurmrestd, which exposes submit, read and cancel and no requeue. The driver refuses and names `scontrol requeue <job>_<index>` on REGIN rather than approximating it -- resubmitting the element would give it a new job identifier and sever it from its array, and requeuing the array would restart all fifty six and discard the compute of the ones that succeeded, which is the failure this criterion exists to prevent. Closing it needs a `scontrol` bridge on REGIN or Slurm client tools on ALVISS; until one is funded, a failed element is requeued by hand on REGIN. What RF-13 added is the operation and the record: `requeueArrayElement` exists, the worker calls the driver's `requeue` for one index and never resubmits in its place, and the refusal is written to the chain carrying the driver's own instruction -- so the operator is told what to run rather than left with a button that did nothing.
 
 
 ```bash
@@ -16,9 +18,20 @@ make test-unit
 
 ## Evidence
 
+- `draupnir/api/routers/models.py`
+- `draupnir/interfaces/protocols.py`
+- `draupnir/interfaces/types.py`
 - `draupnir/motsognir/arrays.py`
+- `draupnir/worker/array_queue.py`
+- `draupnir/worker/loop.py`
+- `plugins/motsognir_slurm/draupnir_motsognir_slurm/__init__.py`
+- `plugins/motsognir_slurmrest/draupnir_motsognir_slurmrest/__init__.py`
+- `tests/contract/test_slurmrest_driver.py`
+- `tests/integration/test_worker_loop.py`
+- `tests/unit/test_array_queue.py`
 - `tests/unit/test_checkpoints_and_retry.py`
 - `tests/unit/test_placement_and_arrays.py`
+- `tests/unit/test_slurm_driver.py`
 
 ---
 

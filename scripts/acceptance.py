@@ -139,8 +139,12 @@ REGISTER: dict[str, Entry] = {
     "AC-F3": Entry(
         IMPLEMENTED,
         "M1 to M3 of the procedure ingest, hash, register and curate; the raw tree is "
-        "made read only and a write to it is attempted and refused.",
-        "make procedure",
+        "made read only and a write to it is attempted and refused. The API's ingest "
+        "and curate are performed too, by a worker duty draining the accepted entries "
+        "out of the chain -- they were recorded and consumed by nothing (RF-12) -- and "
+        "curation deduplicates, filters and decontaminates against the evaluation sets "
+        "rather than reporting three retention figures nobody measured.",
+        "make test-integration",
     ),
     "AC-F4": Entry(
         DEVIATED,
@@ -157,10 +161,29 @@ REGISTER: dict[str, Entry] = {
         note=NO_ESTATE + " No array has executed on three appliances.",
     ),
     "AC-F6": Entry(
-        IMPLEMENTED,
+        DEVIATED,
         "One element is retried by index without touching the others, and the retry "
         "budget is spent per element.",
         "make test-unit",
+        # The mechanism is `scontrol requeue <job>_<index>` and the sbatch
+        # driver does exactly that. The transport the estate will use cannot:
+        # RF-E05 established ALVISS has no Slurm client tools and the container
+        # has no shell, so submission goes over slurmrestd -- and slurmrestd
+        # v0.0.40 exposes no requeue at all. RF-E24.
+        note="`motsognir.slurm/v1` implements this and cannot run at Sindri: the "
+        "control plane reaches Slurm over slurmrestd, which exposes submit, read and "
+        "cancel and no requeue. The driver refuses and names `scontrol requeue "
+        "<job>_<index>` on REGIN rather than approximating it -- resubmitting the "
+        "element would give it a new job identifier and sever it from its array, and "
+        "requeuing the array would restart all fifty six and discard the compute of "
+        "the ones that succeeded, which is the failure this criterion exists to "
+        "prevent. Closing it needs a `scontrol` bridge on REGIN or Slurm client tools "
+        "on ALVISS; until one is funded, a failed element is requeued by hand on "
+        "REGIN. What RF-13 added is the operation and the record: "
+        "`requeueArrayElement` exists, the worker calls the driver's `requeue` for "
+        "one index and never resubmits in its place, and the refusal is written to "
+        "the chain carrying the driver's own instruction -- so the operator is told "
+        "what to run rather than left with a button that did nothing.",
     ),
     "AC-F7": Entry(
         IMPLEMENTED,
@@ -208,7 +231,10 @@ REGISTER: dict[str, Entry] = {
     "AC-F14": Entry(
         IMPLEMENTED,
         "A dry run validates and renders the plan without submitting; the console makes "
-        "it the primary action.",
+        "it the primary action; and the worker dispatches the same render through the "
+        "same registry, so the plan an operator was shown is the plan that is "
+        "submitted -- asserted by comparing the two rather than assumed from `render` "
+        "being pure (RF-10).",
         "make test-e2e",
     ),
     "AC-F15": Entry(
@@ -220,8 +246,11 @@ REGISTER: dict[str, Entry] = {
     "AC-F16": Entry(
         IMPLEMENTED,
         "The nine and the forty seven are one table; the union is validated at "
-        "submission and a duplicate or omission fails.",
-        "make test-unit",
+        "submission -- on the submission path, not only in a test (RF-11) -- and a "
+        "duplicate, an omission or a jurisdiction in both tiers fails, naming which. "
+        "A jurisdiction outside the programme is refused rather than resolved to a "
+        "default tier.",
+        "make test-contract",
     ),
     "AC-F17": Entry(
         IMPLEMENTED,
@@ -280,8 +309,9 @@ REGISTER: dict[str, Entry] = {
     ),
     "AC-S6": Entry(
         IMPLEMENTED,
-        "The emitter redacts brokered secrets, and the pre-registration scan blocks a "
-        "planted test secret.",
+        "The emitter redacts brokered secrets, and an ingest carrying a planted test "
+        "secret is refused before the rename that publishes it -- so nothing is "
+        "sealed, lineaged or registered (RF-09).",
         "make test-unit",
     ),
     "AC-S7": Entry(
@@ -312,8 +342,31 @@ REGISTER: dict[str, Entry] = {
         DEVIATED,
         "The sandbox profile denies outbound network and the attempt is logged.",
         "make test-unit",
-        note="The profile is generated and its content asserted; enforcing it needs the "
-        "appliance's kernel. " + NO_ESTATE,
+        # The deviation used to read "enforcing it needs the appliance's
+        # kernel", which located the gap in the missing hardware. That was
+        # wrong, and wrong in the direction that makes a gap disappear: the
+        # appliances arriving would not close it. VLD-INF-SINDRI-001 Rev 3.3
+        # runs training as a process under slurmd, so there is no executor
+        # sandbox layer to enforce -- and the job needs a network to reach
+        # MLflow, which is the one property this criterion is about. RF-E16.
+        note="The profile is generated, its content asserted, and every plan the "
+        "control plane dispatches carries it (RF-09) -- and nothing applies it: the "
+        "estate runs training as a process in a shared virtual environment "
+        "under Slurm, not as a container, and the job needs an outbound network to "
+        "reach MLflow on ANDVARI. So this deviation is the execution model rather "
+        "than the absence of an appliance to test on -- hardware alone would not "
+        "close it. Carrying the profile and applying it are different things: a "
+        "plan travelling with an honest specification of how the job should be "
+        "confined is the control plane's half and it is done, while rendering it "
+        "into runtime arguments would claim a confinement this estate does not "
+        "have, so nothing does. `draupnir/svalinn/containment.py` records what is "
+        "in force and names the seven properties the container model has and it "
+        "does not; four "
+        # Deliberately not suffixed with NO_ESTATE, unlike its neighbours. That
+        # sentence says the measurement is taken at commissioning, and here it
+        # would not be: commissioning the estate as specified produces a job
+        # with a network, not a sandbox to test.
+        "of them are configuration rather than architecture.",
     ),
     "AC-S12": Entry(
         IMPLEMENTED,
@@ -363,8 +416,11 @@ REGISTER: dict[str, Entry] = {
     "AC-B1": Entry(
         IMPLEMENTED,
         "Every mutating endpoint requires the key and replays the original result; the "
-        "same key with a different body is refused.",
-        "make test-contract",
+        "same key with a different body is refused. The store is a table rather than a "
+        "dictionary in one process (RF-14), so a key reserved by one API process is "
+        "known to the others -- which is the concurrency SAD 5.1 specifies and the one "
+        "the control exists for -- and reservations survive a restart.",
+        "make test-integration",
     ),
     "AC-B2": Entry(
         IMPLEMENTED,
@@ -410,7 +466,9 @@ REGISTER: dict[str, Entry] = {
     "AC-B9": Entry(
         IMPLEMENTED,
         "Every long operation returns 202 with a run identifier; nothing blocks a "
-        "request on training.",
+        "request on training. Each of them is now performed too: the accepted entry "
+        "is drained from the chain by a worker duty rather than being recorded and "
+        "forgotten (RF-12 for corpora, RF-13 for arrays).",
         "make test-contract",
     ),
     "AC-B10": Entry(
@@ -441,8 +499,10 @@ REGISTER: dict[str, Entry] = {
     "AC-U4": Entry(
         IMPLEMENTED,
         "A submitted run appears on the board within five seconds by server sent events, "
-        "with zero list reads in the following six.",
-        "make test-e2e",
+        "with zero list reads in the following six; and the transition that puts it "
+        "there is committed by another operating system process, which is what the "
+        "deployment does and what the journey alone could not show.",
+        "make test-e2e && make test-integration",
     ),
     "AC-U5": Entry(
         IMPLEMENTED,
@@ -599,8 +659,10 @@ REGISTER: dict[str, Entry] = {
     "AC-N3": Entry(
         IMPLEMENTED,
         "A state change reaches the board in under five seconds, measured in the "
-        "journey against a real event stream.",
-        "make test-e2e",
+        "journey against a real event stream, and separately from a committed ledger "
+        "append in another process through PostgreSQL into a listener -- the path the "
+        "worker's transitions actually take (RF-15).",
+        "make test-e2e && make test-integration",
     ),
     "AC-N4": Entry(
         IMPLEMENTED,

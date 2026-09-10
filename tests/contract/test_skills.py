@@ -392,8 +392,12 @@ def test_scaffolded_migrations_pass_the_checks_alongside_the_real_ones(tmp_path:
         versions=versions,
     )
 
+    # The real migrations plus the three scaffolded here. Counted from the
+    # repository rather than written down, so that adding a migration -- as
+    # RF-14 did -- does not fail a test about the scaffolding.
+    real = len(list((ROOT / "migrations" / "versions").glob("[0-9]*.py")))
     generated = sorted(versions.glob("[0-9]*.py"))
-    assert len(generated) == 5
+    assert len(generated) == real + 3
 
     problems = [
         problem
@@ -404,12 +408,18 @@ def test_scaffolded_migrations_pass_the_checks_alongside_the_real_ones(tmp_path:
 
     # Numbered forward from the real head, and singly headed. Two people
     # branching from one revision is the failure that is easiest to create.
+    #
+    # Derived from the real head rather than written down, for the same reason
+    # the count above is: a migration added to the repository must not fail a
+    # test about the scaffolding, and what is under test is that the three are
+    # consecutive and follow whatever is there.
+    first = real + 1
     assert [script.name for script in generated][-3:] == [
-        "0003_lease_table.py",
-        "0004_run_notes.py",
-        "0005_run_state_index.py",
+        f"{first:04d}_lease_table.py",
+        f"{first + 1:04d}_run_notes.py",
+        f"{first + 2:04d}_run_state_index.py",
     ]
-    assert scaffold.head(versions) == "0005"
+    assert scaffold.head(versions) == f"{first + 2:04d}"
 
 
 def test_the_real_migrations_pass_the_same_checks() -> None:

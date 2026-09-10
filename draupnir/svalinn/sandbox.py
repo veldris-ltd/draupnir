@@ -1,10 +1,34 @@
 """The executor sandbox profile: rootless, no network, read-only artefacts.
 
-Threat T7 mitigates a malicious or compromised plug-in by executing it "in a
-rootless container with no outbound network and a read only artefact mount".
-Threat T11 adds that "executors run with no outbound network at all". AC-S11
-tests it: an executor attempting an outbound connection fails, and the attempt
-appears in the log.
+**This is a specification, not a control in force.** Nothing in this repository
+applies it to a dispatched job, and the Sindri estate could not honour it if
+something did: VLD-INF-SINDRI-001 Rev 3.3 runs training as a process on a
+shared appliance, not as a container. `containment` states what actually holds
+a job in at a forge, and `containment.shortfall()` names every property this
+profile has that the estate does not. A test asserts nothing on the dispatch
+path imports this module, so the distinction cannot quietly stop being true in
+either direction.
+
+The distinction is worth the paragraph because the failure it prevents is a
+specific one. A profile described as in force is a control an auditor ticks, a
+threat model closes T7 against, and nobody implements -- and the gap is
+invisible precisely because the design is good and the module is complete.
+
+The two are not reconcilable by relaxing this. The work as specified needs the
+two properties the profile forbids: the job reports to MLflow on ANDVARI, which
+needs a network, and it writes checkpoints under `/forge/vault/models/adapters`,
+which needs a writable artefact path. A profile relaxed until the job runs is
+not a control, which is why the strictness below is not configurable and why
+adopting it is a change to the estate rather than to this file.
+
+What it is for: the container-per-job model is the intended destination, and
+this is the specification of it -- rendered for three runtimes, asserted about
+by tests, and ready for the estate that adopts it. Threat T7 mitigates a
+malicious or compromised plug-in by executing it "in a rootless container with
+no outbound network and a read only artefact mount"; threat T11 adds that
+"executors run with no outbound network at all". That is what this describes.
+AC-S11 is recorded as DEVIATED against it, and the deviation is the execution
+model rather than the absence of an appliance to test on.
 
 The profile is data rather than a shell command for two reasons. It has to be
 rendered for more than one runtime -- systemd-nspawn on the appliances, Docker
@@ -20,9 +44,10 @@ a field is a profile that will be relaxed for one job that needed it, and the
 relaxation will outlive the job.
 
 The egress broker (`egress`) governs the control plane, which does make
-outbound calls. This governs the executor, which makes none. Two layers,
+outbound calls. This would govern the executor. Two layers were intended,
 because the sandbox is the one an escaping dependency cannot argue with and the
-broker is the one that produces a record.
+broker is the one that produces a record -- and at Sindri only the second layer
+exists, which is the shortfall `containment` records against threat T11.
 """
 
 from __future__ import annotations
@@ -146,7 +171,14 @@ class SandboxProfile:
         return True
 
     def as_payload(self) -> dict[str, Any]:
-        """The profile, for the ledger entry that records how a job ran."""
+        """The profile, for a ledger entry at an estate that applies it.
+
+        Not for Sindri's. A ledger entry claiming a job ran with no network,
+        as uid 65532, on a read-only root would be false there and would stay
+        false for as long as the chain does -- SAD 6.2 makes the record the
+        unit of reproduction. `containment.for_site` is what that estate's
+        entries record.
+        """
         return {
             "uid": self.uid,
             "gid": self.gid,

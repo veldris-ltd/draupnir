@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from typing import Any
+from uuid import UUID
 
 import pytest
 from fastapi import APIRouter, FastAPI
@@ -29,8 +30,8 @@ from draupnir.api.guards import (
 )
 from draupnir.api.idempotency import IdempotencyStore
 from draupnir.api.problems import CONTENT_TYPE, PROBLEM_BASE
-from draupnir.interfaces.testing import sample_spec
 from draupnir.svalinn.authz import UndeclaredRouteError
+from tests.specs import submittable_mapping
 
 pytestmark = pytest.mark.contract
 
@@ -52,10 +53,16 @@ WEAK_APPROVER = {**APPROVER, "amr": ["pwd"]}
 #: A specification the API can actually read. Submission now computes the
 #: run identity of AC-F1, and an identity cannot be computed over a payload
 #: that is not a specification, so these tests send a real one.
-SPEC = sample_spec().as_mapping()
+SPEC = submittable_mapping()
+# A second jurisdiction, and a Commonwealth one in the same tier. RF-11 made
+# the tier a submission-time check: this was IRL, which is not a CIM-56
+# jurisdiction at all and is now refused as one -- correctly, and for a
+# reason that has nothing to do with what these tests are about. CAN is Tier
+# A like GBR, so the two specifications differ in exactly the field the
+# idempotency check is looking at.
 OTHER_SPEC = {
     **SPEC,
-    "metadata": {**SPEC["metadata"], "name": "cim-irl-v0.1", "jurisdiction": "IRL"},
+    "metadata": {**SPEC["metadata"], "name": "cim-can-v0.1", "jurisdiction": "CAN"},
 }
 
 
@@ -385,22 +392,38 @@ def test_an_invalid_page_size_is_a_problem_document() -> None:
     assert response.json()["type"].startswith(PROBLEM_BASE)
 
 
-def test_the_event_stream_is_text_event_stream() -> None:
-    response = client_as(OPERATOR).get(f"/v1/runs/{'0' * 8}-0000-7000-8000-000000000000/events")
-
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/event-stream")
-    assert "retry:" in response.text
+# ---------------------------------------------------------------------------
+# The event streams are not read here. RF-15.
+#
+# `TestClient` buffers a whole response before returning it, so a request to a
+# stream that stays open never returns at all. That was not a problem while
+# `streamRunEvents` yielded its backlog and closed -- which is precisely the
+# defect RF-15 names: it was a page of history a console had to poll for, not a
+# stream.
+#
+# So what a stream *does* is asserted in `tests/integration/test_event_stream.py`
+# against a live database, which is also the only place the interesting claim
+# can be made: that a transition committed by another operating system process
+# -- the worker -- arrives on a console's connection. What stays here is the
+# refusal that happens before the response begins.
+# ---------------------------------------------------------------------------
 
 
 def test_a_bad_last_event_id_is_refused() -> None:
-    response = client_as(OPERATOR).get(
+    """And before the response starts, which is why it can be a 422 at all.
+
+    A stream that has sent its first byte cannot answer with a problem
+    document, so `Last-Event-ID` is read and checked before the body begins.
+    """
+    with client_as(OPERATOR).stream(
+        "GET",
         f"/v1/runs/{'0' * 8}-0000-7000-8000-000000000000/events",
         headers={"Last-Event-ID": "latest"},
-    )
+    ) as response:
+        response.read()
 
-    assert response.status_code == 422
-    assert response.json()["code"] == "invalid-last-event-id"
+        assert response.status_code == 422
+        assert response.json()["code"] == "invalid-last-event-id"
 
 
 def test_a_correlation_id_is_echoed_and_a_request_id_is_issued() -> None:
@@ -489,7 +512,7 @@ def test_an_approver_with_a_hardware_authenticator_may_decide() -> None:
     """
     response = client_as(APPROVER).post(
         f"/v1/gates/{'0' * 8}-0000-7000-8000-000000000000/decide",
-        json={"decision": "approved", "reason": "gates clear", "signature": "sig"},
+        json=_signed_decision("gates clear"),
         headers={"Idempotency-Key": "decide-1", "If-Match": "*"},
     )
 
@@ -504,7 +527,7 @@ def test_a_replayed_decision_returns_the_original_record() -> None:
     """AC-B1 on a 201 rather than a 202."""
     client = client_as(APPROVER)
     path = f"/v1/gates/{'0' * 8}-0000-7000-8000-000000000000/decide"
-    body = {"decision": "approved", "reason": "gates clear", "signature": "sig"}
+    body = _signed_decision("gates clear")
     headers = {"Idempotency-Key": "decide-2", "If-Match": "*"}
 
     first = client.post(path, json=body, headers=headers)
@@ -752,3 +775,23 @@ def test_a_source_registration_replays(monkeypatch: Any) -> None:
 
     assert first.status_code == second.status_code == 201
     assert first.json()["id"] == second.json()["id"]
+
+
+#: The gate these two tests decide on. Fixed, because the signature covers the
+#: subject and a random one could not be signed in advance.
+_GATE = "00000000-0000-7000-8000-000000000000"
+
+
+def _signed_decision(reason: str) -> dict[str, Any]:
+    """A decision body whose signature verifies. RF-06."""
+    from datetime import UTC, datetime
+
+    from tests.conftest import sign_decision
+
+    decided_at = datetime.now(UTC)
+    return {
+        "decision": "approved",
+        "reason": reason,
+        "decidedAt": decided_at.isoformat(),
+        "signature": sign_decision(approver="akuma", subject_id=UUID(_GATE), decided_at=decided_at),
+    }

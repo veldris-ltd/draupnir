@@ -18,8 +18,10 @@ make test-contract
 
 - `draupnir/api/routers/plugins.py`
 - `draupnir/api/schemas.py`
+- `draupnir/core/infrastructure/config.py`
 - `draupnir/svalinn/pki.py`
 - `skills/draupnir-driver/scripts/new_driver.py`
+- `tests/conftest.py`
 - `tests/contract/test_api_surface.py`
 - `tests/contract/test_run_submission.py`
 - `tests/unit/test_svalinn_security.py`

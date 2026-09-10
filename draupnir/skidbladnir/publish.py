@@ -291,29 +291,39 @@ def verify_formats(evidence_log: EvidenceLog, *, built_formats: Iterable[str]) -
     return built
 
 
-def publish(
-    package: ReleasePackage,
-    *,
-    artefact: Path,
-    evidence_log: EvidenceLog,
-    approval: Mapping[str, Any] | None,
-    released_at: datetime,
-    built_formats: Iterable[str],
-    artefact_kind: str = "quantised",
-) -> Published:
-    """Publish a release, or refuse. Every refusal in this module is applied here.
+class StaleAnchorError(PublicationError):
+    """Raised when the federation has not countersigned far enough. AC-S13.
 
-    The hash check is first, because everything after it is an assertion about
-    a particular set of bytes.
+    Its own type because the remedy is a wait rather than a fix: the release is
+    correct, the estate is correct, and the link to MEGINGJORD has not caught
+    up. Reporting it as a package or evidence problem would send somebody to
+    re-run an evaluation that passed.
     """
-    observed = verify_artefact(
-        artefact=artefact, evidence_log=evidence_log, artefact_kind=artefact_kind
-    )
-    if observed != package.artefact_sha256:
-        raise ArtefactMismatchError(package.artefact_sha256, observed, artefact_kind)
 
-    formats = verify_formats(evidence_log, built_formats=built_formats)
+    def __init__(self, needed: int, anchored_through: int) -> None:
+        """Name where the chain is and how far the federation has come."""
+        self.needed = needed
+        self.anchored_through = anchored_through
+        behind = needed - anchored_through
+        super().__init__(
+            f"this release sits at sequence {needed} and the federation has "
+            f"countersigned through {anchored_through} -- {behind} entr(ies) behind. A "
+            "release is published against a countersigned chain head (AC-S13): until "
+            "the anchor catches up, publishing would put an artefact into the registry "
+            "that no other site can prove the provenance of. Training and evaluation "
+            "continue; this is a wait, not a fault."
+        )
 
+
+def verify_approval(approval: Mapping[str, Any] | None, *, observed: str) -> None:
+    """Every refusal about the approval record itself.
+
+    Extracted so the API and `publish` apply the same rules rather than two
+    sets that agree today. RF-05 found the API applying none of them: the
+    handler read one entry from the chain and, if it existed, recorded a
+    `published` entry -- while its own docstring described four controls this
+    module performs and it did not call.
+    """
     if not approval:
         raise UnapprovedReleaseError(observed, "no approval record was supplied")
     if not approval.get("signature"):
@@ -323,6 +333,82 @@ def publish(
     approved_sha = approval.get("artefact_sha256") or approval.get("artefactSha256")
     if approved_sha and approved_sha != observed:
         raise ArtefactMismatchError(str(approved_sha), observed, "approved artefact")
+
+
+def verify_anchor(*, release_seq: int, anchored_through: int) -> None:
+    """Require the federation to have countersigned this far. AC-S13."""
+    if release_seq > anchored_through:
+        raise StaleAnchorError(release_seq, anchored_through)
+
+
+def admissible(
+    *,
+    artefact: Path,
+    evidence_log: EvidenceLog,
+    approval: Mapping[str, Any] | None,
+    built_formats: Iterable[str],
+    release_seq: int,
+    anchored_through: int,
+    artefact_kind: str = "quantised",
+) -> tuple[str, tuple[str, ...]]:
+    """Every refusal that can be decided without the package on the vault.
+
+    Returns the observed digest and the formats verified.
+
+    **This is the seam RF-05 needed.** `publish` requires a full
+    `ReleasePackage` -- model card, SBOM, attestation, summary, annex -- which
+    lives on the vault and which the API does not have. So the API could not
+    call `publish`, and rather than calling *part* of it, it called none of it.
+
+    Splitting the rules out here means there is one implementation of each and
+    the two paths cannot drift: `publish` calls this and then adds the package
+    consistency check, and the API calls this alone. A second copy in the
+    router would have agreed on the day it was written.
+
+    The order matters and is the same in both. The hash check is first, because
+    everything after it is an assertion about a particular set of bytes.
+    """
+    observed = verify_artefact(
+        artefact=artefact, evidence_log=evidence_log, artefact_kind=artefact_kind
+    )
+    formats = verify_formats(evidence_log, built_formats=built_formats)
+    verify_approval(approval, observed=observed)
+    verify_anchor(release_seq=release_seq, anchored_through=anchored_through)
+    return observed, formats
+
+
+def publish(
+    package: ReleasePackage,
+    *,
+    artefact: Path,
+    evidence_log: EvidenceLog,
+    approval: Mapping[str, Any] | None,
+    released_at: datetime,
+    built_formats: Iterable[str],
+    #: Where this release sits in the chain, and how far the federation has
+    #: countersigned. Defaulted so an existing caller that has no anchor to
+    #: report is unchanged; the API supplies both, which is what makes AC-S13
+    #: enforced on the path that publishes.
+    release_seq: int = 0,
+    anchored_through: int = 0,
+    artefact_kind: str = "quantised",
+) -> Published:
+    """Publish a release, or refuse. Every refusal in this module is applied here.
+
+    The hash check is first, because everything after it is an assertion about
+    a particular set of bytes.
+    """
+    observed, formats = admissible(
+        artefact=artefact,
+        evidence_log=evidence_log,
+        approval=approval,
+        built_formats=built_formats,
+        release_seq=release_seq,
+        anchored_through=anchored_through,
+        artefact_kind=artefact_kind,
+    )
+    if observed != package.artefact_sha256:
+        raise ArtefactMismatchError(package.artefact_sha256, observed, artefact_kind)
 
     problems = package.consistency_problems()
     if problems:

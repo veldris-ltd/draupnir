@@ -278,3 +278,41 @@ class ProjectionCheckpoint(Base):
     projection: Mapped[str] = mapped_column(Text, primary_key=True)
     last_seq: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     rebuilt_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class IdempotencyKey(Base):
+    """Reservations and stored responses, one row per outstanding request.
+
+    RF-14. This was a dictionary in one API process, so a key reserved by one
+    of SAD 5.1's two-to-four processes was unknown to the others and every
+    reservation was lost on restart.
+
+    `status` is `NULL` while the first request is still running, and that
+    column is the whole of the in-flight answer: a store that recorded only
+    completed responses could not tell a second caller to wait, which is the
+    case the key exists for.
+
+    Written by `api.idempotency_store.DatabaseIdempotencyStore` and swept by
+    the worker. Nothing loads it through the unit of work.
+    """
+
+    __tablename__ = "idempotency_key"
+    __table_args__ = (
+        CheckConstraint("length(key) > 0", name="ck_idempotency_key_present"),
+        CheckConstraint(
+            "status IS NULL OR (status >= 100 AND status < 600)",
+            name="ck_idempotency_key_status_range",
+        ),
+        Index("ix_idempotency_key_created_at", "created_at"),
+    )
+
+    site_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    #: The actor as well as the site: two operators using the same obvious key
+    #: -- `retry-1` -- must not collide.
+    actor: Mapped[str] = mapped_column(Text, primary_key=True)
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    request_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    status: Mapped[int | None] = mapped_column(Integer)
+    body: Mapped[Any | None] = mapped_column(JSONB)
+    location: Mapped[str | None] = mapped_column(Text)

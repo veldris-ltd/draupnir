@@ -242,6 +242,16 @@ class DecisionIn(Wire):
             "is a row somebody could have written, and publication verifies it."
         )
     )
+    decided_at: datetime | None = Field(
+        default=None,
+        description=(
+            "When the approver decided, with an explicit offset. Part of the signed "
+            "payload, so the approver has to supply the instant they signed over -- a "
+            "server-generated one could not be signed by anybody. Refused if it is "
+            "further than five minutes from now, which stops a signature being "
+            "prepared long in advance or replayed long after."
+        ),
+    )
 
 
 class DecisionOut(Wire):
@@ -537,13 +547,41 @@ class RetentionPage(Wire):
 # ---------------------------------------------------------------------------
 
 
+class ArraySubmission(Wire):
+    """An array over many subjects, submitted as one scheduler array. RF-13."""
+
+    name: str = Field(
+        default="cim-56-adapters",
+        min_length=1,
+        max_length=64,
+        description="What the array is called, and what its elements are named after.",
+    )
+    #: Empty means the whole programme, which is what CIM-56 is: fifty-six
+    #: jurisdictions, one element each. Named explicitly for a partial run --
+    #: a re-run of the nine Tier A jurisdictions, say -- and validated against
+    #: the tier table either way.
+    subjects: list[str] = Field(
+        default_factory=list,
+        max_length=256,
+        description="The jurisdictions to build elements for. Empty means all fifty-six.",
+    )
+    retry_budget: int = Field(
+        default=2, ge=0, le=10, description="How many times an element may be retried."
+    )
+
+
 class ArrayElementOut(Wire):
     """One element of an adapter array. S12, SAD 5.2 MOTSOGNIR."""
 
     index: int = Field(description="Position in the array.")
     subject: str = Field(description="What this element is for, e.g. a jurisdiction.")
     state: str = Field(description="PENDING, RUNNING, COMPLETED, FAILED, AWAITING_RETRY…")
-    attempts: int = Field(description="How many times it has been submitted.")
+    attempts: int = Field(
+        description=(
+            "How many times it has been submitted. Counted from the chain, not derived "
+            "from a retry budget (RF-13)."
+        )
+    )
     run_id: UUID | None = Field(default=None, description="The run this element became.")
     node: str | None = Field(default=None, description="Where it is placed.")
 
@@ -555,6 +593,17 @@ class ArrayOut(Wire):
     size: int = Field(description="How many elements.")
     elements: list[ArrayElementOut] = Field(description="Every element, in index order.")
     summary: dict[str, int] = Field(description="How many elements are in each state.")
+    # RF-13. Reported rather than derived: the console showed a size that was
+    # the number of runs at the site, and an operator asking "is this the
+    # fifty-six element array" had no way to tell. The directive is the string
+    # sbatch was given, so the answer is a fact rather than an inference.
+    slurm_array: str = Field(
+        default="", description="The `--array` directive this was submitted with, e.g. `0-55%3`."
+    )
+    concurrency: int = Field(default=1, description="How many elements run at once.")
+    job_id: str | None = Field(
+        default=None, description="The scheduler's identifier for the array."
+    )
 
 
 class SweepPointOut(Wire):

@@ -20,6 +20,7 @@ from draupnir.api.deps import Guarded
 from draupnir.api.guards import needs
 from draupnir.api.schemas import PluginList, PluginOut
 from draupnir.core.plugins import PluginRegistry
+from draupnir.svalinn.pki import registry as discover_plugins
 from draupnir.svalinn.roles import Permission
 
 router = APIRouter(tags=["operations"])
@@ -36,7 +37,7 @@ def registry() -> PluginRegistry:
     # environment and cannot change without a restart.
     global _REGISTRY
     if _REGISTRY is None:
-        _REGISTRY = PluginRegistry.discover()
+        _REGISTRY = discover_plugins()
     return _REGISTRY
 
 

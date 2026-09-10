@@ -30,7 +30,6 @@ leaves the decision where it belongs.
 from __future__ import annotations
 
 import re
-import shutil
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -58,10 +57,17 @@ FABRIC_FLOOR = 0.80
 #: rather than a point-to-point bandwidth test.
 NCCL_TESTS = "all_reduce_perf"
 
-#: How large a message the probe reduces. Large enough to reach the asymptotic
-#: bus bandwidth, which is the figure a commissioning report records; a small
-#: message measures latency and would alarm on a healthy fabric.
-PROBE_SIZE = "8G"
+#: The message sizes the probe sweeps, and they are the ones VLD-INF-SINDRI-001
+#: acceptance test A3 sweeps: `all_reduce_perf -b 512M -e 8G`.
+#:
+#: This matters more than it looks. A3 is where the commissioned baseline comes
+#: from, and `Avg bus bandwidth` is an average over whatever range was swept.
+#: Sweeping from 8 bytes -- which this did -- averages in the small-message
+#: sizes where the collective is latency bound, producing a figure several
+#: times lower than the baseline it is compared against. The alarm would then
+#: fire on a perfectly healthy fabric, every hour, from the first tick.
+PROBE_BEGIN = "512M"
+PROBE_END = "8G"
 
 #: `nccl-tests` ends with a line reading `# Avg bus bandwidth : 235.6`. That
 #: average is the number a commissioned baseline is expressed in.
@@ -86,6 +92,18 @@ class Duty(StrEnum):
     VAULT = "vault-capacity"
     ANCHOR = "anchor-freshness"
     RETENTION = "retention-sweep"
+    #: The corpus work the API accepts. RF-12: a curator pressed Ingest, got a
+    #: 202, and nothing ever happened -- the accepted entry was consumed by
+    #: nothing.
+    CORPORA = "corpus-queue"
+    #: The array work the API accepts. RF-13: `--array=0-55%3` and the
+    #: single-element retry were described at length and submitted by nothing.
+    ARRAYS = "array-queue"
+    #: Expired idempotency keys. RF-14: on the timetable rather than on a
+    #: request path, because a sweep on the request path makes one unlucky
+    #: caller pay for everybody else's expired keys and does nothing at all on
+    #: a quiet estate -- which is exactly when the table grows unwatched.
+    KEYS = "idempotency-sweep"
 
 
 #: How often each duty is due. The first four are SAD 11.3's; the retention
@@ -97,6 +115,21 @@ PERIODS: Mapping[Duty, timedelta] = {
     Duty.VAULT: timedelta(minutes=15),
     Duty.ANCHOR: ANCHOR_INTERVAL,
     Duty.RETENTION: timedelta(days=1),
+    # A minute, because this one has somebody waiting on it. The others are
+    # checks nobody asked for at a particular moment; this is work a curator
+    # requested and is watching the board for. Cheap to run: one indexed read
+    # of the corpus entries, and nothing to do when the queue is empty.
+    Duty.CORPORA: timedelta(minutes=1),
+    # As often as the corpus queue, and for the same reason: somebody pressed a
+    # button and is watching the board. Cheap when the queue is empty, which is
+    # nearly always -- an estate submits one fifty-six element array and then
+    # waits most of a week for it.
+    Duty.ARRAYS: timedelta(minutes=1),
+    # Hourly. A key is honoured for twenty-four hours, so an hour of slack
+    # either way changes nothing an operator can observe, and a sweep that ran
+    # every minute would be a delete statement a minute that almost always
+    # deletes nothing.
+    Duty.KEYS: timedelta(hours=1),
 }
 
 
@@ -124,6 +157,15 @@ class Chain(Protocol):
 
     def verify_chain(self, from_seq: int = 1, to_seq: int | None = None) -> int | None:
         """Return the first divergent sequence number, or None."""
+        ...
+
+    def head(self) -> Any:
+        """The chain's last entry, or `None` for an empty chain.
+
+        Added for the anchor duty (RF-07): anchoring submits the head, and a
+        duty that could not ask for one would have to be given it by a caller
+        that read the chain a second time.
+        """
         ...
 
     def length(self) -> int:
@@ -210,25 +252,82 @@ def verify(chain: Chain) -> Finding:
 # ---------------------------------------------------------------------------
 
 
-def probe_plan(workdir: Path, *, size: str = PROBE_SIZE, nodes: int = 3) -> JobPlan:
+@dataclass(frozen=True, slots=True)
+class FabricProbe:
+    """How this forge runs the probe of SAD 11.3.
+
+    Every value is the estate's, so every value is configuration. The
+    interface and HCA names in particular: VLD-INF-SINDRI-001 section 48.2
+    warns that "a kernel or driver update that renames or reorders network
+    interfaces breaks the ring configuration silently", and a name compiled
+    into this file would be a name nobody could correct without a release.
+
+    An empty `binary` means this forge has no probe configured, which is what a
+    development machine is. The duty then reports the fabric as unmeasured
+    rather than alarming about a cable that does not exist.
+    """
+
+    #: Absolute path to `all_reduce_perf`. VLD-INF-SINDRI-001 Procedure S5
+    #: builds nccl-tests under /forge/tools on each appliance, and it is not on
+    #: any PATH.
+    binary: str = ""
+    #: The interface NCCL uses for its bootstrap, e.g. `enp1s0f0np0`.
+    interface: str = ""
+    #: The RoCE devices, comma separated, as `NCCL_IB_HCA` takes them.
+    hca: str = ""
+    #: The commissioned figure from acceptance test A3, in GB/s. Zero means
+    #: none has been recorded, and the alarm cannot be raised without one.
+    baseline_gbps: float = 0.0
+    nodes: int = 3
+    begin: str = PROBE_BEGIN
+    end: str = PROBE_END
+
+    @property
+    def configured(self) -> bool:
+        """Whether this forge has a fabric to probe."""
+        return bool(self.binary)
+
+
+def probe_plan(workdir: Path, probe: FabricProbe) -> JobPlan:
     """The `nccl-tests` job of SAD 11.3, as MOTSOGNIR would dispatch it.
 
     On the ring partition and across every appliance, because the number that
     matters is the one a ring training job would get. A probe run on one node
-    measures a machine rather than a fabric.
+    measures a machine rather than a fabric -- and that is what this rendered
+    before: a bare binary name with no launcher, which would have run one
+    process on whichever node Slurm picked and reported it as the fabric.
+
+    `srun` across the allocation is what makes it a collective. The NCCL
+    variables are the ones every ring job in VLD-INF-SINDRI-001 Part 5 sets;
+    without them NCCL falls back to sockets over Fabric 2 and measures the
+    Ethernet rather than BAUGR, which is a reading, and a wrong one.
     """
+    environment = {"NCCL_DEBUG": "WARN", "NCCL_IB_DISABLE": "0"}
+    if probe.interface:
+        environment["NCCL_SOCKET_IFNAME"] = probe.interface
+    if probe.hca:
+        environment["NCCL_IB_HCA"] = probe.hca
+
     return JobPlan(
-        command=(NCCL_TESTS, "-b", "8", "-e", size, "-f", "2", "-g", "1"),
-        environment={"NCCL_DEBUG": "WARN"},
+        command=(
+            "srun",
+            f"--nodes={probe.nodes}",
+            f"--ntasks={probe.nodes}",
+            probe.binary or NCCL_TESTS,
+            "-b",
+            probe.begin,
+            "-e",
+            probe.end,
+            "-f",
+            "2",
+            "-g",
+            "1",
+        ),
+        environment=environment,
         workdir=str(workdir),
-        resources=ResourceRequest(partition="ring", nodes=nodes),
+        resources=ResourceRequest(partition="ring", nodes=probe.nodes),
         expected_artefacts=(),
     )
-
-
-def probe_installed() -> bool:
-    """Whether the benchmark SAD 11.3 names is on this machine at all."""
-    return shutil.which(NCCL_TESTS) is not None
 
 
 def parse_bandwidth(output: str) -> float | None:
@@ -246,35 +345,45 @@ def probe(
     scheduler: execution.Scheduler,
     *,
     workdir: Path,
-    baseline_gbps: float = 0.0,
-    nodes: int = 3,
+    settings: FabricProbe | None = None,
     timeout: float = 300.0,
 ) -> Finding:
     """Dispatch the fabric probe and compare it to the commissioned baseline.
 
-    The baseline is configuration rather than a constant here: it is measured
-    at commissioning, and a figure written into this file would be a claim
-    about somebody else's cable. With none configured the reading is still
-    taken; what cannot be done is raise the alarm SAD 11.3 asks for, and the
-    finding says so rather than passing quietly.
+    The baseline is configuration rather than a constant: it is measured at
+    commissioning, and a figure written into this file would be a claim about
+    somebody else's cable. With none configured the reading is still taken;
+    what cannot be done is raise the alarm SAD 11.3 asks for, and the finding
+    says so rather than passing quietly.
 
-    Where the benchmark is not installed the duty reports that and does not
-    alarm. A control plane on a machine with no ring has no fabric to be
-    degraded, and an hourly alarm about a cable that does not exist is how an
-    operator learns to stop reading alarms.
+    **The probe is not gated on this machine's filesystem.** It used to ask
+    `shutil.which("all_reduce_perf")`, which is a question about the control
+    plane -- and the binary lives on the appliances, built under /forge/tools
+    by Procedure S5, on no PATH. So the answer was always no, and the fabric
+    would have reported itself unmeasured for ever, on a fully commissioned
+    estate, with the reason sounding plausible. What gates it now is whether
+    the forge has a probe configured at all; where it does, the probe is
+    dispatched and the failure is read, which is a better signal than a
+    `which` on the wrong host.
     """
-    if not probe_installed():
+    probe_settings = settings or FabricProbe()
+    baseline_gbps = probe_settings.baseline_gbps
+
+    if not probe_settings.configured:
         return Finding(
             Duty.FABRIC,
             False,
             (
-                f"{NCCL_TESTS} is not installed on this machine, so the fabric is "
-                "unmeasured. On an appliance it is, and the probe runs there."
+                "no fabric probe is configured for this forge, so the fabric is "
+                "unmeasured. Set the probe binary and the NCCL interface names "
+                "(VLD-INF-SINDRI-001 Procedure S5)."
             ),
         )
 
     try:
-        completed = execution.dispatch(scheduler, probe_plan(workdir, nodes=nodes), timeout=timeout)
+        completed = execution.dispatch(
+            scheduler, probe_plan(workdir, probe_settings), timeout=timeout
+        )
     except execution.DispatchError as refusal:
         return Finding(Duty.FABRIC, True, f"the fabric probe could not be placed: {refusal}")
 
@@ -360,6 +469,159 @@ def capacity(vault: Vault, *, ceiling: float = VAULT_CEILING) -> Finding:
 # ---------------------------------------------------------------------------
 # Anchor freshness
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Anchored:
+    """What one anchoring attempt produced, for the chain to record.
+
+    Returned rather than written here, because a duty that wrote to the ledger
+    would be a duty that could not be run twice in a test without a database.
+    The loop records it, in its own transaction, which is where every other
+    write in this system happens.
+    """
+
+    seq: int
+    entry_hash: str
+    outcome: str
+    countersignature: str
+    reason: str
+    anchored_at: datetime | None = None
+
+    @property
+    def accepted(self) -> bool:
+        """Whether the registry countersigned or already held this head."""
+        return self.outcome in {"countersigned", "duplicate"}
+
+    def as_payload(self) -> dict[str, Any]:
+        """The ledger payload. Hashes, names, times and numbers only."""
+        return {
+            "seq": self.seq,
+            "entry_hash": self.entry_hash,
+            "outcome": self.outcome,
+            "countersignature": self.countersignature,
+            "reason": self.reason,
+            "anchored_through": self.seq if self.accepted else 0,
+            "anchored_at": self.anchored_at.isoformat() if self.anchored_at else "",
+        }
+
+
+def anchor(
+    agent: Any,
+    registry: Any,
+    head: Any,
+    *,
+    now: datetime,
+    last_anchored_at: datetime | None = None,
+    interval: timedelta = ANCHOR_INTERVAL,
+) -> tuple[Finding, Anchored | None]:
+    """Submit the chain head to MEGINGJORD, and say what came back. RF-07.
+
+    Nothing anchored, so `last_anchored_at` was always `None` and `freshness`
+    returned its "this site has never anchored its chain" alarm on every tick,
+    forever -- while its own message said publication is refused while the
+    anchor is stale, and nothing refused anything. SAD 11A.3 makes the anchor
+    what detects truncation; nothing detected truncation.
+
+    **A failed anchor is a finding, never a failed run.** Decision S8: a
+    partitioned forge trains and evaluates and does not release. So a rejection
+    alarms and leaves the head queued, and the queue is drained on reconnect by
+    the same code the ordinary path uses -- a path only exercised during an
+    outage is a path that does not work.
+
+    **A failure alarms only once the last good anchor is stale.** SAD 11A.3
+    asks for an alarm when the last successful anchor exceeds the interval, not
+    when an attempt fails: a link that blinks between two ticks would otherwise
+    raise an alarm about a chain anchored ninety seconds ago, and an alarm that
+    fires on a condition an operator cannot act on is one they learn to close.
+    The judgement is `freshness`, so there is one place that decides how old is
+    too old, and `last_anchored_at` comes out of the chain rather than off a
+    side table nothing writes.
+    """
+    stale = freshness(last_anchored_at, now=now, interval=interval)
+    # Its detail is a sentence in its own right, so it is joined rather than
+    # nested: an operator reading the alarm wants what just failed and how long
+    # the chain has been unprotected, in that order.
+    since = stale.detail.rstrip(".")
+
+    if agent is None or registry is None:
+        return (
+            Finding(
+                Duty.ANCHOR,
+                True,
+                (
+                    "this site has no federation link configured, so its chain is not "
+                    "anchored anywhere. Until it is, a truncation of the chain's end "
+                    "verifies as an intact chain (SAD 11A.3)."
+                ),
+            ),
+            None,
+        )
+
+    if head is None:
+        # A link, and nothing to anchor with it. Told apart from the case above
+        # because the operator's next action differs entirely: one is a tunnel
+        # to build and the other is a forge that has not done anything yet.
+        # No alarm, because an empty chain has no end to truncate.
+        return (
+            Finding(
+                Duty.ANCHOR,
+                False,
+                "this site's chain is empty, so there is no head to anchor yet.",
+            ),
+            None,
+        )
+
+    agent.submit(head, at=now)
+    receipts = agent.drain(registry, at=now, countersignature="")
+    if not receipts:
+        return (
+            Finding(
+                Duty.ANCHOR,
+                stale.alarm,
+                (
+                    "the federation link is down; the chain head is queued and not "
+                    f"anchored. {since}."
+                ),
+                {"queueDepth": agent.queue_depth, **stale.measurements},
+            ),
+            None,
+        )
+
+    last = receipts[-1]
+    recorded = Anchored(
+        seq=head.head.seq,
+        entry_hash=head.head.entry_hash,
+        outcome=str(last.outcome),
+        countersignature=last.anchor.countersignature if last.anchor else "",
+        reason=last.reason,
+        anchored_at=last.anchor.countersigned_at if last.anchor else None,
+    )
+
+    if not last.accepted:
+        return (
+            Finding(
+                Duty.ANCHOR,
+                stale.alarm,
+                (
+                    f"the registry did not anchor sequence {recorded.seq}: {last.reason}. "
+                    "Training and evaluation continue; release is unavailable until the "
+                    f"chain head is countersigned (Decision S8, AC-S13). {since}."
+                ),
+                {"seq": recorded.seq, "outcome": recorded.outcome, **stale.measurements},
+            ),
+            recorded,
+        )
+
+    return (
+        Finding(
+            Duty.ANCHOR,
+            False,
+            f"anchored through sequence {recorded.seq}",
+            {"seq": recorded.seq, "queueDepth": agent.queue_depth},
+        ),
+        recorded,
+    )
 
 
 def freshness(
@@ -526,12 +788,15 @@ __all__ = [
     "FABRIC_FLOOR",
     "NCCL_TESTS",
     "PERIODS",
+    "PROBE_BEGIN",
+    "PROBE_END",
     "RETENTION_PROPOSED",
     "SITE_SUBJECT",
     "VAULT_CEILING",
     "Chain",
     "Due",
     "Duty",
+    "FabricProbe",
     "Finding",
     "Timetable",
     "Vault",
@@ -541,7 +806,6 @@ __all__ = [
     "freshness",
     "parse_bandwidth",
     "probe",
-    "probe_installed",
     "probe_plan",
     "sweep",
     "verify",

@@ -44,7 +44,10 @@ from draupnir.hodd.stores import PosixStoreDriver, StoreError, artefact_uri
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_URL = "postgresql+psycopg://draupnir:draupnir@127.0.0.1:5432/draupnir"
-DEFAULT_VAULT = "/mnt/hodd"
+# VLD-INF-SINDRI-001 Procedure S9. The manual mounts ANDVARI's export at
+# /forge/vault; `/mnt/hodd` was this file's own invention and named a path
+# that exists on no host in the estate.
+DEFAULT_VAULT = "/forge/vault"
 DEFAULT_SCRATCH = ROOT / "build" / "worker"
 
 #: Which ledger transitions carry an artefact digest, what kind of artefact it
@@ -76,7 +79,16 @@ def _store(vault: Path, site: str) -> PosixStoreDriver:
 
 
 def _ingestor(store: PosixStoreDriver) -> Ingestor:
-    return Ingestor(store, LicenceRegister())
+    """The ingestor, with the scanner AC-S6 asks for wired in. RF-09.
+
+    This is the composition root for an ingest: HODD and SVALINN are siblings
+    in the layering and neither imports the other, so the scanner arrives here
+    or not at all. It arrived nowhere -- `scanning.py` had good tests and no
+    caller, which reads as coverage and is worse than an absent module.
+    """
+    from draupnir.svalinn.scanning import scan_before_registration
+
+    return Ingestor(store, LicenceRegister(), scan=scan_before_registration)
 
 
 def _sites(url: str) -> list[str]:

@@ -4,6 +4,66 @@
  */
 
 export interface paths {
+    "/auth/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Complete the authorisation-code flow
+         * @description Exchange the code for a token and set the session cookie.
+         */
+        get: operations["callback"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Begin the authorisation-code flow
+         * @description Redirect to MEGINGJORD, carrying a PKCE challenge and a state value.
+         */
+        get: operations["beginLogin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Discard the session
+         * @description Clear the session cookie.
+         */
+        get: operations["logout"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -172,6 +232,28 @@ export interface paths {
          *     Requires: `curator`.
          */
         post: operations["ingestCorpus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/estate/telemetry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Appliance thermal, throttle and fabric measurements
+         * @description Read the site's measurements back out of its own collector.
+         *
+         *     Requires: `admin`, `approver`, `curator`, `operator`, `viewer`.
+         */
+        get: operations["getEstateTelemetry"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1198,6 +1280,11 @@ export interface components {
          */
         DecisionIn: {
             /**
+             * Decidedat
+             * @description When the approver decided, with an explicit offset. Part of the signed payload, so the approver has to supply the instant they signed over -- a server-generated one could not be signed by anybody. Refused if it is further than five minutes from now, which stops a signature being prepared long in advance or replayed long after.
+             */
+            decidedAt?: string | null;
+            /**
              * Decision
              * @description The decision taken.
              * @enum {string}
@@ -1321,6 +1408,27 @@ export interface components {
              * @description Anything the driver flagged without refusing.
              */
             warnings?: string[];
+        };
+        /**
+         * EstateTelemetryResponse
+         * @description Every reading behind CON-B's thermal and fabric dashboards.
+         */
+        EstateTelemetryResponse: {
+            /**
+             * Readat
+             * @description When this answer was assembled, with an explicit offset.
+             */
+            readAt: string;
+            /**
+             * Readings
+             * @description One entry per appliance per metric, plus the fabric. Appliances Prometheus knows nothing about are present with a reason, because a panel that simply omitted a machine would look identical to a smaller estate.
+             */
+            readings: components["schemas"]["Measurement"][];
+            /**
+             * Source
+             * @description The collector these came from.
+             */
+            source: string;
         };
         /**
          * GateOut
@@ -1585,6 +1693,42 @@ export interface components {
             nodes?: {
                 [key: string]: unknown;
             }[];
+        };
+        /**
+         * Measurement
+         * @description One reading, or the reason there is not one.
+         *
+         *     `value` and `reason` are both nullable and exactly one is set. They are on
+         *     one model rather than two because a client that had to pick a model would
+         *     pick by testing `value`, and `0.0` is falsy — which is how a throttle
+         *     bitmask of zero, meaning nothing is throttling, becomes an error tile.
+         */
+        Measurement: {
+            /**
+             * Metric
+             * @description What was measured, e.g. `gpu_temperature`.
+             */
+            metric: string;
+            /**
+             * Reason
+             * @description Why there is no value. Null when there is one. Never both, never neither.
+             */
+            reason?: string | null;
+            /**
+             * Subject
+             * @description The appliance, or `baugr` for the ring fabric.
+             */
+            subject: string;
+            /**
+             * Unit
+             * @description The unit of `value`. `C`, `GB/s`, or `bitmask`.
+             */
+            unit: string;
+            /**
+             * Value
+             * @description The measurement. Null where there is none — never zero. A zero here is a real reading and means the measured quantity is zero.
+             */
+            value?: number | null;
         };
         /**
          * ModelDetailOut
@@ -2556,6 +2700,194 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    callback: {
+        parameters: {
+            query?: {
+                code?: string | null;
+                state?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    beginLogin: {
+        parameters: {
+            query?: {
+                return_to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
     getHealth: {
         parameters: {
             query?: never;
@@ -2959,6 +3291,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Accepted"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    getEstateTelemetry: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Correlation-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EstateTelemetryResponse"];
                 };
             };
             /** @description An RFC 9457 problem document */

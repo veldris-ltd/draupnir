@@ -19,6 +19,7 @@ make test-integration
 - `draupnir/api/routers/runs.py`
 - `draupnir/core/application/orchestrator.py`
 - `draupnir/procedures/sindri.py`
+- `migrations/versions/0003_idempotency_key.py`
 - `scripts/procedure.py`
 - `tests/integration/test_api_writes.py`
 - `tests/integration/test_procedures.py`

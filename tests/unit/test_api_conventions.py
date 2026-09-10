@@ -343,7 +343,7 @@ def test_identifiers_are_uuid7_and_sort_by_creation_time() -> None:
 
 
 def test_a_credential_is_redacted_by_field_name() -> None:
-    line = telemetry.build_line("call", access_token="supersecret-value-here")  # noqa: S106
+    line = telemetry.build_line("call", access_token="supersecret-value-here")
 
     assert telemetry.REDACTED in str(line.as_payload())
     assert "supersecret-value-here" not in str(line.as_payload())
@@ -410,7 +410,7 @@ def test_spans_run_from_edge_through_orchestrator_to_driver() -> None:
 def test_a_span_attribute_is_scrubbed_like_a_log_line() -> None:
     tracer = telemetry.Tracer()
 
-    with tracer.span("submit", telemetry.EDGE, token="AKIAIOSFODNN7EXAMPLE") as span:  # noqa: S106
+    with tracer.span("submit", telemetry.EDGE, token="AKIAIOSFODNN7EXAMPLE") as span:
         span.set(note="fine")
 
     assert tracer.roots[0].attributes["token"] == telemetry.REDACTED

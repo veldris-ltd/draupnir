@@ -51,7 +51,7 @@ _adopt_docker_context()
 #: A role that is not the table owner and not a superuser, so that the row
 #: level security policies of SAD 11C actually apply to it.
 APP_ROLE = "draupnir_app"
-APP_PASSWORD = "draupnir-integration"  # noqa: S105 -- ephemeral container credential
+APP_PASSWORD = "draupnir-integration"
 
 pytestmark = pytest.mark.integration
 

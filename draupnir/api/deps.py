@@ -41,6 +41,7 @@ from draupnir.api.problems import ProblemError
 from draupnir.api.reading import EmptyReadModel, ReadModel
 from draupnir.core.domain.sites import SiteScope
 from draupnir.core.infrastructure.config import get_settings
+from draupnir.gullinbursti.telemetry import Telemetry
 from draupnir.svalinn.authz import decide
 from draupnir.svalinn.identity import Principal, from_claims
 
@@ -55,6 +56,19 @@ STORE = IdempotencyStore()
 def store() -> IdempotencyStore:
     """The current idempotency store, resolved at call time."""
     return STORE
+
+
+def set_store(chosen: Any) -> None:
+    """Install the idempotency store. Called by the lifespan, and by tests. RF-14.
+
+    The default is in memory, which is correct for one process and wrong for
+    the deployment: SAD 5.1 specifies two to four API processes, and a key
+    reserved in one was unknown to the others. The database-backed store goes
+    in here for the same reason the read model does -- a router that captured
+    the object at import time would keep using the one it started with.
+    """
+    global STORE
+    STORE = chosen
 
 
 #: The process-wide read model. Reached through `reader()` for the same reason
@@ -76,6 +90,33 @@ def set_reader(model: ReadModel) -> None:
 
 
 Reading = Annotated[ReadModel, Depends(reader)]
+
+
+#: The estate's measurements, read back out of the site's Prometheus. Same
+#: shape as the reader above and for the same reason: a router that captured
+#: this at import time would keep the unconfigured one after startup installed
+#: a real client, and the symptom would be a wall panel reporting "unmeasured"
+#: with an entirely convincing explanation.
+#:
+#: The default reaches nothing. `Telemetry` with no client answers every query
+#: with a reason rather than raising, so a deployment that has not configured
+#: Prometheus renders "unmeasured, because no telemetry client is configured"
+#: instead of a stack trace or -- worse -- a zero.
+ESTATE: Telemetry = Telemetry(client=None)
+
+
+def estate() -> Telemetry:
+    """The current telemetry reader, resolved at call time."""
+    return ESTATE
+
+
+def set_estate(telemetry_reader: Telemetry) -> None:
+    """Install the telemetry reader. Called by the lifespan, and by tests."""
+    global ESTATE
+    ESTATE = telemetry_reader
+
+
+Estate = Annotated[Telemetry, Depends(estate)]
 
 
 def complete(

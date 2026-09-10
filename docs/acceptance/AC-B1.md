@@ -7,17 +7,18 @@
 
 ## How it is demonstrated
 
-Every mutating endpoint requires the key and replays the original result; the same key with a different body is refused.
+Every mutating endpoint requires the key and replays the original result; the same key with a different body is refused. The store is a table rather than a dictionary in one process (RF-14), so a key reserved by one API process is known to the others -- which is the concurrency SAD 5.1 specifies and the one the control exists for -- and reservations survive a restart.
 
 
 ```bash
-make test-contract
+make test-integration
 ```
 
 ## Evidence
 
 - `draupnir/api/deps.py`
 - `draupnir/api/idempotency.py`
+- `migrations/versions/0003_idempotency_key.py`
 - `skills/draupnir-endpoint/scripts/new_endpoint.py`
 - `tests/contract/test_api_surface.py`
 - `tests/contract/test_skills.py`

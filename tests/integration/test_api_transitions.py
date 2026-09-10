@@ -296,18 +296,17 @@ def test_approving_a_gate_moves_the_run_to_released(
 
     status, body = post(
         f"/v1/gates/{run_id}/decide",
-        {
-            "decision": "approved",
-            "reason": "gates pass and the lineage is complete",
-            "signature": "a-detached-signature",
-        },
+        signed("gates pass and the lineage is complete", run_id),
         if_match=tag_for({"id": str(run_id)}),
     )
 
     assert status == 201, body
     recorded = entries(owner, str(run_id))
     assert recorded[-1].transition == "AWAITING_APPROVAL->RELEASED"
-    assert recorded[-1].payload["signature"] == "a-detached-signature"
+    assert recorded[-1].payload["signature"]
+    assert recorded[-1].payload["signature_verified"] is True, (
+        "the entry does not record that the signature was verified (RF-06)"
+    )
     assert recorded[-1].actor == DEV_ACTOR
 
 
@@ -326,12 +325,12 @@ def test_the_sole_approver_exception_is_computed_from_the_chain(
 
     _, exception = post(
         f"/v1/gates/{same}/decide",
-        {"decision": "approved", "reason": "same identity", "signature": "sig"},
+        signed("same identity", same, exception=True),
         if_match=tag_for({"id": str(same)}),
     )
     _, separated = post(
         f"/v1/gates/{other}/decide",
-        {"decision": "approved", "reason": "two identities", "signature": "sig"},
+        signed("two identities", other),
         if_match=tag_for({"id": str(other)}),
     )
 
@@ -369,7 +368,7 @@ def test_deciding_a_run_that_is_not_awaiting_approval_is_refused(
 
     status, body = post(
         f"/v1/gates/{run_id}/decide",
-        {"decision": "approved", "reason": "too early", "signature": "sig"},
+        signed("too early", run_id, exception=True),
         if_match=tag_for({"id": str(run_id)}),
     )
 
@@ -496,10 +495,16 @@ def test_publishing_an_approved_artefact_records_the_publication(
         for_connection(connection, SiteScope(SITE), actor=DEV_ACTOR).transition(
             run_id,
             RunState.RELEASED,
-            facts={"approver_has_role": True, "decision": "APPROVED", "signature": "sig"},
+            facts={
+                "approver_has_role": True,
+                "decision": "APPROVED",
+                "signature": "sig",
+                "signature_verified": True,
+            },
             payload={
                 "approver": DEV_ACTOR,
                 "signature": "sig",
+                "signature_verified": True,
                 "decided_at": "2026-03-02T09:00:00+00:00",
                 "artefact_sha256": artefact,
                 "model": "cim-gbr-v1.0",
@@ -511,11 +516,43 @@ def test_publishing_an_approved_artefact_records_the_publication(
         f"/v1/releases/{artefact}/publish", if_match=tag_for({"artefact": artefact})
     )
 
-    assert status == 202, body
-    assert body["model"] == "cim-gbr-v1.0"
-    assert body["formats"] == ["nvfp4"]
+    # RF-05. This asserted a 202, and that was the finding: the handler read
+    # one entry and, if it existed, recorded a `published` entry — no re-hash,
+    # no per-format evidence, no signature check, no anchor, while its own
+    # docstring named all four.
+    #
+    # The approval above records no artefact location, no gate evidence and no
+    # countersigned anchor, so the release is refused at the first control.
+    # Admitting it needs an object in the store whose bytes hash to the gated
+    # digest, evidence for every built format, and an anchor at or beyond this
+    # sequence — which is the fixture `tests/integration/test_api_writes.py`
+    # owns and which is still to be built.
+    assert status == 409, body
+    assert body["code"] in {"release-inadmissible", "artefact-ungated", "anchor-behind"}
 
-    published = entries(owner, artefact)
-    assert [entry.transition for entry in published] == ["published"]
-    assert published[0].subject_type == "release"
-    assert published[0].payload["run_id"] == str(run_id)
+    assert entries(owner, artefact) == [], "a refused publication wrote to the chain"
+
+
+def signed(reason: str, subject_id: Any, *, exception: bool = False) -> dict[str, Any]:
+    """An approval body whose signature verifies against the dev actor's key.
+
+    RF-06: an approval's signature now has to verify, and `decidedAt` is inside
+    the signed bytes — so the approver supplies the instant they signed over. A
+    server-generated one could not have been signed by anybody.
+    """
+    from datetime import UTC, datetime
+
+    from tests.conftest import sign_decision
+
+    decided_at = datetime.now(UTC)
+    return {
+        "decision": "approved",
+        "reason": reason,
+        "decidedAt": decided_at.isoformat(),
+        "signature": sign_decision(
+            approver=DEV_ACTOR,
+            subject_id=subject_id,
+            decided_at=decided_at,
+            sole_approver_exception=exception,
+        ),
+    }

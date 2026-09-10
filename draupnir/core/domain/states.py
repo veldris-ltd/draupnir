@@ -260,12 +260,33 @@ def _quantised_regate_passes(context: TransitionContext) -> GuardOutcome:
 
 @guard("approver-signed", "A human with the approver role signs off")
 def _approver_signed(context: TransitionContext) -> GuardOutcome:
+    """RF-06: a *verified* signature, not a non-empty string.
+
+    This ended `bool(context.require(name, "signature"))`, so any non-empty
+    string passed -- and the route supplied `body.signature` straight through,
+    unverified, alongside a literal `"approver_has_role": True`. The guard
+    named the control and measured whether a field had been filled in.
+
+    The verification itself belongs at the edge, where the approver's public
+    key is: the domain holds no keys and must not acquire an infrastructure
+    dependency to check one (SAD 11B). So the edge verifies and records the
+    *result*, and this refuses a transition that does not carry it. A fact that
+    is computed and a fact that is asserted look identical here, which is why
+    the name says `verified` -- a caller supplying it is claiming something
+    specific rather than passing a string along.
+    """
     name = "approver-signed"
     if not context.flag(name, "approver_has_role"):
         return _outcome(name, False, "the actor does not hold the approver role")
     if context.require(name, "decision") != "APPROVED":
         return _outcome(name, False, "the approver did not approve")
-    return _outcome(name, bool(context.require(name, "signature")), "the approval is not signed")
+    if not context.require(name, "signature"):
+        return _outcome(name, False, "the approval is not signed")
+    return _outcome(
+        name,
+        context.flag(name, "signature_verified"),
+        "the approval's signature was not verified against the approver's registered key",
+    )
 
 
 @guard("approver-rejected", "Approver rejects")
@@ -392,7 +413,12 @@ TRANSITIONS: tuple[Transition, ...] = (
         RunState.AWAITING_APPROVAL,
         RunState.RELEASED,
         "approver-signed",
-        ("approver", "signature", "decided_at"),
+        # `signature_verified` is a required record as well as a guard fact, so
+        # `missing_records` refuses a release whose entry does not carry it.
+        # A guard decides at the moment; a required record is what an auditor
+        # reads afterwards, and a control that is checked and not recorded is
+        # one nobody can show was checked.
+        ("approver", "signature", "signature_verified", "decided_at"),
     ),
     Transition(
         RunState.AWAITING_APPROVAL,

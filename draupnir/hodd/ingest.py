@@ -73,11 +73,23 @@ class Ingestor:
         register: LicenceRegister | None = None,
         *,
         clock: Callable[[], datetime] | None = None,
+        scan: Callable[[Path], Any] | None = None,
     ) -> None:
-        """Bind to a store and, when sources are being recorded, a register."""
+        """Bind to a store and, when sources are being recorded, a register.
+
+        `scan` is the secret scanner an ingest runs before the point of no
+        return -- `svalinn.scanning.scan_before_registration` in the running
+        system (RF-09, AC-S6). Injected rather than imported: HODD and SVALINN
+        are siblings in the layering and neither may import the other, so the
+        composition root is the one place that puts them together.
+
+        `None` scans nothing, which is what a unit test of the ingest mechanics
+        wants and what nothing in the running system should be given.
+        """
         self._store = store
         self._register = register
         self._clock = clock or _now
+        self._scan = scan
 
     # -- the ingest --------------------------------------------------------
 
@@ -109,13 +121,24 @@ class Ingestor:
             shutil.copytree(source_tree, staging, dirs_exist_ok=False)
 
             # 2. hash, over what was staged rather than over the origin: the
-            #    manifest must describe the bytes HODD now holds.
+            #    manifest must describe the bytes HODD now holds. Before the
+            #    scan, so that a refusal names bytes whose digest is known.
             manifest = build(staging, uri=uri, kind=kind, ingested_at=self._clock(), facts=facts)
 
-            # 3. manifest, written inside the staged tree so it moves with it
+            # 3. scan, over the staged tree and before the rename. AC-S6 and
+            #    RF-09: the scanner existed and nothing called it, so a corpus
+            #    carrying a credential was ingested, sealed and lineaged, and
+            #    the only way back out is a ledgered retention action. Here
+            #    rather than after publication because everything below this
+            #    line is irreversible, and a scanner that runs after the point
+            #    of no return reports rather than refuses.
+            if self._scan is not None:
+                self._scan(staging)
+
+            # 4. manifest, written inside the staged tree so it moves with it
             (staging / MANIFEST_NAME).write_text(manifest.to_json(), encoding="utf-8")
 
-            # 4. publish -- one rename, and the point of no return
+            # 5. publish -- one rename, and the point of no return
             target.parent.mkdir(parents=True, exist_ok=True)
             staging.rename(target)
         except Exception:
@@ -124,11 +147,11 @@ class Ingestor:
             shutil.rmtree(staging, ignore_errors=True)
             raise
 
-        # 5. seal. From here the artefact is read only, and a curation script
+        # 6. seal. From here the artefact is read only, and a curation script
         #    that never consulted the database is refused by the filesystem.
         self._store.seal(uri)
 
-        # 6. register, last
+        # 7. register, last
         recorded = None
         if source is not None:
             if self._register is None:

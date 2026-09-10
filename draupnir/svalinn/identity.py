@@ -40,6 +40,35 @@ SECOND_FACTOR_AMR: Final[frozenset[str]] = frozenset(
 #: thing an attacker keeps.
 MAX_SESSION_AGE_SECONDS = 3600
 
+#: The only signature algorithms a bearer token may be verified under.
+#:
+#: **Asymmetric only, and the exclusion is the control.** The `alg` header of a
+#: JWT is chosen by whoever sends it. A verifier that reads that header and
+#: dispatches on it will, given `{"alg": "HS256"}`, treat the issuer's *public*
+#: key as an HMAC secret -- and the public key is public, so anyone can mint a
+#: token that verifies. That is algorithm confusion, and the defence is to pass
+#: this set to the verifier rather than to trust the header.
+#:
+#: `none` is absent for the same reason and needs no further argument.
+#:
+#: Held here rather than in `api.authentication` so that
+#: `inventory.entries` can read it: an algorithm in the code and not in the
+#: cryptographic inventory is exactly what AC-S16 exists to catch, and the
+#: inventory should not have to be told separately about the algorithms that
+#: verify every request.
+TOKEN_ALGORITHMS: Final[tuple[str, ...]] = (
+    "RS256",
+    "RS384",
+    "RS512",
+    "PS256",
+    "PS384",
+    "PS512",
+    "ES256",
+    "ES384",
+    "ES512",
+    "EdDSA",
+)
+
 
 class IdentityError(Exception):
     """Raised when a claim set cannot be resolved into a principal."""

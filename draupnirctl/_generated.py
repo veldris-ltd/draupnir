@@ -26,6 +26,33 @@ class Operation:
 
 OPERATIONS: tuple[Operation, ...] = (
     Operation(
+        operation_id="callback",
+        command="callback",
+        method="GET",
+        path="/auth/callback",
+        summary="Complete the authorisation-code flow",
+        path_params=(),
+        has_body=False,
+    ),
+    Operation(
+        operation_id="beginLogin",
+        command="begin-login",
+        method="GET",
+        path="/auth/login",
+        summary="Begin the authorisation-code flow",
+        path_params=(),
+        has_body=False,
+    ),
+    Operation(
+        operation_id="logout",
+        command="logout",
+        method="GET",
+        path="/auth/logout",
+        summary="Discard the session",
+        path_params=(),
+        has_body=False,
+    ),
+    Operation(
         operation_id="getHealth",
         command="get-health",
         method="GET",
@@ -86,6 +113,15 @@ OPERATIONS: tuple[Operation, ...] = (
         path="/v1/corpora/{iso3}/ingest",
         summary="Ingest and hash a jurisdiction's sources",
         path_params=("iso3",),
+        has_body=False,
+    ),
+    Operation(
+        operation_id="getEstateTelemetry",
+        command="get-estate-telemetry",
+        method="GET",
+        path="/v1/estate/telemetry",
+        summary="Appliance thermal, throttle and fabric measurements",
+        path_params=(),
         has_body=False,
     ),
     Operation(

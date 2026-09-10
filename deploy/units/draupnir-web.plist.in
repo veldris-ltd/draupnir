@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  DRAUPNIR console (control plane, @SITE_ID@), as a launchd user agent.
+
+  The macOS counterpart of draupnir-web.service. See the comment in
+  draupnir-api.plist.in for what the four systemd directives without a launchd
+  equivalent became.
+
+  Static assets behind the API (SAD 11 component table). It is deliberately not
+  ordered after the API: the console renders its own error surface when the API
+  is down (AC-U14), and that is more use to an operator than a console which is
+  simply missing. launchd has no ordering to give up here.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>@LABEL@</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>@LIBEXEC@/draupnir-run.sh</string>
+    <string>draupnir-web</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>DRAUPNIR_PODMAN</key>
+    <string>@PODMAN@</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+
+  <key>ExitTimeOut</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>@LOGDIR@/draupnir-web.log</string>
+  <key>StandardErrorPath</key>
+  <string>@LOGDIR@/draupnir-web.log</string>
+</dict>
+</plist>

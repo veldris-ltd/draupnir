@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  DRAUPNIR worker (control plane, @SITE_ID@), as a launchd user agent.
+
+  The macOS counterpart of draupnir-worker.service. See the comment in
+  draupnir-api.plist.in for what the four systemd directives without a launchd
+  equivalent became.
+
+  The worker holds nothing between ticks by design, so it needs no ordering
+  against the API and no graceful handover: one killed mid-tick loses at most
+  that tick, and the job it placed keeps running on the appliance. That is why
+  launchd's lack of ordering costs nothing here.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>@LABEL@</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>@LIBEXEC@/draupnir-run.sh</string>
+    <string>draupnir-worker</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>DRAUPNIR_PODMAN</key>
+    <string>@PODMAN@</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+
+  <key>ExitTimeOut</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>@LOGDIR@/draupnir-worker.log</string>
+  <key>StandardErrorPath</key>
+  <string>@LOGDIR@/draupnir-worker.log</string>
+</dict>
+</plist>

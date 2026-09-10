@@ -4,7 +4,7 @@ import { Badge, CapacityGauge, StateSurface, Table } from '@draupnir/jarngreipr'
 import { useResource } from '../api/useResource';
 import { freshnessSentence, useEvents } from '../api/useEvents';
 import { OPERATIONS, urlFor } from '@draupnir/api-client';
-import type { Run } from '@draupnir/api-client';
+import type { ResponseOf, Run } from '@draupnir/api-client';
 
 /**
  * S31 CON-B, the operations dashboard, in kiosk mode.
@@ -43,6 +43,11 @@ export function KioskDashboard(): JSX.Element {
   const runs = useResource('listRuns', { query: { limit: 100 } });
   const sites = useResource('listSites', {});
   const health = useResource('getHealth', {});
+  // The thermal and fabric numbers, read back out of the estate's own
+  // collector. Its own read rather than a field on another one: it comes from
+  // Prometheus rather than the database, it fails on its own schedule, and a
+  // failure here must leave the queue dashboard rendering.
+  const estate = useResource('getEstateTelemetry', {});
   const feed = useEvents(urlFor(OPERATIONS.streamSiteEvents));
 
   useEffect(() => {
@@ -59,6 +64,7 @@ export function KioskDashboard(): JSX.Element {
 
   const items = runs.data?.items ?? [];
   const here = sites.data?.items.find((site) => site.id === health.data?.siteId);
+  const readings = estate.data?.readings ?? [];
 
   return (
     <div className="cn-kiosk">
@@ -84,8 +90,10 @@ export function KioskDashboard(): JSX.Element {
         label="Operations dashboard"
         reserve="xl"
       >
-        {dashboard === 'thermal' ? <Thermal runs={items} /> : null}
-        {dashboard === 'fabric' ? <Fabric anchorState={here?.anchorState} /> : null}
+        {dashboard === 'thermal' ? <Thermal readings={readings} /> : null}
+        {dashboard === 'fabric' ? (
+          <Fabric anchorState={here?.anchorState} readings={readings} />
+        ) : null}
         {dashboard === 'queue' ? <Queue runs={items} /> : null}
       </StateSurface>
 
@@ -100,48 +108,125 @@ export function KioskDashboard(): JSX.Element {
   );
 }
 
-/** Dashboard 1: appliance thermal and throttle. */
-function Thermal({ runs }: { runs: readonly Run[] }): JSX.Element {
-  const nodes = [
-    ...new Set(runs.map((run) => run.node).filter((node): node is string => node != null)),
-  ];
-  const busy = new Set(
-    runs
-      .filter((run) => run.state === 'TRAINING' || run.state === 'EVALUATING')
-      .map((run) => run.node),
+/** One reading from the estate's collector: a number, or why there is not one. */
+type Reading = ResponseOf<'getEstateTelemetry'>['readings'][number];
+
+/** The reading of one metric for one subject, if the collector had one. */
+function readingFor(
+  readings: readonly Reading[],
+  metric: string,
+  subject: string,
+): Reading | undefined {
+  return readings.find((item) => item.metric === metric && item.subject === subject);
+}
+
+/**
+ * How a reading renders.
+ *
+ * Never a zero and never a green tile where there is no measurement. A panel
+ * showing `0` in green is worse than one saying it does not know, because the
+ * first is believed — and nobody stands close enough to a wall panel to
+ * check. So an absent reading renders the word `unmeasured` and carries the
+ * collector's reason with it.
+ */
+function Measured({ reading, unit }: { reading: Reading | undefined; unit: string }): JSX.Element {
+  if (reading?.value == null) {
+    return (
+      <span
+        className="cn-kiosk__figure"
+        data-measured="false"
+        data-testid="unmeasured"
+        title={reading?.reason ?? 'No reading was returned.'}
+      >
+        unmeasured
+      </span>
+    );
+  }
+  return (
+    <span className="cn-kiosk__figure" data-measured="true">
+      {reading.value}
+      {unit}
+    </span>
   );
+}
+
+/** Dashboard 1: appliance thermal and throttle. */
+function Thermal({ readings }: { readings: readonly Reading[] }): JSX.Element {
+  // The appliances the collector was asked about, in the order it answered.
+  // Every appliance is present whether or not it had a reading: a panel that
+  // omitted an unreachable machine would look exactly like a smaller estate.
+  const nodes = [
+    ...new Set(
+      readings.filter((item) => item.metric === 'gpu_temperature').map((item) => item.subject),
+    ),
+  ];
 
   return (
     <section aria-labelledby="cn-thermal-heading" className="cn-kiosk__panel">
       <h2 id="cn-thermal-heading">Appliances</h2>
       {nodes.length === 0 ? (
-        <p className="cn-note">
-          No appliance is placed. Thermal and throttle readings come from the DCGM exporter on each
-          appliance; with nothing placed there is nothing to report, which is not the same as
+        <p className="cn-note" data-testid="thermal-unmeasured">
+          Unmeasured. Thermal and throttle readings come from the DCGM exporter on each appliance,
+          read back out of the site&rsquo;s Prometheus; nothing answered. That is not the same as
           everything being cool.
         </p>
       ) : (
         <ul className="cn-kiosk__grid">
-          {nodes.map((node) => (
-            <li key={node} className="cn-kiosk__tile">
-              <span className="cn-kiosk__tile-name">{node}</span>
-              <Badge tone={busy.has(node) ? 'info' : 'neutral'}>
-                {busy.has(node) ? 'under load' : 'idle'}
-              </Badge>
-            </li>
-          ))}
+          {nodes.map((node) => {
+            const temperature = readingFor(readings, 'gpu_temperature', node);
+            const throttle = readingFor(readings, 'throttle_reasons', node);
+            return (
+              <li key={node} className="cn-kiosk__tile" data-testid={`thermal-${node}`}>
+                <span className="cn-kiosk__tile-name">{node}</span>
+                <Measured reading={temperature} unit=" °C" />
+                {/* A bitmask of zero is a real reading and means nothing is
+                    throttling, which is exactly why an unavailable one must
+                    not also render as zero. */}
+                <Badge tone={throttleTone(throttle)}>{throttleWord(throttle)}</Badge>
+                {temperature != null && temperature.value == null && temperature.reason != null ? (
+                  <span className="cn-note">{temperature.reason}</span>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
   );
 }
 
+function throttleWord(reading: Reading | undefined): string {
+  if (reading?.value == null) return 'throttle unmeasured';
+  return reading.value === 0 ? 'not throttling' : 'throttling';
+}
+
+function throttleTone(reading: Reading | undefined): 'info' | 'neutral' | 'warning' {
+  if (reading?.value == null) return 'neutral';
+  return reading.value === 0 ? 'info' : 'warning';
+}
+
 /** Dashboard 2: fabric and the federation link. */
-function Fabric({ anchorState }: { anchorState: string | undefined }): JSX.Element {
+function Fabric({
+  anchorState,
+  readings,
+}: {
+  anchorState: string | undefined;
+  readings: readonly Reading[];
+}): JSX.Element {
   const partitioned = anchorState === 'PARTITIONED';
+  const bandwidth = readingFor(readings, 'fabric_bandwidth', 'baugr');
   return (
     <section aria-labelledby="cn-fabric-heading" className="cn-kiosk__panel">
       <h2 id="cn-fabric-heading">Fabric and federation</h2>
+
+      <div className="cn-kiosk__tile" data-testid="kiosk-bandwidth">
+        <span className="cn-kiosk__tile-name">BAUGR bus bandwidth</span>
+        <Measured reading={bandwidth} unit=" GB/s" />
+        {bandwidth != null && bandwidth.value == null && bandwidth.reason != null ? (
+          <span className="cn-note">{bandwidth.reason}</span>
+        ) : null}
+      </div>
+
       <p className="cn-kiosk__figure" data-testid="kiosk-anchor">
         {anchorState ?? 'unknown'}
       </p>

@@ -19,10 +19,13 @@ make procedure
 ## Evidence
 
 - `draupnir/api/routers/approvals.py`
+- `draupnir/core/application/orchestrator.py`
 - `draupnir/raun/transitions.py`
 - `draupnir/skidbladnir/publish.py`
 - `draupnir/worker/stages.py`
 - `plugins/skidbladnir_quantise/draupnir_skidbladnir_quantise/__init__.py`
+- `tests/contract/test_api_write_path.py`
+- `tests/integration/test_release_publication.py`
 - `tests/unit/test_raun.py`
 - `tests/unit/test_skidbladnir.py`
 - `web/packages/api-client/src/generated/schema.d.ts`

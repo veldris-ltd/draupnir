@@ -488,6 +488,19 @@ def crypto_inventory() -> int:
     return 0
 
 
+@task("egress-policy", "Reconcile the two egress allow lists (RF-E17)")
+def egress_policy() -> int:
+    # Two allow lists govern the same traffic: `svalinn.egress.ALLOW_LIST` and
+    # the site router's, at VLD-INF-SINDRI-001 section 10.5. A destination in
+    # one and not the other fails, and the direction determines how it looks --
+    # the broker refuses legibly, the router drops silently and it reads as a
+    # timeout. Generated from the broker's own list, for the reason the crypto
+    # inventory is.
+    say("egress reconciliation")
+    uv_run("python", "scripts/egress_policy.py")
+    return 0
+
+
 @task("openapi", "Export the OpenAPI document from the application")
 def openapi() -> int:
     uv_run("python", "scripts/openapi_export.py")
@@ -857,6 +870,21 @@ def test() -> int:
 # ---------------------------------------------------------------------------
 # Pipeline stage 3: build
 # ---------------------------------------------------------------------------
+
+
+@task("con-a", "Build the CON-A local view, the wheel DVALIN installs (S30)")
+def con_a() -> int:
+    # A wheel rather than a container. CON-A's whole value is that it depends
+    # on nothing beyond the appliance it is attached to (Decision U2), and a
+    # container runtime is a dependency -- one that would also have to survive
+    # the total network failure the view is bought for.
+    #
+    # It was built, tested and shipped nowhere: not a workspace member, not in
+    # the pipeline, not in a Dockerfile, not in deploy/. There was no artefact
+    # to install, which is why VLD-INF-SINDRI-001 Procedure S12 step 10 puts an
+    # `xterm` running `watch nvidia-smi` on the panel instead.
+    run([uv(), "build", "tools/stedi-view", "--out-dir", "dist"])
+    return 0
 
 
 @task("images", "Build the aarch64 distroless images, rootless (AC-Q7)")

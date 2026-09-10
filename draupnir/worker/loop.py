@@ -30,6 +30,7 @@ import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import cached_property
 from pathlib import Path
 from typing import Any, TypeVar
 from uuid import UUID
@@ -43,6 +44,7 @@ from draupnir.core.application.orchestrator import (
     Orchestrator,
     RunFacts,
 )
+from draupnir.core.domain.federation import ANCHOR_SUBMITTED as _ANCHOR_SUBMITTED
 from draupnir.core.domain.sites import SiteScope
 from draupnir.core.domain.states import (
     GuardRefusedError,
@@ -51,13 +53,19 @@ from draupnir.core.domain.states import (
 )
 from draupnir.core.infrastructure.config import get_settings
 from draupnir.core.infrastructure.orchestration import for_connection
-from draupnir.core.infrastructure.repositories import LedgerRepository, SiteRepository
+from draupnir.core.infrastructure.repositories import LedgerRepository
 from draupnir.hodd.reconcile import require_vault
 from draupnir.hodd.stores import PosixStoreDriver
-from draupnir.motsognir import execution
-from draupnir.motsognir.placement import Estate
-from draupnir.motsognir.supply import Action, SupplyMonitor, read_status_file
-from draupnir.worker import duties, stages
+from draupnir.motsognir import arrays, execution
+from draupnir.motsognir.placement import Estate, estate_for
+from draupnir.motsognir.supply import (
+    Action,
+    SupplyError,
+    SupplyMonitor,
+    read_status_file,
+    signal_lost,
+)
+from draupnir.worker import array_queue, corpora, duties, stages
 from draupnir.worker.duties import Duty, Finding, Timetable
 from draupnir.worker.stages import Context, Outcome, Result
 
@@ -89,6 +97,96 @@ ORDER: tuple[RunState, ...] = (
 #: The transition string a supply transfer is recorded under.
 SUPPLY_TRANSFER = "supply.transfer"
 
+#: The transition a declared ring is recorded under.
+#:
+#: In the chain rather than only in a log, because the ring's size is a
+#: property of every substrate run placed while it holds. A forge that quietly
+#: became a two-node ring is a forge whose later runs are not comparable to its
+#: earlier ones -- three ranks and two ranks are different collectives, with
+#: different step times and different numerics -- and "was this a two-node
+#: ring" is a question asked months later about a specific release.
+#:
+#: Recorded once per worker, when it first observes the configuration it was
+#: started with. The declaration comes from `draupnir.env`, so it changes when
+#: an operator changes it and the units are restarted, which is exactly the
+#: event worth a row.
+RING_DECLARED = "site.ring.declared"
+
+#: The transition an anchoring attempt is recorded under. RF-07.
+#:
+#: Both outcomes, not only the successful one. A rejection is what a
+#: partitioned forge produces, and a chain that recorded only successes could
+#: not distinguish "never tried" from "tried and was refused" -- which are the
+#: two states an operator most needs told apart during an outage.
+#: Re-exported from the domain, which owns the name. The orchestrator reads
+#: these entries back to decide whether a release may publish, and the core may
+#: not import the worker -- so the constant lives there and this is the worker's
+#: view of it rather than a second spelling.
+ANCHOR_SUBMITTED = _ANCHOR_SUBMITTED
+
+#: How long an anchor round trip is given. AC-N11 budgets one second over
+#: WireGuard; this is the transport's patience, not the budget, and it is short
+#: because a worker tick must not block on a link that is down.
+REGISTRY_TIMEOUT_SECONDS = 10.0
+
+
+def _corpus_queue(ledger: LedgerRepository) -> tuple[Any, ...]:
+    """Every accepted corpus request no outcome has closed, oldest first.
+
+    One read of the corpus entries per tick rather than a query per request.
+    The chain is the queue (RF-12): the entries are the record of what was
+    asked for and what was done about it, so a restarted worker finds the same
+    queue and two workers reach the same answer.
+
+    Ingests before curations, and each in acceptance order: a curation asked
+    for before its ingest completed depends on it, and doing the two in the
+    order the chain records them is what makes that work rather than fail.
+    """
+    entries = ledger.entries_of_type(corpora.CORPUS_SUBJECT)
+    return (
+        *corpora.outstanding(entries, accepted=corpora.INGEST_ACCEPTED),
+        *corpora.outstanding(entries, accepted=corpora.CURATE_ACCEPTED),
+    )
+
+
+def _array_queue(ledger: LedgerRepository) -> tuple[Any, ...]:
+    """Every accepted array request no outcome has closed, oldest first.
+
+    Submissions before requeues, and each in acceptance order: a requeue of an
+    element of an array that has not been submitted yet depends on it, and
+    doing the two in the order the chain records them is what makes that work
+    rather than fail.
+    """
+    entries = ledger.entries_of_type(arrays.ARRAY_SUBJECT)
+    return (
+        *array_queue.outstanding(entries, accepted_transition=arrays.ARRAY_ACCEPTED),
+        *array_queue.outstanding(entries, accepted_transition=arrays.ELEMENT_REQUEUE_ACCEPTED),
+    )
+
+
+def _baselines_from(orchestrator: Orchestrator) -> Any:
+    """The baselines this site has captured, rebuilt from the chain. RF-10.
+
+    Per tick rather than once, unlike the registry and the store: a baseline
+    can be captured while a worker is running, and a worker holding a stale
+    registry would judge against the number it started with. It is one indexed
+    read of a handful of rows.
+
+    A payload that will not reconstruct is skipped and logged rather than
+    raised on: one malformed baseline must not stop every run on the estate,
+    and a gate with no baseline is already refused in its own words by
+    `Gate.holds`.
+    """
+    from draupnir.raun.baselines import BaselineError, BaselineRegistry, from_payload
+
+    registry = BaselineRegistry()
+    for payload in orchestrator.baseline_payloads():
+        try:
+            registry.capture(from_payload(payload), replace_existing=True)
+        except BaselineError:
+            logger.warning("baseline.unreadable", site=orchestrator.site_id)
+    return registry
+
 
 def _now() -> datetime:
     """The current instant, with an explicit offset. SAD 11E.2."""
@@ -105,6 +203,10 @@ class WorkerSettings:
     """
 
     site_id: str = "sindri"
+    #: The generic resource type Slurm knows this estate's accelerator by, from
+    #: `gres.conf` on REGIN. Empty where the scheduler declares no type, and a
+    #: job then asks for an untyped count.
+    accelerator: str = ""
     actor: str = DEFAULT_ACTOR
     database_url: str = ""
     #: Seconds between ticks. Tens of jobs a day (SAD 11.4) does not need a
@@ -115,6 +217,22 @@ class WorkerSettings:
     #: The commissioned fabric bandwidth in GB/s. Zero means none is recorded,
     #: and the probe then reports a reading without an alarm.
     fabric_baseline_gbps: float = DEFAULT_FABRIC_BASELINE_GBPS
+    #: Absolute path to `all_reduce_perf` on the appliances. Empty at a forge
+    #: with no fabric, and the probe then reports it unmeasured rather than
+    #: alarming about a cable that does not exist.
+    fabric_probe_binary: str = ""
+    #: The NCCL bootstrap interface and the RoCE devices, from the estate. SAD
+    #: 48.2 warns that a driver update can rename these, so they are settings
+    #: rather than constants: correcting one is a configuration change.
+    fabric_interface: str = ""
+    fabric_hca: str = ""
+    #: The appliances cabled into the ring, when the forge declares them.
+    #: Empty means all of them, which is the ordinary case.
+    #:
+    #: Named rather than counted: ring membership is which machines have a DAC
+    #: cable between them, and a count cannot say which two. See
+    #: `placement.Estate.ring_members`.
+    ring_members: tuple[str, ...] = ()
     #: Where the supply daemon writes its status block, if one is fitted.
     supply_status: Path | None = None
     #: Where the HODD vault is mounted. None means this installation has none,
@@ -124,6 +242,54 @@ class WorkerSettings:
     #: Set false to run the runs and skip the periodic duties, which is what a
     #: second worker on the same site should do: one of them verifies.
     perform_duties: bool = True
+    #: Where MEGINGJORD answers. Empty means this forge has no federation link,
+    #: and the anchor duty says so rather than pretending -- which is the
+    #: honest state for a development machine and for a forge whose WireGuard
+    #: tunnel is not built yet (RF-E21).
+    registry_url: str = ""
+    #: Where a curator drops a jurisdiction's retrieved sources, one directory
+    #: per ISO 3166-1 alpha-3 code. `None` means this worker performs no
+    #: ingest, and the duty says so against the request rather than leaving it
+    #: silently outstanding (RF-12).
+    #:
+    #: A directory rather than a fetch: retrieving a corpus is outbound traffic
+    #: to a host no allow-list entry covers, and threat T11 makes that the
+    #: broker's decision rather than a duty's. On an air-gapped forge the
+    #: curator copies the files in.
+    incoming_root: Path | None = None
+    #: Where the evaluation sets are, for decontamination. `None` means
+    #: curation refuses: a corpus curated without that check is one whose
+    #: evaluation scores measure the overlap rather than the model, and SAD 6.1
+    #: makes `decontamination_confirmed` a guard rather than a note.
+    evaluation_sets: Path | None = None
+    #: Run the development executor rather than the driver each specification
+    #: names. RF-10.
+    #:
+    #: For `make procedure` on a machine with no GPU and no training framework,
+    #: and for nothing else. Every use logs `executor.stand-in` at warning
+    #: level and the chain records `development-stand-in` as the executor, so a
+    #: run that was simulated says so for as long as the chain does. A
+    #: simulation nobody is told about is the problem; one that announces
+    #: itself is a development tool.
+    stand_in: bool = False
+    #: Where the secrets this estate brokers are held: a JSON object of name
+    #: to value, readable only by the worker's user. `None` at Sindri, which
+    #: brokers none to a training job today.
+    #:
+    #: A file rather than the process environment, because the environment of a
+    #: long-lived process is readable from `/proc` by anything running as the
+    #: same user and is inherited by every child it spawns -- which is the
+    #: opposite of what a lease is for. In deployment this is a hardware-backed
+    #: key store reached over mTLS (SAD 9.5); what the broker hands out does not
+    #: change with it.
+    secret_store: Path | None = None
+    #: The site's Ed25519 signing key, in PKCS#8 PEM. An unsigned head is
+    #: refused by MEGINGJORD in as many words -- "not a claim about a chain, it
+    #: is a packet" -- so a forge with no key has no federation link rather
+    #: than an anonymous one. The key names itself: `signing.key_id` derives
+    #: the identifier from the public half, so there is no second setting to
+    #: keep in step with it.
+    signing_key: Path | None = None
 
     @classmethod
     def from_environment(cls, environ: Mapping[str, str] | None = None) -> WorkerSettings:
@@ -136,6 +302,10 @@ class WorkerSettings:
         source = os.environ if environ is None else environ
         shared = get_settings()
         supply = source.get("DRAUPNIR_WORKER_SUPPLY_STATUS", "").strip()
+        signing_key = source.get("DRAUPNIR_SITE_SIGNING_KEY", "").strip()
+        secret_store = source.get("DRAUPNIR_SECRET_STORE", "").strip()
+        incoming = source.get("DRAUPNIR_INCOMING_ROOT", "").strip()
+        evaluation_sets = source.get("DRAUPNIR_EVALUATION_SETS", "").strip()
         vault = source.get("DRAUPNIR_VAULT_ROOT", shared.vault_root).strip()
         return cls(
             site_id=source.get("DRAUPNIR_SITE_ID", shared.site_id),
@@ -146,15 +316,31 @@ class WorkerSettings:
             timeout=float(
                 source.get("DRAUPNIR_WORKER_TIMEOUT", str(execution.DEFAULT_TIMEOUT_SECONDS))
             ),
+            fabric_probe_binary=source.get("DRAUPNIR_FABRIC_PROBE_BINARY", "").strip(),
+            fabric_interface=source.get("DRAUPNIR_FABRIC_INTERFACE", "").strip(),
+            fabric_hca=source.get("DRAUPNIR_FABRIC_HCA", "").strip(),
             fabric_baseline_gbps=float(
                 source.get(
                     "DRAUPNIR_WORKER_FABRIC_BASELINE_GBPS", str(DEFAULT_FABRIC_BASELINE_GBPS)
                 )
             ),
+            accelerator=source.get("DRAUPNIR_ACCELERATOR", shared.accelerator).strip(),
+            ring_members=tuple(
+                part.strip()
+                for part in source.get("DRAUPNIR_RING_MEMBERS", shared.ring_members).split(",")
+                if part.strip()
+            ),
             supply_status=Path(supply) if supply else None,
             vault_root=Path(vault) if vault else None,
             perform_duties=source.get("DRAUPNIR_WORKER_DUTIES", "1").strip()
             not in {"0", "false", "FALSE", "no"},
+            registry_url=source.get("DRAUPNIR_REGISTRY_URL", "").strip(),
+            signing_key=Path(signing_key) if signing_key else None,
+            secret_store=Path(secret_store) if secret_store else None,
+            incoming_root=Path(incoming) if incoming else None,
+            evaluation_sets=Path(evaluation_sets) if evaluation_sets else None,
+            stand_in=source.get("DRAUPNIR_WORKER_STAND_IN", "").strip()
+            in {"1", "true", "TRUE", "yes"},
         )
 
 
@@ -267,7 +453,170 @@ class Maintenance:
     scheduler: Any = None
     workdir: Path = field(default_factory=lambda: Path("build") / "worker")
     last_anchored_at: datetime | None = None
-    fabric_baseline_gbps: float = 0.0
+    fabric: duties.FabricProbe = field(default_factory=duties.FabricProbe)
+    #: Which site this maintenance is for. The key sweep is site scoped like
+    #: every other write, so it needs to know whose keys it is dropping.
+    site_id: str = "sindri"
+    #: The federation agent and the registry it reaches. `None` at a forge with
+    #: no link, where the anchor duty alarms rather than pretending.
+    agent: Any = None
+    registry: Any = None
+    #: Where corpus work reads from and writes to. `None` on a worker with no
+    #: vault, where the duty reports the accepted work it cannot perform rather
+    #: than leaving it silently outstanding (RF-12).
+    workspace: Any = None
+    #: What the corpus duty did this tick, for the loop to record. One entry
+    #: per request, both outcomes.
+    corpus_outcomes: tuple[Any, ...] = ()
+    #: What the array duty did this tick. Same shape, same reason.
+    array_outcomes: tuple[Any, ...] = ()
+    #: The site's private key, used to sign the head before it is submitted.
+    #: MEGINGJORD refuses an unsigned head, so a submission built without this
+    #: would be rejected on arrival every time -- and the rejection would read
+    #: like a federation problem rather than a missing setting.
+    signing_key: Any = None
+    #: Reads the outstanding corpus requests out of the chain. A callable
+    #: rather than the chain itself, because what is outstanding is a question
+    #: about entries the `Chain` protocol deliberately does not expose.
+    corpora: Any = None
+    #: The same for arrays, and what performs them.
+    array_requests: Any = None
+    submitter: Any = None
+    #: The idempotency store whose expired records this sweeps. `None` on a
+    #: worker that shares no database with an API, where there are no keys.
+    keys: Any = None
+
+    #: What the last anchoring attempt produced, for the loop to record.
+    anchored: duties.Anchored | None = None
+
+    def _head(self) -> Any:
+        """The chain head to anchor, or `None` where there is no chain."""
+        if self.chain is None or self.agent is None:
+            return None
+
+        from datetime import UTC
+        from datetime import datetime as _datetime
+
+        from draupnir.core.domain.federation import AnchorSubmission
+        from draupnir.core.domain.ledger import ChainHead
+
+        found = self.chain.head()
+        if found is None:
+            return None
+
+        head = ChainHead(site_id=self.agent.site_id, seq=found.seq, entry_hash=found.entry_hash)
+        if self.signing_key is None:
+            return None
+
+        from draupnir.svalinn.signing import sign_chain_head
+
+        signed = sign_chain_head(head, self.signing_key)
+        return AnchorSubmission(
+            head=head,
+            previous_hash=found.prev_hash,
+            submitted_at=_datetime.now(UTC),
+            signature=signed.signature,
+            key_id=signed.key_id,
+        )
+
+    def _drain_corpus_queue(self, *, now: datetime) -> tuple[Finding | None, tuple[Any, ...]]:
+        """Do the corpus work the chain says was accepted. RF-12.
+
+        The chain is the queue: an accepted entry is outstanding until an entry
+        naming its sequence says otherwise. Nothing is held between ticks, so a
+        restarted worker reads the same queue.
+
+        No finding when the queue is empty, which is the ordinary case: a duty
+        that logged "nothing to do" every minute would be the noise SAD 11.3's
+        recording rule exists to avoid. A failure *is* a finding, and it alarms:
+        a curator waiting on an ingest that will never complete is exactly who
+        an alarm is for.
+        """
+        del now
+        if self.corpora is None or self.workspace is None:
+            return None, ()
+
+        requests = self.corpora()
+        if not requests:
+            return None, ()
+
+        outcomes = corpora.perform(requests, self.workspace)
+        failed = [item for item in outcomes if not item.succeeded]
+        detail = f"{len(outcomes) - len(failed)} of {len(outcomes)} corpus request(s) performed"
+        if failed:
+            named = ", ".join(
+                f"{item.request.jurisdiction} ({item.request.transition})" for item in failed
+            )
+            detail = f"{detail}; {named} failed"
+        return (
+            Finding(
+                Duty.CORPORA,
+                bool(failed),
+                detail,
+                {"performed": len(outcomes), "failed": len(failed)},
+            ),
+            outcomes,
+        )
+
+    def _sweep_keys(self, *, now: datetime) -> Finding | None:
+        """Drop idempotency records past their twenty-four hours. RF-14.
+
+        No finding when nothing went, which is the ordinary case: a duty that
+        recorded "swept nothing" hourly would be the noise SAD 11.3's recording
+        rule exists to avoid. A sweep that *did* remove records is a reading
+        rather than an alarm -- keys expiring is the system working, and the
+        number is worth a log line so that a table growing without bound has
+        somewhere to be noticed.
+
+        A store that cannot be swept is not an alarm either. The keys expire by
+        age whether or not anything deletes them: `reserve` takes over an
+        expired row, so a failed sweep costs disk and never correctness.
+        """
+        try:
+            removed = self.keys.purge(now, site_id=self.site_id)
+        except Exception as unavailable:
+            logger.warning("idempotency.sweep.failed", reason=str(unavailable))
+            return None
+
+        if not removed:
+            return None
+        return Finding(
+            Duty.KEYS,
+            False,
+            f"{removed} expired idempotency record(s) removed",
+            {"removed": removed},
+        )
+
+    def _drain_array_queue(self) -> tuple[Finding | None, tuple[Any, ...]]:
+        """Submit accepted arrays and requeue accepted elements. RF-13.
+
+        Nothing when the queue is empty. A refusal alarms: an operator who
+        asked for an array or a requeue and got a 202 is watching the board,
+        and on this estate the requeue refusal is the *expected* one --
+        slurmrestd exposes no requeue, and what the entry carries is the
+        instruction to run `scontrol requeue <job>_<index>` on REGIN (AC-F6).
+        """
+        if self.array_requests is None or self.submitter is None:
+            return None, ()
+
+        requests = self.array_requests()
+        if not requests:
+            return None, ()
+
+        outcomes = array_queue.perform(requests, self.submitter)
+        failed = [item for item in outcomes if not item.succeeded]
+        detail = f"{len(outcomes) - len(failed)} of {len(outcomes)} array request(s) performed"
+        if failed:
+            detail = f"{detail}; {', '.join(item.subject for item in failed)} refused"
+        return (
+            Finding(
+                Duty.ARRAYS,
+                bool(failed),
+                detail,
+                {"performed": len(outcomes), "refused": len(failed)},
+            ),
+            outcomes,
+        )
 
     def perform(
         self, duty: Duty, *, now: datetime
@@ -277,15 +626,37 @@ class Maintenance:
             return duties.verify(self.chain), ()
         if duty is Duty.VAULT and self.vault is not None:
             return duties.capacity(self.vault), ()
-        if duty is Duty.ANCHOR and self.last_anchored_at is not None:
-            return duties.freshness(self.last_anchored_at, now=now), ()
+        if duty is Duty.ANCHOR:
+            # Anchor first, then report freshness against what just happened.
+            # This used to be freshness alone, gated on `last_anchored_at`
+            # being set -- and nothing ever set it, so the duty was a no-op
+            # that alarmed for ever (RF-07).
+            finding, recorded = duties.anchor(
+                self.agent,
+                self.registry,
+                self._head(),
+                now=now,
+                last_anchored_at=self.last_anchored_at,
+            )
+            self.anchored = recorded
+            return finding, ()
+        if duty is Duty.CORPORA:
+            drained, outcomes = self._drain_corpus_queue(now=now)
+            self.corpus_outcomes = outcomes
+            return drained, ()
+        if duty is Duty.ARRAYS:
+            drained, placed = self._drain_array_queue()
+            self.array_outcomes = placed
+            return drained, ()
+        if duty is Duty.KEYS and self.keys is not None:
+            return self._sweep_keys(now=now), ()
         if duty is Duty.FABRIC and self.scheduler is not None:
             self.workdir.mkdir(parents=True, exist_ok=True)
             return (
                 duties.probe(
                     self.scheduler,
                     workdir=self.workdir,
-                    baseline_gbps=self.fabric_baseline_gbps,
+                    settings=self.fabric,
                 ),
                 (),
             )
@@ -322,6 +693,49 @@ def maintain(
                 transition=duties.ALARM_RAISED,
                 payload=finding.as_payload(),
             )
+
+        # The anchoring outcome, whichever way it went. RF-07: anchor state is
+        # derived from the chain rather than from a side table, so a rejection
+        # is as much a matter of record as a countersignature -- and
+        # `Orchestrator.publication_facts` reads `anchored_through` back out of
+        # exactly these entries when it decides whether a release may publish
+        # (AC-S13, RF-05).
+        if duty is Duty.ANCHOR and maintenance.anchored is not None:
+            orchestrator.record(
+                subject_type=duties.SITE_SUBJECT,
+                subject_id=orchestrator.site_id,
+                transition=ANCHOR_SUBMITTED,
+                payload=maintenance.anchored.as_payload(),
+            )
+            maintenance.anchored = None
+        # Every corpus request that was performed, and every one that was not.
+        # Recorded here rather than inside the duty because a duty writes
+        # nothing: the chain is written by the transaction that owns it, and a
+        # duty that appended would be a duty that had to know about rollback.
+        if duty is Duty.CORPORA and maintenance.corpus_outcomes:
+            for outcome in maintenance.corpus_outcomes:
+                orchestrator.record(
+                    subject_type=corpora.CORPUS_SUBJECT,
+                    subject_id=outcome.request.jurisdiction,
+                    transition=outcome.transition,
+                    payload=dict(outcome.payload),
+                )
+            maintenance.corpus_outcomes = ()
+
+        # Every array request, performed or refused. A refused requeue is the
+        # ordinary outcome at Sindri and its entry carries the driver's own
+        # message, which names what to run on REGIN instead -- so it is a
+        # matter of record rather than a log line somebody has to find.
+        if duty is Duty.ARRAYS and maintenance.array_outcomes:
+            for placed in maintenance.array_outcomes:
+                orchestrator.record(
+                    subject_type=arrays.ARRAY_SUBJECT,
+                    subject_id=placed.subject,
+                    transition=placed.transition,
+                    payload=dict(placed.payload),
+                )
+            maintenance.array_outcomes = ()
+
         for item in due:
             orchestrator.record(
                 subject_type=duties.CORPUS_SUBJECT,
@@ -354,15 +768,30 @@ class Worker:
         engine: Engine | None = None,
         estate: Estate | None = None,
         clock: Callable[[], datetime] = _now,
+        registry: Any = None,
     ) -> None:
-        """Build a worker. Nothing is connected and nothing is dispatched yet."""
+        """Build a worker. Nothing is connected and nothing is dispatched yet.
+
+        `registry` is injected the way `scheduler` is, and for the same reason:
+        `Gullinbursti.drain` cannot tell an in-process `AnchorStore` from
+        MEGINGJORD over HTTP, so a test drives the real anchor path without a
+        network and without the reconnect case being the only one exercised
+        during an outage (RF-07, AC-S13).
+        """
         self.settings = settings
         self.timetable = Timetable()
         self.monitor = SupplyMonitor()
         self._scheduler = scheduler
+        self._injected_registry = registry
         self._engine = engine
         self._owns_engine = engine is None
-        self._estate = estate or Estate(site=settings.site_id)
+        self._estate = estate or estate_for(
+            settings.site_id, settings.accelerator, settings.ring_members
+        )
+        #: What this worker has already written a ring row for. `None` until it
+        #: has written one, which is what makes the record once-per-declaration
+        #: rather than once-per-tick.
+        self._ring_recorded: tuple[str, ...] | None = None
         self._clock = clock
         self._stopped = False
 
@@ -414,6 +843,8 @@ class Worker:
 
         with self.engine.connect() as connection:
             work, placements = self._survey(connection)
+            self._observe_estate()
+            self._record_ring(connection)
             actions = self._observe_supply(now, placements)
             dispatching = self.monitor.may_dispatch()
 
@@ -461,13 +892,131 @@ class Worker:
 
     def _context(self, orchestrator: Orchestrator, may_dispatch: bool) -> Context:
         return Context(
+            baselines=_baselines_from(orchestrator),
             orchestrator=orchestrator,
             scheduler=self.scheduler,
             scratch=self.settings.scratch,
             estate=self._estate,
             may_dispatch=may_dispatch,
             timeout=self.settings.timeout,
+            site_id=self.settings.site_id,
+            store=self._store,
+            secrets=self._secrets,
+            registry=self._registry_of_plugins,
+            stand_in=self.settings.stand_in,
         )
+
+    @cached_property
+    def _registry_of_plugins(self) -> Any:
+        """The plug-in registry a specification's driver is resolved through.
+
+        `svalinn.pki.registry` and not a second discovery: it is the one place
+        a production registry is built, and it is what `dryRunSpecification`
+        calls. Two registries would be two answers to "which driver renders
+        this specification", and the whole point of RF-10 is that the plan an
+        operator was shown is the plan that is submitted.
+
+        Discovered once. Entry-point discovery reads distribution metadata and
+        verifies signatures; doing that four times a minute would turn a
+        signing problem into a log flood without making it more visible.
+
+        `None` where discovery fails, which defers every run with the reason
+        rather than falling back to the stand-in -- a stand-in substituted
+        silently is the finding.
+        """
+        if self.settings.stand_in:
+            return None
+
+        from draupnir.svalinn.pki import registry
+
+        try:
+            return registry()
+        except Exception:
+            logger.exception("worker.plugins.unavailable", site=self.settings.site_id)
+            return None
+
+    @cached_property
+    def _keys(self) -> Any:
+        """The idempotency store this worker sweeps. RF-14.
+
+        The same table the API reserves into, on the worker's own engine. The
+        two share a database by construction: a worker pointed at a different
+        one would be acting on another forge's chain, which is why
+        `WorkerSettings.from_environment` takes the database from the
+        process-wide configuration rather than from a setting of its own.
+        """
+        from draupnir.api.idempotency_store import DatabaseIdempotencyStore
+
+        return DatabaseIdempotencyStore(engine=self.engine)
+
+    @cached_property
+    def _workspace(self) -> Any:
+        """Where corpus work reads from and writes to. RF-12.
+
+        Built once, because each path is a mount an operator made and checking
+        one four times a minute turns a configuration error into a log flood.
+        `None` where there is no vault: an ingest needs somewhere to publish
+        to, and a workspace that invented a directory would ingest a corpus
+        onto the control plane's local disk and report it as vaulted.
+        """
+        if self._store is None:
+            return None
+
+        return corpora.Workspace(
+            site_id=self.settings.site_id,
+            incoming=self.settings.incoming_root,
+            store=self._store,
+            evaluation_sets=self.settings.evaluation_sets,
+            scratch=self.settings.scratch / "curation",
+        )
+
+    @cached_property
+    def _secrets(self) -> Any:
+        """The secrets broker every plan is checked against. RF-09.
+
+        Always built, even where the store is empty. An empty broker's leak
+        check passes vacuously, and that is the point: the check is on the path
+        from the day it is written rather than from the day somebody remembers
+        to add it, so the first secret this estate brokers is covered by it
+        rather than covered later.
+
+        Built once. The broker holds the leases it has issued, and one rebuilt
+        per tick would lose the record of what is outstanding -- which is what
+        `active` is for and what revoking at the end of a run needs.
+        """
+        import json
+
+        from draupnir.svalinn.secrets import SecretsBroker
+
+        if self.settings.secret_store is None:
+            return SecretsBroker()
+
+        held = json.loads(self.settings.secret_store.read_text(encoding="utf-8"))
+        return SecretsBroker(store={str(k): str(v) for k, v in held.items()})
+
+    @cached_property
+    def _store(self) -> Any:
+        """The vault this worker stages artefacts into. RF-08.
+
+        `None` where none is configured, which is a development machine: the
+        stages still run and still record digests, and the outcome says the
+        artefacts are not staged. That is a truthful degradation rather than a
+        silent one -- a run whose artefacts have no address cannot be released,
+        and the publication refusal already says why.
+
+        Built once and not per tick, because a driver's construction is where
+        the vault's mount and the bucket's object lock are checked, and doing
+        that four times a minute would turn a configuration error into a log
+        flood without making it any more visible.
+
+        A vault that is configured and unavailable is *not* softened to `None`.
+        `PosixStoreDriver` raises `VaultUnavailableError` on the first stage,
+        the run defers, and the next tick asks again -- which is what an NFS
+        export coming back should look like.
+        """
+        if self.settings.vault_root is None:
+            return None
+        return PosixStoreDriver(root=self.settings.vault_root, local_site=self.settings.site_id)
 
     def _orchestrator(self, connection: Connection) -> Orchestrator:
         """One orchestrator over this connection, scoped to this worker's site."""
@@ -513,7 +1062,12 @@ class Worker:
         """Perform the periodic duties that are due, in their own transaction."""
 
         def act(orchestrator: Orchestrator) -> tuple[Finding, ...]:
-            return maintain(orchestrator, self._maintenance(connection), self.timetable, now=now)
+            return maintain(
+                orchestrator,
+                self._maintenance(connection, orchestrator),
+                self.timetable,
+                now=now,
+            )
 
         return self._commit(connection, act) or ()
 
@@ -525,19 +1079,131 @@ class Worker:
 
         self._commit(connection, act)
 
-    def _maintenance(self, connection: Connection) -> Maintenance:
-        """Build what the duties are performed against, for this connection."""
+    def _maintenance(self, connection: Connection, orchestrator: Orchestrator) -> Maintenance:
+        """Build what the duties are performed against, for this connection.
+
+        `last_anchored_at` comes out of the chain (RF-07). It used to come off
+        `site.last_anchored_at`, a column nothing ever wrote, so the freshness
+        duty read `None` on every tick of every worker that ever ran and
+        alarmed for ever about a chain that may well have been anchored twenty
+        minutes ago.
+        """
         scope = SiteScope(self.settings.site_id)
-        site = next(
-            (item for item in SiteRepository(connection).all() if item.id == scope.site_id), None
-        )
         return Maintenance(
             chain=LedgerRepository(connection, scope),
             vault=self._vault(),
             scheduler=self.scheduler,
             workdir=self.settings.scratch / "probe",
-            last_anchored_at=site.last_anchored_at if site else None,
-            fabric_baseline_gbps=self.settings.fabric_baseline_gbps,
+            last_anchored_at=orchestrator.last_anchored_at(),
+            agent=self._agent,
+            registry=self._registry,
+            signing_key=self._signing_key,
+            workspace=self._workspace,
+            site_id=self.settings.site_id,
+            keys=self._keys,
+            corpora=lambda: _corpus_queue(LedgerRepository(connection, scope)),
+            array_requests=lambda: _array_queue(LedgerRepository(connection, scope)),
+            submitter=array_queue.Submitter(
+                scheduler=self.scheduler,
+                estate=self._estate,
+                entries=LedgerRepository(connection, scope).entries_of_type(arrays.ARRAY_SUBJECT),
+            ),
+            fabric=duties.FabricProbe(
+                binary=self.settings.fabric_probe_binary,
+                interface=self.settings.fabric_interface,
+                hca=self.settings.fabric_hca,
+                baseline_gbps=self.settings.fabric_baseline_gbps,
+            ),
+        )
+
+    @cached_property
+    def _agent(self) -> Any:
+        """The site agent, held for the life of the process. RF-07.
+
+        Held rather than rebuilt per tick because the agent *is* the queue: a
+        head submitted during a partition waits in it, and an agent rebuilt
+        every tick would drop the queue and re-submit only the current head.
+        The reconnect path of AC-S13 drains what accumulated, and there would
+        be nothing to drain.
+
+        There is an agent exactly when there is a registry to reach. An agent
+        with nowhere to submit queues heads nothing will ever drain, which
+        looks like a working federation link right up to the moment somebody
+        asks what it anchored.
+        """
+        if self._registry is None:
+            return None
+
+        from draupnir.gullinbursti.agent import Gullinbursti
+
+        return Gullinbursti(
+            site_id=self.settings.site_id,
+            signing_key_id=self._key_id,
+        )
+
+    @cached_property
+    def _signing_key(self) -> Any:
+        """The site's private key, loaded once. `None` where none is configured.
+
+        A key that will not load is not softened to `None`: a forge configured
+        to anchor and unable to read its key is misconfigured, and reporting it
+        as "no federation link" would send an operator looking for a tunnel
+        that is fine.
+        """
+        if self.settings.signing_key is None:
+            return None
+
+        from draupnir.svalinn.signing import load_private_key
+
+        return load_private_key(self.settings.signing_key.read_bytes())
+
+    @cached_property
+    def _key_id(self) -> str:
+        """What MEGINGJORD knows this site's key by. Derived, never configured."""
+        if self._signing_key is None:
+            return ""
+
+        from draupnir.svalinn.signing import key_id
+
+        return key_id(self._signing_key.public_key())
+
+    @cached_property
+    def _registry(self) -> Any:
+        """MEGINGJORD, reached through the egress broker.
+
+        Through the broker and not around it: an anchor submission is outbound
+        traffic to another site, which is threat T11's whole subject. The
+        composition root is the only place allowed to put the declaration
+        (GULLINBURSTI's purpose) and the decision (SVALINN's allow list)
+        together, which is why the client is built here and injected rather
+        than constructed inside the driver.
+        """
+        if self._injected_registry is not None:
+            return self._injected_registry
+        if not self.settings.registry_url or self.settings.signing_key is None:
+            # Both or neither. A registry URL with no key would submit unsigned
+            # heads, which MEGINGJORD refuses in as many words -- "not a claim
+            # about a chain, it is a packet" -- so the duty's "no federation
+            # link configured" alarm is a truer description of that deployment
+            # than a stream of rejections would be.
+            return None
+
+        import httpx
+
+        from draupnir.gullinbursti.federation import RemoteRegistry
+        from draupnir.svalinn.egress import (
+            FEDERATION_POLICY,
+            FEDERATION_PURPOSE,
+            BrokeredClient,
+        )
+
+        return RemoteRegistry(
+            base_url=self.settings.registry_url,
+            client=BrokeredClient(
+                inner=httpx.Client(timeout=REGISTRY_TIMEOUT_SECONDS),
+                purpose=FEDERATION_PURPOSE,
+                approving_policy=FEDERATION_POLICY,
+            ),
         )
 
     def _vault(self) -> CheckedVault | None:
@@ -547,15 +1213,106 @@ class Worker:
             return None
         return CheckedVault(PosixStoreDriver(root=root, local_site=self.settings.site_id))
 
+    def _observe_estate(self) -> None:
+        """Ask the scheduler which appliances can take work, and believe it.
+
+        RF-E11. `Estate` was a constant with every appliance marked available,
+        so the behaviour SAD 11.2 row 3 describes -- concurrency reduced, ring
+        runs refused -- could not happen: nothing ever told MOTSOGNIR an
+        appliance was down. The runbook's section 3 documented a response to a
+        state the code could not reach.
+
+        Two failures that must not be confused, and this is where they part.
+        A scheduler that cannot be reached says nothing about the appliances,
+        so the estate is left as it was: dispatch suspends on its own (SAD 11.2
+        row 2), and reporting every appliance as down would refuse every ring
+        run for the duration of a controller restart. A scheduler that answers
+        and reports a node drained is evidence, and it is taken.
+        """
+        reader = getattr(self.scheduler, "nodes", None)
+        if reader is None:
+            return
+        try:
+            reported = reader()
+        except Exception:
+            logger.debug("estate.unreadable", scheduler=type(self.scheduler).__name__)
+            return
+        if not reported:
+            return
+
+        down = tuple(item.name for item in reported if not item.available)
+        updated = self._estate.without(*down) if down else self._estate.with_all_available()
+        if updated.down != self._estate.down:
+            logger.info(
+                "estate.changed",
+                down=list(updated.down),
+                available=[item.name for item in updated.available],
+            )
+        self._estate = updated
+
     def _observe_supply(
         self, now: datetime, placements: Mapping[UUID, dict[str, Any] | None]
     ) -> tuple[Action, ...]:
-        """Read the supply, if one is fitted, and tell the monitor about it."""
+        """Read the supply, if one is fitted, and tell the monitor about it.
+
+        A supply that cannot be read does not stop the tick. SAD 11.2 requires
+        degraded modes to be visible rather than fatal, and a worker that died
+        on an unreadable status file would take run dispatch, the duties and
+        the alarms down with it -- over a signal for hardware that is not
+        fitted yet.
+        """
         path = self.settings.supply_status
         if path is None or not path.is_file():
             return ()
         running = tuple(str(item["job_id"]) for item in placements.values() if item is not None)
-        return self.monitor.observe(read_status_file(path, at=now), running)
+        try:
+            reading = read_status_file(path, at=now)
+        except SupplyError as error:
+            logger.warning(
+                "worker.supply.unreadable",
+                site=self.settings.site_id,
+                path=str(path),
+                reason=str(error),
+            )
+            return (signal_lost(error),)
+        return self.monitor.observe(reading, running)
+
+    def _record_ring(self, connection: Connection) -> None:
+        """Record the declared ring, once, when this worker first sees it.
+
+        Only when the forge declares one. An estate whose ring is simply all of
+        its appliances has nothing to say that the appliance list does not
+        already say, and a row per worker start on every ordinary forge would
+        be noise in the one place noise is expensive.
+        """
+        if not self._estate.ring_is_declared:
+            return
+        declared = tuple(item.name for item in self._estate.ring)
+        if declared == self._ring_recorded:
+            return
+
+        def record(orchestrator: Orchestrator) -> None:
+            orchestrator.record(
+                subject_type=duties.SITE_SUBJECT,
+                subject_id=orchestrator.site_id,
+                transition=RING_DECLARED,
+                payload={
+                    "members": list(declared),
+                    "ringSize": len(declared),
+                    "estateSize": self._estate.size,
+                    "reason": (
+                        "the forge declares a ring smaller than its estate. "
+                        "VLD-WIR-SINDRI-001 section 7.4 recabling, or a site with "
+                        "an appliance out of the ring."
+                    ),
+                },
+            )
+
+        self._commit(connection, record)
+        # Set after the commit, so a refused write is retried on the next tick
+        # rather than being remembered as done.
+        self._ring_recorded = declared
+        logger.info("estate.ring.declared", members=list(declared), site=self.settings.site_id)
 
     def _record_supply(self, orchestrator: Orchestrator, actions: Sequence[Action]) -> None:
         """Record a transfer. SAD 11.3 alarms on it; the chain keeps it."""

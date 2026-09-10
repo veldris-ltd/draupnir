@@ -25,10 +25,10 @@ from __future__ import annotations
 
 import sys
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 
 from draupnir.interfaces.types import JobHandle, JobPlan, JobState, ResourceRequest
 
@@ -102,6 +102,27 @@ class Completed:
         return self.state is JobState.COMPLETED and self.exit_code == 0
 
 
+#: What every plan's environment carries whatever else it does. Determinism,
+#: not configuration: SAD 6.2 makes the recorded plan the unit of
+#: reproduction, and a job whose hash seed varies is a job two runs of the same
+#: specification disagree about.
+BASE_ENVIRONMENT: Final[Mapping[str, str]] = {"PYTHONHASHSEED": "0"}
+
+
+class LeakCheck(Protocol):
+    """The one thing `submit` needs from a secrets broker. RF-09.
+
+    A protocol rather than an import: SVALINN and MOTSOGNIR are siblings in the
+    layering and neither may import the other. The worker holds the broker and
+    hands it in, which is also what stops this module deciding for itself
+    whether the check applies.
+    """
+
+    def assert_no_secrets(self, where: str, payload: Any) -> None:
+        """Raise if any held secret value appears verbatim in `payload`."""
+        ...
+
+
 def stand_in_plan(
     output: Path,
     inputs: Iterable[Path],
@@ -109,18 +130,60 @@ def stand_in_plan(
     workdir: Path,
     partition: str = "adapters",
     nodes: int = 1,
+    gres: str = "",
+    environment: Mapping[str, str] | None = None,
+    sandbox: Mapping[str, Any] | None = None,
 ) -> JobPlan:
-    """A plan that runs the development executor over real files."""
+    """A plan that runs the development executor over real files.
+
+    `gres` comes from the placement rather than from here: what accelerator
+    the estate has is MOTSOGNIR's to know and a plan's to carry, and a default
+    in this function would be a second place holding it.
+
+    `environment` carries **lease references, never values** -- see
+    `svalinn.secrets.brokered_environment`, which is the only thing that should
+    be producing it. Merged over `BASE_ENVIRONMENT` rather than replacing it,
+    so a caller supplying leases cannot accidentally drop the determinism
+    settings SAD 6.2 depends on.
+
+    `sandbox` is the rendered `svalinn.sandbox` profile (RF-09). It was
+    composed by nothing: `sandbox.py` commented that the plan carries lease
+    references while this function wrote `{"PYTHONHASHSEED": "0"}` and no plan
+    ever went near a profile. Applying the profile is the appliance's job; the
+    plan carrying it is the control plane's, and it was missing.
+    """
     return JobPlan(
         command=(sys.executable, "-c", STAND_IN, str(output), *[str(item) for item in inputs]),
-        environment={"PYTHONHASHSEED": "0"},
+        environment={**BASE_ENVIRONMENT, **(environment or {})},
         workdir=str(workdir),
-        resources=ResourceRequest(partition=partition, nodes=nodes),
+        resources=ResourceRequest(partition=partition, nodes=nodes, gres=gres),
         expected_artefacts=(output.name,),
+        sandbox=dict(sandbox or {}),
     )
 
 
-def submit(scheduler: Scheduler, plan: JobPlan) -> JobHandle:
+def _accepts_a_name(scheduler: Scheduler) -> bool:
+    """Whether this driver's `submit` takes a job name.
+
+    Read from the signature rather than from a capability, because it is a
+    property of the function being called and a capability would be a second
+    place to keep it in step.
+    """
+    import inspect
+
+    try:
+        return len(inspect.signature(scheduler.submit).parameters) > 1
+    except (TypeError, ValueError):
+        return False
+
+
+def submit(
+    scheduler: Scheduler,
+    plan: JobPlan,
+    *,
+    name: str = "",
+    leak_check: LeakCheck | None = None,
+) -> JobHandle:
     """Place a plan, or raise with what the driver said.
 
     Separate from `wait` because the two happen at different moments: a
@@ -128,8 +191,24 @@ def submit(scheduler: Scheduler, plan: JobPlan) -> JobHandle:
     later tick, a restart, another process -- waits for it. A dispatcher that
     could only submit by blocking is a dispatcher that loses its work to a
     restart.
+
+    **Nothing leaves here carrying a secret** (RF-09, threat T6). The check is
+    on the rendered plan rather than on its environment mapping, because a
+    secret interpolated into a command string is the case a values-only check
+    misses and the one that actually happens. It is here rather than at each
+    caller because this is the one place every plan passes through, and a check
+    at three call sites is a check the fourth forgets.
     """
+    if leak_check is not None:
+        leak_check.assert_no_secrets("job plan", plan)
     try:
+        # The name is optional on the interface: a driver that does not take
+        # one is a driver `find` cannot ask about either, and both facts are
+        # true of a local runner. Passed positionally only where accepted, so
+        # a third-party driver written against the published protocol keeps
+        # working unchanged.
+        if name and _accepts_a_name(scheduler):
+            return scheduler.submit(plan, name)  # type: ignore[call-arg]
         return scheduler.submit(plan)
     except Exception as error:
         msg = f"the scheduler refused the plan: {error}"
@@ -209,9 +288,10 @@ def dispatch(
     plan: JobPlan,
     *,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    leak_check: LeakCheck | None = None,
 ) -> Completed:
     """Submit and wait. The blocking form, for a caller that is a script."""
-    return wait(scheduler, submit(scheduler, plan), timeout=timeout)
+    return wait(scheduler, submit(scheduler, plan, leak_check=leak_check), timeout=timeout)
 
 
 def handle_for(driver: str, job_id: str, node: str | None = None) -> JobHandle:
@@ -226,10 +306,12 @@ def handle_for(driver: str, job_id: str, node: str | None = None) -> JobHandle:
 
 
 __all__ = [
+    "BASE_ENVIRONMENT",
     "DEFAULT_TIMEOUT_SECONDS",
     "STAND_IN",
     "Completed",
     "DispatchError",
+    "LeakCheck",
     "Scheduler",
     "dispatch",
     "handle_for",

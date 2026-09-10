@@ -142,3 +142,147 @@ def test_the_keyboard_pass_records_its_method_and_its_limits() -> None:
     # The distinction that matters: this is a keyboard traversal, not a screen
     # reader pass, and saying so is the difference between evidence and a claim.
     assert "not a screen-reader pass" in text
+
+
+# ---------------------------------------------------------------------------
+# The join between the two documents. RF-E19.
+# ---------------------------------------------------------------------------
+
+DEPLOYMENT = ROOT / "docs" / "DEPLOYMENT.md"
+
+
+def test_the_deployment_guide_says_which_document_is_authoritative() -> None:
+    """RF-E19's central ambiguity.
+
+    Two documents describe how work gets done at Sindri and neither said which
+    one wins. The consequence is not academic: an operator following the manual
+    builds an estate with no control plane, and an operator following this
+    guide installs one onto a host the manual never prepared.
+    """
+    text = DEPLOYMENT.read_text(encoding="utf-8")
+
+    assert "Which document is in charge" in text
+    assert "by hand at commissioning" in text.lower(), (
+        "the guide does not state the division of authority in a form somebody skimming will find"
+    )
+    assert "VLD-INF-SINDRI-001" in text
+
+
+def test_the_deployment_guide_cites_the_procedure_that_prepares_the_host() -> None:
+    """S13 is the seam. A guide that did not name it would be an orphan.
+
+    The manual's Procedure S13 covers what the estate owes the control plane
+    and then defers here for the installation. Neither document repeats the
+    other, which only works if each says so.
+    """
+    text = DEPLOYMENT.read_text(encoding="utf-8")
+
+    assert "Procedure S13" in text
+    assert "does not repeat" in text, (
+        "the guide does not say that it and S13 are complementary rather than "
+        "duplicates, which is the property that stops them drifting"
+    )
+
+
+def test_the_deployment_guide_names_the_values_the_scripts_produce() -> None:
+    """AC-D3, and RF-E19's acceptance criterion.
+
+    Each value is read from the place that actually decides it rather than
+    from a second list here, so this fails when the guide drifts from the
+    scripts *or* when the scripts change under a guide nobody updated.
+    """
+    import subprocess
+
+    from draupnir.core.infrastructure.config import Settings
+
+    text = DEPLOYMENT.read_text(encoding="utf-8")
+    settings = Settings()
+    installer = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+
+    # The database host, from lib.sh's own derivation rather than a literal.
+    host = subprocess.run(
+        ["bash", "-c", "source deploy/lib.sh; DRAUPNIR_SITE_ID=sindri draupnir_host_for andvari"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+        check=False,
+    ).stdout.strip()
+
+    expected = {
+        "the database host": host or "andvari.sindri.veldris.internal",
+        "the database name": settings.database_url.rsplit("/", 1)[-1],
+        "the bucket": settings.object_store_bucket,
+        "the vault path": _default_of(installer, "DRAUPNIR_VAULT_ROOT"),
+        "the scheduler port": "6820",
+    }
+
+    missing = [f"{label} ({value})" for label, value in expected.items() if value not in text]
+
+    assert not missing, (
+        f"docs/DEPLOYMENT.md does not name {', '.join(missing)}. An operator "
+        "following it would configure something the scripts do not expect, and the "
+        "mismatch surfaces as a dependency check that cannot be made to pass."
+    )
+
+
+def _default_of(installer: str, name: str) -> str:
+    """The default `install.sh` gives one setting, read from the script."""
+    match = re.search(rf"\$\{{{re.escape(name)}-([^}}]*)\}}", installer)
+    assert match, f"install.sh no longer defaults {name}"
+    return match.group(1)
+
+
+def test_the_guide_only_shows_check_lines_the_preflight_can_produce() -> None:
+    """The guide quotes the script's output, so it can quote it wrongly.
+
+    That is not hypothetical: this test was written after a `scheduler:` line
+    was added to the guide in the wrong section and with invented wording. A
+    reader comparing their terminal against the page would have found a
+    mismatch and, following the guide's own instruction, stopped.
+
+    Checked structurally rather than by string. Every `<dependency>: <verdict>`
+    the failure table names must be a pair `preflight.py` can actually emit.
+    """
+    import inspect
+
+    from scripts import preflight
+
+    text = DEPLOYMENT.read_text(encoding="utf-8")
+    source = inspect.getsource(preflight)
+
+    dependencies = {result.dependency for result in preflight.check({})}
+    verdicts = set(preflight.Verdict.__args__)  # type: ignore[attr-defined]
+
+    quoted = set(re.findall(r"`([a-z-]+): ([a-z-]+)`", text))
+    named = {(name, word) for name, word in quoted if name in dependencies}
+
+    assert named, "the guide's failure table names no dependency at all any more"
+
+    wrong = {
+        f"{name}: {word}" for name, word in named if word not in verdicts and word not in source
+    }
+    assert not wrong, (
+        f"docs/DEPLOYMENT.md tells an operator to look for {sorted(wrong)}, and "
+        "scripts/preflight.py never emits that. A guide that describes output the "
+        "software does not produce sends a reader to Part 8 over nothing."
+    )
+
+
+def test_the_guide_covers_every_dependency_the_check_reports() -> None:
+    """A dependency the check reports and the guide never mentions is a dead end.
+
+    `scheduler` was exactly that: `install.sh --check` has reported on it since
+    RF-E05, and the guide named neither the dependency, the host it reaches,
+    nor what to do when it fails.
+    """
+    from scripts import preflight
+
+    text = DEPLOYMENT.read_text(encoding="utf-8")
+    missing = [
+        result.dependency for result in preflight.check({}) if f"{result.dependency}:" not in text
+    ]
+
+    assert not missing, (
+        f"`install.sh --check` reports on {missing} and docs/DEPLOYMENT.md never "
+        "mentions it. An operator who sees that line has nowhere to look."
+    )

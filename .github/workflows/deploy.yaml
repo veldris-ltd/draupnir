@@ -62,8 +62,22 @@ jobs:
 
       - name: Record the current revision for rollback
         id: previous
+        # RF-04. This ran `draupnirctl version`, which prints `draupnirctl
+        # 0.1.0 (OpenAPI 1.0.0)` -- a sentence. The whole sentence became the
+        # rollback revision, so `rollback.sh` built the image reference
+        # `.../draupnir-api:draupnirctl 0.1.0 (OpenAPI 1.0.0)`. The step that
+        # runs when a deployment has already gone wrong could not work.
+        #
+        # It was also the wrong question: `draupnirctl` is a client on the
+        # runner, and its version is the version of the thing asking rather
+        # than of the thing running on ALVISS. `current-revision.sh` reads what
+        # the units actually started, from the state file `draupnir-run.sh`
+        # writes after an image resolves.
         run: |
-          previous="$(uv run draupnirctl version 2>/dev/null || true)"
+          previous="$(./deploy/current-revision.sh draupnir-api || true)"
+          if [ -z "${previous}" ]; then
+            echo "::warning::No recorded revision on this host; rollback will have no target."
+          fi
           echo "revision=${previous}" >> "$GITHUB_OUTPUT"
           uv run alembic current | tee migration-before.txt
 

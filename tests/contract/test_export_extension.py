@@ -22,7 +22,12 @@ from typing import Any
 
 import pytest
 
-from draupnir.core.plugins import DEV_VARIABLE, MissingCapabilityError, PluginRegistry
+from draupnir.core.plugins import (
+    DEV_VARIABLE,
+    MissingCapabilityError,
+    PluginRegistry,
+)
+from draupnir.interfaces.signing import UnverifiedVerifier
 from draupnir.interfaces.testing import sample_spec
 from draupnir.interfaces.types import JobState
 
@@ -38,7 +43,7 @@ SCHEDULER = "motsognir.local_subprocess/v1"
 
 @pytest.fixture(scope="module")
 def registry() -> PluginRegistry:
-    return PluginRegistry.discover(environ={DEV_VARIABLE: "1"})
+    return PluginRegistry.discover(UnverifiedVerifier(), environ={DEV_VARIABLE: "1"})
 
 
 def source_lines() -> int:
