@@ -20,6 +20,7 @@ make test-e2e
 - `draupnir/api/routers/models.py`
 - `draupnir/api/routers/sites.py`
 - `scripts/seed.py`
+- `tests/integration/test_read_model.py`
 - `web/apps/console/src/App.test.tsx`
 - `web/apps/console/src/screens/Overview.tsx`
 - `web/apps/console/src/shell/Shell.tsx`

@@ -2554,6 +2554,74 @@ integration stage, which does name it.
 - Every stage passes at its floor with the additions in place.
 - Gated in stages 2.1, 2.3 and 2.4.
 
+> **Status: done.**
+>
+> **Every module the distribution ships is now under a floor**, and the set is
+> derived from the tree rather than listed: `test_every_shipped_module_is_under_a_coverage_floor`
+> walks `draupnir/**/*.py` and fails on anything no stage names. That check
+> found four packages the register did not — `draupnir/api/assurance.py`, the
+> seam where GLEIPNIR's gate definitions meet RAUN's execution, and
+> `draupnir/core/plugins.py`, five hundred lines deciding which drivers this
+> forge will run and verifying their signatures, plus two package docstrings.
+> Which is the argument for deriving it: the register listed four packages from
+> memory and the tree knew about six.
+>
+> **Placement follows where a thing is exercised**, which is the reasoning
+> already in `tasks.py` for the API edge. HODD, GLEIPNIR and the driver
+> interfaces go to the unit stage. The worker goes to integration: measuring it
+> at the unit level would report the tick loop as uncovered while
+> `test_worker_loop.py` drives a run from QUEUED to AWAITING_APPROVAL through
+> every line of it.
+>
+> **`reading.py` was the real find.** It is the largest module in the edge and
+> the contract stage measured it at **29 per cent** — not because it is
+> untested, but because everything that exercises it drives a real API
+> *subprocess*, and coverage cannot see inside a process it did not start. A
+> module can be exercised on every request a forge serves and measured at zero.
+> `tests/integration/test_read_model.py` calls `DatabaseReadModel` in process
+> across every collection it serves, and `reading` and `writing` move to the
+> stage that has a database.
+>
+> **`database.py` and `worker/__main__.py` were zero for the same reason.** One
+> builds every engine in the process and the other *is* the worker as the unit
+> file starts it. `tests/integration/test_entry_points.py` covers both, and
+> `site_scoped_session` was worth testing rather than assuming: the whole of
+> SAD 11C's isolation is that session variable, RF-18 found a query relying on
+> the policy alone reporting two forges' rows added together, and there is now
+> a test that the scope dies with its transaction — a pooled connection
+> carrying one forge's scope to the next request is the failure that would be
+> invisible in testing and unrecoverable in deployment.
+>
+> **Two floors read lower and the coverage is larger.** Unit 91 to 90,
+> integration 81 to 77, contract unchanged at 87. The denominators changed, so
+> the percentages are not comparable across this commit; the absolute figures
+> are, and they went up in every stage — the unit stage from 4,788 statements
+> covered to 6,661, the integration stage from 788 to 2,313. `tasks.py` records
+> those numbers beside the floors, because a floor that drops in the commit
+> after one that raised it needs the reason written where somebody will find
+> it.
+>
+> **What stops a floor being lowered to fit a result is not a number.** It is
+> `COVERAGE_EXCLUSIONS` and the tree check: the measured set cannot shrink
+> without a decision recorded with its reason, and three further tests refuse
+> an exclusion that is measured anyway, an exclusion naming a file that no
+> longer exists, and a module measured by two stages at once.
+>
+> **Two modules are the weakest left and are not this finding's to fix.**
+> `worker/stages.py` at 61.5 per cent and `core/application/orchestrator.py` at
+> 59.2 per cent are the two largest gaps under the new floors. They are covered
+> in the sense that matters — the integration suite drives real runs through
+> both — and what is missing is the failure paths. Worth a finding of its own
+> rather than a floor set high enough to force it.
+>
+> One note on the run itself. The full suite reported twenty-three failures in
+> `tests/unit/test_worker.py` and `test_worker_planning.py` at one point, all
+> of which passed in isolation and in fixed order. That run took 468 seconds
+> against a usual 225 and the machine's disk failed minutes later; re-run on a
+> healthy disk the same 2,145 tests pass. Recorded because a reader finding
+> that in the history should know it was the hardware rather than a flake
+> somebody decided to ignore.
+
 ---
 
 ### RF-21 — P5 — The breaking-change gate has no baseline
@@ -3042,7 +3110,7 @@ diff of.
 | RF-17 | P4 | `readyz` checks one dependency and builds an engine per probe — **done** |
 | RF-18 | P4 | `/metrics` exposes no DRAUPNIR metric; traces go nowhere — **done**; two worker-side metrics await a scrape surface on the worker |
 | RF-19 | P5 | Eleven coverage targets collect nothing — **done**; floors raised to 91/87/81 |
-| RF-20 | P5 | HODD and GLEIPNIR are under no coverage floor |
+| RF-20 | P5 | HODD and GLEIPNIR are under no coverage floor — **done**; every shipped module is measured, floors 90/87/77 |
 | RF-21 | P5 | The breaking-change gate has no baseline |
 | RF-22 | P5 | The visual regression gate never gates in CI |
 | RF-23 | P5 | `clients-check` fails on any CRLF checkout |

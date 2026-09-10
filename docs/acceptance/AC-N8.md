@@ -7,7 +7,7 @@
 
 ## How it is demonstrated
 
-91 per cent on the unit stage, 87 on the contract stage and 81 on the integration stage, and every transition in SAD 6.1 exercised by name. Each stage now refuses a run in which a named target measured nothing: eleven of them were doing exactly that, so the figures were computed over a smaller denominator than they named (RF-19).
+90 per cent on the unit stage, 87 on the contract stage and 77 on the integration stage, over every module the distribution ships -- the set is derived from the tree, so a module under no floor fails the build and an exclusion is a decision recorded with its reason (RF-20). Each stage also refuses a run in which a named target measured nothing (RF-19). Every transition in SAD 6.1 is exercised by name. The percentages read lower than before those two findings and the coverage is larger: the unit stage went from 4,788 statements covered to 6,661, and the integration stage from 788 to 2,313.
 
 
 ```bash

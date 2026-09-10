@@ -73,13 +73,25 @@ class Failure(Exception):
 # below checks the same list the run was given. A target list that could drift
 # from the flags would reintroduce the defect one rename later.
 
-#: The floors each stage must clear. Raised to the achieved figure rather than
-#: fitted to it: RF-19 found eleven targets measuring nothing, so both the 90
-#: and the 85 were computed over a smaller denominator than they named and the
-#: real coverage was not what the numbers said.
-UNIT_FLOOR = 91
+#: The floors each stage must clear, each set to the figure that stage reaches.
+#:
+#: Two of them read lower than they did before RF-20, and that is a wider
+#: measurement rather than a regression. RF-20 brought HODD, GLEIPNIR, the
+#: driver interfaces, the worker, the read model and nine more edge modules
+#: under a floor for the first time, so the denominators changed and the
+#: percentages are not comparable across that commit. The absolute figures are,
+#: and they went up in every stage:
+#:
+#:     unit         4,788 -> 6,661 statements covered   (91.16% -> 90.28%)
+#:     contract     1,305 -> 1,457                      (87.16% -> 87.56%)
+#:     integration    788 -> 2,313                      (81.25% -> 77.96%)
+#:
+#: What stops a floor being lowered to fit a result is not the number: it is
+#: `COVERAGE_EXCLUSIONS` and the meta-test that derives the measured set from
+#: the tree. The set cannot shrink without a decision recorded here.
+UNIT_FLOOR = 90
 CONTRACT_FLOOR = 87
-INTEGRATION_FLOOR = 81
+INTEGRATION_FLOOR = 77
 
 #: The unit stage: pure domain and module logic, plus the edge's pure
 #: mechanisms. Routers are exercised by a request and are measured at the
@@ -94,6 +106,13 @@ UNIT_COVERAGE: tuple[str, ...] = (
     "draupnir.svalinn",
     "draupnir.gullinbursti",
     "draupnir.megingjord",
+    # RF-20 added these three. They hold the licence register, the retention
+    # rule, the policy gate, the release sign-off and every driver protocol,
+    # and they were under no floor at all -- so coverage could fall to zero in
+    # them without a stage noticing.
+    "draupnir.hodd",
+    "draupnir.gleipnir",
+    "draupnir.interfaces",
     "draupnir.api.concurrency",
     "draupnir.api.context",
     "draupnir.api.events",
@@ -101,6 +120,18 @@ UNIT_COVERAGE: tuple[str, ...] = (
     "draupnir.api.idempotency",
     "draupnir.api.pagination",
     "draupnir.api.telemetry",
+    "draupnir.api.metrics",
+    "draupnir.api.readiness",
+    "draupnir.api.tracing",
+    # Found by the tree check rather than by anybody's memory, which is the
+    # argument for having it. `assurance` is the seam where GLEIPNIR's gate
+    # definitions meet RAUN's execution -- four lines of adaptation that an
+    # architecture review is meant to be able to find -- and `plugins` is the
+    # entry point loader that decides which drivers this forge will run and
+    # verifies their signatures (SAD 8.2). Five hundred lines of it, under no
+    # floor.
+    "draupnir.api.assurance",
+    "draupnir.core.plugins",
 )
 
 #: The contract stage: the edge, where a convention is shown to be attached to
@@ -111,6 +142,12 @@ CONTRACT_COVERAGE: tuple[str, ...] = (
     "draupnir.api.problems",
     "draupnir.api.routers",
     "draupnir.api.schemas",
+    # Also the edge, and also measured by a request rather than by a unit test
+    # (RF-20). `authentication` verifies a bearer token on the way in,
+    # `reading` and `writing` are the two sides of the read model, and
+    # `development` decides whether the unconfigured principal is allowed.
+    "draupnir.api.authentication",
+    "draupnir.api.development",
 )
 
 #: The integration stage: what needs a database or an object store to exercise.
@@ -118,7 +155,42 @@ INTEGRATION_COVERAGE: tuple[str, ...] = (
     "draupnir.core.infrastructure",
     "draupnir.core.application",
     "draupnir.procedures",
+    # The worker is a process, and what it does needs a database to observe
+    # (RF-20). Measuring it at the unit level would report the tick loop as
+    # uncovered while `tests/integration/test_worker_loop.py` drives a run from
+    # QUEUED to AWAITING_APPROVAL through every line of it.
+    "draupnir.worker",
+    # Both of these are edge modules whose whole point is that they are not
+    # process-local: the idempotency store is a table and the ledger listener
+    # is a PostgreSQL LISTEN. Neither has anything to measure without one.
+    "draupnir.api.idempotency_store",
+    "draupnir.api.ledger_events",
+    # The read model and the writer. Both were measured at the contract level,
+    # where `EmptyReadModel` stands in for one and nothing writes -- so the
+    # largest module in the edge reported 29 per cent while every request a
+    # forge serves went through it. What exercises them needs a database.
+    "draupnir.api.reading",
+    "draupnir.api.writing",
 )
+
+#: Modules deliberately under no floor, with the reason. Read by the meta-test
+#: that derives the measured set from the tree, so an exclusion is a decision
+#: recorded here rather than a module quietly missing from every list.
+COVERAGE_EXCLUSIONS: dict[str, str] = {
+    "draupnir/__init__.py": (
+        "the distribution's version string and nothing else. Every import in the "
+        "process executes it, so it cannot be uncovered; naming it as a target "
+        "would measure a constant."
+    ),
+    "draupnir/api/__init__.py": (
+        "a docstring. It states what the edge layer owns and must not do, which "
+        "is worth reading and holds no statement to execute."
+    ),
+    "draupnir/core/__init__.py": (
+        "a docstring, as above: the layering of SAD 11B and what the core may "
+        "not know. No statements."
+    ),
+}
 
 
 def coverage_flags(targets: Sequence[str], *, report: Path, floor: int) -> list[str]:
