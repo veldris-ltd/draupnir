@@ -2750,6 +2750,67 @@ It just means the gate has never run where it matters.
   nobody knows works.
 - Gated in stage 2.9.
 
+> **Status: partly done — the gate is fixed and the baselines need a CI run.**
+>
+> **The spec can fail now.** A missing baseline is a failure when `CI` is set
+> and a recorded file only on a developer machine, which is where the original
+> reasoning holds: a designer adding a story should get a file to look at and
+> commit, not a red run telling them to dispatch a workflow.
+>
+> **The decision is a function, and that is the point.** `web/e2e/visual/baseline.ts`
+> holds `decide({ exists, ci, bootstrap })` because the defect was in the one
+> part of the system a unit test cannot reach — a Playwright spec runs under
+> Playwright or not at all, and `web/vitest.config.ts` excludes `e2e/**`. Five
+> cases are asserted, including that a baseline which exists is never
+> overwritten even while bootstrapping: a run that regenerated every baseline
+> from the current code would be a gate approving whatever it was pointed at.
+>
+> **`bootstrap` is a separate signal from `ci`, deliberately.** If recording
+> were what CI did when it found nothing to compare against, this finding would
+> simply return in a new costume. It is set in exactly one place —
+> `.github/workflows/visual-baselines.yaml` — which records the baselines on
+> the pipeline's own architecture and uploads them as an artefact. **It commits
+> nothing.** A workflow that pushed regenerated baselines to a branch would
+> mean the first change altering a component's rendering also rewrote the
+> evidence it was checked against, and every diff after that would be green.
+>
+> **Watched fail, and watched pass.** The 220 baselines were moved aside and
+> the stage run with `CI=1`: it fails, naming the story, the platform, that the
+> reader's change did not cause it, and the workflow that fixes it. Restored,
+> the same run passes all eight shards against the committed baselines. Both
+> halves matter — a gate that fails on everything is as useless as one that
+> fails on nothing.
+>
+> **What is not done: the `-linux` baselines.** A screenshot is only meaningful
+> on the platform that will diff against it. One taken on this machine and
+> named `-linux` would be win32 pixels wearing another platform's name, and
+> would fail every CI run for reasons unrelated to any change — which is how a
+> gate gets switched off. They have to come from a run on `ubuntu-24.04-arm`,
+> which is what the dispatch workflow is for.
+>
+> **So the pipeline is red until somebody dispatches it**, and that is the true
+> state rather than a regression. Stage 2.9 has never compared anything; before
+> this it reported green while doing so. The step is one dispatch, one
+> download, one commit, and it is written into `AC-Q5`'s note where the next
+> person to look will find it.
+>
+> The third acceptance criterion — a deliberate one-pixel change watched
+> failing on CI — is the same dependency. It cannot be watched until there is
+> something for it to be compared against.
+>
+> **A completeness check that holds today.** `web/tests/visual-baseline-coverage.test.ts`
+> asserts every platform with any baselines carries the *same set of stories*
+> as every other. Not "some baselines exist": a platform with 219 of 220 is the
+> failure that matters, because the ungated story is silently ungated while the
+> stage stays green — RF-22 again in miniature. Platforms are compared against
+> each other rather than against `index.json` because the index needs a built
+> Storybook, which is gitignored, so a check that read it would only run where
+> somebody had already built one.
+>
+> AC-Q5 said IMPLEMENTED and said 175 snapshots. There are 220, and the gate
+> had never compared any of them. It is DEVIATED with the reason, until the
+> baselines land.
+
 ---
 
 ### RF-23 — P5 — `clients-check` fails on any CRLF checkout
@@ -3166,7 +3227,7 @@ diff of.
 | RF-19 | P5 | Eleven coverage targets collect nothing — **done**; floors raised to 91/87/81 |
 | RF-20 | P5 | HODD and GLEIPNIR are under no coverage floor — **done**; every shipped module is measured, floors 90/87/77 |
 | RF-21 | P5 | The breaking-change gate has no baseline — **done**; a parameter's schema was never compared either |
-| RF-22 | P5 | The visual regression gate never gates in CI |
+| RF-22 | P5 | The visual regression gate never gates in CI — **gate done**, `-linux` baselines need one dispatch of `visual-baselines` on the CI runner |
 | RF-23 | P5 | `clients-check` fails on any CRLF checkout |
 | RF-24 | P5 | `tasks.py ci` is not the pipeline |
 | RF-25 | P5 | The secret scan cannot run on the documented Windows path |

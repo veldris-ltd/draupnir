@@ -1,0 +1,117 @@
+# Generate visual baselines on the architecture the pipeline runs on. RF-22.
+#
+# Every committed baseline was `…-win32.png` and the pipeline runs on
+# `ubuntu-24.04-arm`, so stage 2.9 found no baseline for any story on every run,
+# recorded 220 into a container it then threw away, and reported green having
+# compared nothing. A gate that cannot fail is worse than no gate: it occupies
+# the place where somebody would otherwise notice the absence.
+#
+# This is the workflow that produces the missing half. It is dispatched by
+# hand, it uploads the baselines as an artefact, and **it commits nothing**.
+#
+# The commit is a person's. A workflow that pushed regenerated baselines to a
+# branch would be a gate that approves whatever it is pointed at: the first
+# change that altered a component's rendering would also rewrite the evidence
+# it was supposed to be checked against, and the diff would be green forever
+# after. Somebody downloads the artefact, looks at what changed, and commits on
+# purpose.
+
+name: Visual baselines
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why baselines are being generated (recorded in the run)"
+        required: true
+        default: "No baselines exist for this platform yet"
+
+concurrency:
+  group: visual-baselines-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.12.8"
+  PNPM_VERSION: "9.12.0"
+  NODE_VERSION: "22"
+  FORCE_COLOR: "1"
+
+jobs:
+  baselines:
+    name: Record Storybook baselines
+    # The same label the pipeline uses, and that is the whole point: a baseline
+    # is only worth anything on the platform that will diff against it.
+    runs-on: ${{ vars.DRAUPNIR_RUNNER || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Say why
+        run: echo "${{ inputs.reason }}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install Python 3.12
+        run: uv python install 3.12
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Sync Python dependencies
+        run: uv sync --all-groups --frozen
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        working-directory: web
+        run: pnpm exec playwright install --with-deps chromium
+
+      # The one place `DRAUPNIR_VISUAL_BOOTSTRAP` is set. The spec records a
+      # missing baseline rather than failing only when it sees this, so an
+      # ordinary pipeline run that finds nothing to compare against still goes
+      # red -- which is the state RF-22 found and the state that has to stay
+      # visible until the artefact below is committed.
+      #
+      # A baseline that already exists is compared, not overwritten, even here.
+      - name: Record baselines
+        env:
+          DRAUPNIR_VISUAL_BOOTSTRAP: "1"
+        run: python tasks.py test-visual
+
+      - name: What was recorded
+        if: always()
+        run: |
+          cd web/e2e/visual/storybook.spec.ts-snapshots
+          echo "Baselines present after the run, by platform:"
+          for platform in linux win32 darwin; do
+            count=$(ls -1 2>/dev/null | grep -c -- "-${platform}.png" || true)
+            echo "  ${platform}: ${count}"
+          done
+
+      - name: Upload for a human to commit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-baselines-${{ github.sha }}
+          path: web/e2e/visual/storybook.spec.ts-snapshots/
+          retention-days: 14
+          if-no-files-found: error

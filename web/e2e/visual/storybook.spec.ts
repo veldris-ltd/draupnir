@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { test, expect } from '@playwright/test';
+import { decide, missingBaselineMessage } from './baseline';
 
 interface StoryIndex {
   entries: Record<string, { id: string; title: string; name: string; type: string }>;
@@ -12,9 +13,17 @@ interface StoryIndex {
 //
 // Baselines are per platform, and Playwright's own behaviour for a missing one
 // is to write it and fail. That would make the first build on any new platform
-// red through no fault of the change under test, so a missing baseline is
-// recorded and annotated here instead. The annotation names the file to
+// red through no fault of the change under test, so on a developer machine a
+// missing baseline is recorded and annotated. The annotation names the file to
 // commit; every run after that is a real diff gate.
+//
+// On CI it is a failure (RF-22). The reasoning above was sound and the
+// consequence was not: every committed baseline was `…-win32.png` and CI runs
+// on `ubuntu-24.04-arm`, so every CI run found no baseline for any story,
+// recorded 220 into a container it then discarded, and reported stage 2.9
+// green having compared nothing. `decide` in `./baseline` holds that choice,
+// because it is the part that was wrong and a Playwright test is the one place
+// a unit test cannot reach.
 //
 // Sharded, because a hundred and sixty eight navigations and full-page
 // screenshots in series take a quarter of an hour on one core. Each shard
@@ -78,10 +87,23 @@ for (let shard = 0; shard < SHARDS; shard += 1) {
 
       const name = `${story.id}.png`;
       const baseline = test.info().snapshotPath(name);
+      const decision = decide({
+        exists: existsSync(baseline),
+        ci: Boolean(process.env.CI),
+        // Set only by the `visual-baselines` workflow dispatch, which exists
+        // to produce them. A separate signal from CI rather than a mode CI
+        // falls into, so recording can never be what an ordinary pipeline run
+        // does when it finds nothing to compare against.
+        bootstrap: process.env.DRAUPNIR_VISUAL_BOOTSTRAP === '1',
+      });
 
-      if (existsSync(baseline)) {
+      if (decision === 'compare') {
         await expect(page).toHaveScreenshot(name, { fullPage: true });
         continue;
+      }
+
+      if (decision === 'fail') {
+        throw new Error(missingBaselineMessage(`${story.title} / ${story.name}`, process.platform));
       }
 
       mkdirSync(dirname(baseline), { recursive: true });

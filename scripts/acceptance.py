@@ -617,9 +617,22 @@ REGISTER: dict[str, Entry] = {
         "make test-property",
     ),
     "AC-Q5": Entry(
-        IMPLEMENTED,
-        "A snapshot per component per state, 175 in all, with a diff gate.",
+        DEVIATED,
+        "A snapshot per component per state, 220 in all, with a diff gate that can now "
+        "fail: a missing baseline is a failure on CI rather than a recorded file and a "
+        "pass (RF-22).",
         "make test-visual",
+        note="The 220 committed baselines are all `-win32.png` and the pipeline runs on "
+        "linux/arm64, so stage 2.9 has never compared anything -- it recorded 220 "
+        "baselines into a container it then discarded and reported green. The gate is "
+        "fixed and the baselines are not: a screenshot is only meaningful on the "
+        "platform that will diff against it, and one taken on this machine and named "
+        "`-linux` would fail every CI run for reasons unrelated to any change. "
+        "`.github/workflows/visual-baselines.yaml` generates them on the CI "
+        "architecture and uploads them for a person to commit; until somebody "
+        "dispatches it, stage 2.9 is red, which is the true state and was not "
+        "visible before. The deliberate one-pixel regression this criterion asks "
+        "somebody to watch fail can only be watched once the baselines exist.",
     ),
     "AC-Q6": Entry(
         IMPLEMENTED,
