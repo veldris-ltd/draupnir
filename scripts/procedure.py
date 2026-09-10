@@ -140,7 +140,13 @@ def main(argv: list[str] | None = None) -> int:
         "renderedPlans": procedure.plans,
     }
     args.evidence.parent.mkdir(parents=True, exist_ok=True)
-    args.evidence.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    # LF on every platform (RF-23): this is evidence, and evidence whose
+    # bytes depend on who produced it is evidence that cannot be compared.
+    args.evidence.write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
 
     print(f"\n  run {procedure.run_id} released; evidence in {args.evidence.relative_to(ROOT)}")
     return 0

@@ -601,7 +601,13 @@ REGISTER: dict[str, Entry] = {
     ),
     "AC-Q2": Entry(
         IMPLEMENTED,
-        "Both clients are regenerated and compared; a drifted client fails the build.",
+        "Both clients are regenerated and compared; a drifted client fails the build. "
+        "The comparison is on content rather than on bytes, so a checkout's line "
+        "endings are not drift, and every generator writes LF so its output does not "
+        "depend on who ran it (RF-23). The gate could not run at all between RF-01 and "
+        "RF-23 -- exporting the document builds the application, which refuses without "
+        "a way to authenticate a caller -- and in that window both clients fell behind "
+        "by three operations without anything reporting it.",
         "make clients-check",
     ),
     "AC-Q3": Entry(

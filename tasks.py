@@ -719,6 +719,37 @@ def clients() -> int:
 
 #: The three files the build writes from the application's own OpenAPI
 #: document. Nothing else may write them.
+def content_of(path: Path) -> bytes | None:
+    """A file's content with line endings normalised, or `None` if absent.
+
+    The drift gates compare what a generator produces against what is on disk,
+    and both halves of that comparison have been platform-dependent (RF-23).
+    A generator writing with `Path.write_text` and no `newline` emits CRLF on
+    Windows; `.gitattributes` is `* text=auto`, so a checkout may hand you
+    either; and an editor that saved a file once may have converted it. The
+    gate then reported drift in a file whose `git diff --stat` showed no change
+    at all -- and reported it every time, on every Windows build, which is how a
+    gate gets run with one eye closed.
+
+    **Both fixes are applied, because they answer different questions.** Every
+    generator now writes LF explicitly, so the *output* is deterministic and
+    the repository holds one set of bytes; this normalises the *comparison*, so
+    the gate is right about a file however it came to have the endings it has.
+    The register offered these as alternatives and said to pick one and say
+    which. Picking only the first would leave the gate correct on a clean
+    checkout and wrong for anybody whose editor had touched a generated file;
+    picking only the second would leave two developers' generators disagreeing
+    about the bytes to commit.
+
+    Read as bytes rather than as text: a generated file is compared, not
+    interpreted, and decoding it would make an encoding change look like drift
+    on a line the diff cannot show.
+    """
+    if not path.exists():
+        return None
+    return path.read_bytes().replace(b"\r\n", b"\n")
+
+
 GENERATED = (
     ROOT / "docs" / "api" / "openapi.json",
     ROOT / "draupnirctl" / "_generated.py",
@@ -730,16 +761,20 @@ GENERATED = (
 @task("clients-check", "Fail if the CLI or TypeScript client has drifted (AC-Q2)")
 def clients_check() -> int:
     # The check is on content, not on git state. Regenerating and comparing
-    # bytes catches a hand edit whether or not the file was ever committed,
-    # which a `git status` check alone does not: an untracked generated file
-    # looks like drift on a fresh clone and like nothing at all once someone
-    # adds it to .gitignore.
-    before = {path: path.read_bytes() if path.exists() else None for path in GENERATED}
+    # catches a hand edit whether or not the file was ever committed, which a
+    # `git status` check alone does not: an untracked generated file looks like
+    # drift on a fresh clone and like nothing at all once someone adds it to
+    # .gitignore.
+    #
+    # `content_of` rather than `read_bytes` because line endings are not
+    # content (RF-23). This gate failed on every Windows build, naming files
+    # whose `git diff --stat` reported no change.
+    before = {path: content_of(path) for path in GENERATED}
 
     openapi()
     clients()
 
-    drifted = [path for path in GENERATED if path.read_bytes() != before[path]]
+    drifted = [path for path in GENERATED if content_of(path) != before[path]]
     if drifted:
         listing = "\n".join(f"  {path.relative_to(ROOT).as_posix()}" for path in drifted)
         raise Failure(

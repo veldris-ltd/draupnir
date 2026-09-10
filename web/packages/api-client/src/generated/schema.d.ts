@@ -99,6 +99,14 @@ export interface paths {
          *     specification, a corpus path or an actor identity: a metric labelled by
          *     actor is a metric with an unbounded label set, and one labelled by artefact
          *     is a cardinality problem that also happens to leak what is being built.
+         *     That was a statement about metrics that did not exist -- this returned four
+         *     Python garbage-collector counters and nothing else -- so RF-18 gave it the
+         *     SAD 11.3 signals to report and `draupnir.api.metrics` a test that enforces
+         *     the sentence above rather than repeating it.
+         *
+         *     Collected in a thread. A Prometheus collector is synchronous, and the site
+         *     collector reads the database, so gathering on the event loop would stall
+         *     every request in this process for the length of a scrape.
          */
         get: operations["getMetrics"];
         put?: never;
@@ -118,10 +126,16 @@ export interface paths {
         };
         /**
          * Readiness
-         * @description Return readiness, having checked each dependency.
+         * @description Return readiness, having probed each configured dependency.
          *
          *     SAD 11.2 requires degraded modes to be visible rather than fatal, so a
          *     failed dependency reports `degraded` rather than raising.
+         *
+         *     This constructs nothing (RF-17). It used to call `create_engine()` and
+         *     `engine.dispose()` on every probe, so an orchestrator checking every few
+         *     seconds built and tore down a connection pool at that rate -- next to the
+         *     pooled engine the lifespan already owns. The dependencies are wired once,
+         *     at startup, and this reads them.
          */
         get: operations["getReadiness"];
         put?: never;
@@ -143,18 +157,72 @@ export interface paths {
          * The adapter array and its element states
          * @description The fifty-six element adapter array. S12, SAD 5.2 MOTSOGNIR.
          *
-         *         Built from the runs at this site rather than from a separate array record,
-         *         because that is what the array *is*: one element per jurisdiction, each of
-         *         which becomes a run. An element that has no run yet is `PENDING`, which is
-         *         a real state and not a missing row -- the array monitor exists to show the
-         *         elements that have not started as much as the ones that have.
+         *         Read from the array the chain records (RF-13). This was built from the runs
+         *         at the site: they were listed, sorted and numbered `0..n`, so `size` was the
+         *         number of runs rather than fifty-six, `attempts` was `max(1, 4 -
+         *         retry_budget)` -- a formula rather than a count -- and a site with sixty
+         *         runs from other work reported a sixty-element array. An array that had been
+         *         submitted and had not started reported size zero.
+         *
+         *         A site that has submitted no array gets an empty one that says so, rather
+         *         than one derived from whatever runs happen to exist. That is the answer the
+         *         old handler could not give, because it always had a number.
          *
          *
          *     Requires: `admin`, `approver`, `curator`, `operator`, `viewer`.
          */
         get: operations["getArray"];
         put?: never;
-        post?: never;
+        /**
+         * Submit an array over many subjects as one scheduler array
+         * @description Accept an array submission. Returns 202. RF-13.
+         *
+         *         Recorded here and submitted by the worker, like every other piece of work
+         *         the API accepts: SAD 5.1 puts the scheduler behind the worker, and a
+         *         handler that submitted would be an HTTP request blocking on the scheduler
+         *         (AC-B9).
+         *
+         *         The subjects default to the whole programme, because that is what CIM-56
+         *         is: fifty-six jurisdictions, one element each. They are validated against
+         *         the tier table rather than taken as given -- an array over a jurisdiction
+         *         outside the programme would train a fifty-seventh model, and `tiers.tier_of`
+         *         never guesses (RF-11).
+         *
+         *
+         *     Requires: `operator`.
+         */
+        post: operations["submitArray"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/arrays/{name}/elements/{index}/requeue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resubmit one element of an array, leaving the others untouched
+         * @description Requeue one element. S12's primary action, and AC-F6.
+         *
+         *         One element, never the array. Slurm restarts every element of a resubmitted
+         *         array, discarding the compute of the ones that succeeded -- for fifty-six
+         *         elements against three appliances, most of a week. So this records a
+         *         request for `--array=<index>` and the worker submits exactly that.
+         *
+         *         S12 named this as the screen's primary action and there was no operation
+         *         behind it (RF-13).
+         *
+         *
+         *     Requires: `operator`.
+         */
+        post: operations["requeueArrayElement"];
         delete?: never;
         options?: never;
         head?: never;
@@ -698,6 +766,12 @@ export interface paths {
          *         Nothing here waits for an allocation, let alone for training. The
          *         specification is validated and recorded, and the client watches the stream.
          *
+         *         Validated through `admit`, which is the same door `dryRunSpecification`
+         *         uses (RF-11). This said "validate" and checked only that the specification
+         *         was not empty: one the dry run refused with 422 was accepted here with 202
+         *         and failed later, having consumed a run identifier, a ledger entry and a
+         *         place in the queue.
+         *
          *
          *     Requires: `operator`.
          */
@@ -798,9 +872,16 @@ export interface paths {
         };
         /**
          * Watch a run's state deltas
-         * @description Server-sent events carrying state deltas, never list refreshes.
+         * @description Server-sent events for one run, carrying state deltas. RF-15.
          *
-         *         A reconnecting client sends `Last-Event-ID` and receives what it missed. A
+         *         Two things this did not do. It took `run_id` and used it only in a log
+         *         line, so a run's stream carried every other run's events; and it yielded
+         *         the buffered frames plus one keep-alive comment and closed, so it was a
+         *         page of history rather than a stream. A console watching one run saw
+         *         fifty-five other runs' changes and then had its connection closed.
+         *
+         *         Now it filters on the run and stays open, the way the site stream does. A
+         *         reconnecting client sends `Last-Event-ID` and receives what it missed; a
          *         client asking for a point the buffer has dropped is told to resynchronise
          *         rather than served from the oldest event it happens to still hold, because
          *         a silent gap leaves the client's state wrong with nothing to detect it.
@@ -1059,7 +1140,7 @@ export interface components {
         ArrayElementOut: {
             /**
              * Attempts
-             * @description How many times it has been submitted.
+             * @description How many times it has been submitted. Counted from the chain, not derived from a retry budget (RF-13).
              */
             attempts: number;
             /**
@@ -1094,10 +1175,21 @@ export interface components {
          */
         ArrayOut: {
             /**
+             * Concurrency
+             * @description How many elements run at once.
+             * @default 1
+             */
+            concurrency: number;
+            /**
              * Elements
              * @description Every element, in index order.
              */
             elements: components["schemas"]["ArrayElementOut"][];
+            /**
+             * Jobid
+             * @description The scheduler's identifier for the array.
+             */
+            jobId?: string | null;
             /**
              * Name
              * @description What the array is producing.
@@ -1109,12 +1201,41 @@ export interface components {
              */
             size: number;
             /**
+             * Slurmarray
+             * @description The `--array` directive this was submitted with, e.g. `0-55%3`.
+             * @default
+             */
+            slurmArray: string;
+            /**
              * Summary
              * @description How many elements are in each state.
              */
             summary: {
                 [key: string]: number;
             };
+        };
+        /**
+         * ArraySubmission
+         * @description An array over many subjects, submitted as one scheduler array. RF-13.
+         */
+        ArraySubmission: {
+            /**
+             * Name
+             * @description What the array is called, and what its elements are named after.
+             * @default cim-56-adapters
+             */
+            name: string;
+            /**
+             * Retrybudget
+             * @description How many times an element may be retried.
+             * @default 2
+             */
+            retryBudget: number;
+            /**
+             * Subjects
+             * @description The jurisdictions to build elements for. Empty means all fifty-six.
+             */
+            subjects?: string[];
         };
         /**
          * ArtefactOut
@@ -2062,7 +2183,13 @@ export interface components {
         };
         /**
          * Readiness
-         * @description Readiness answer, one entry per dependency.
+         * @description Readiness answer, one entry per configured dependency.
+         *
+         *     A dependency this deployment does not have is absent rather than `false`
+         *     (RF-17): a forge with no scheduler is not degraded for want of one, and a
+         *     probe that says otherwise is a probe operators learn to ignore. What each
+         *     name means, and which section of `docs/runbook.md` it sends an operator to,
+         *     is in `readiness.RUNBOOK_SECTIONS`.
          */
         Readiness: {
             /** Checks */
@@ -3092,6 +3219,143 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ArrayOut"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    submitArray: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Replaying a request with the same key returns the original result. */
+                "Idempotency-Key"?: string | null;
+                "X-Correlation-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArraySubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Accepted"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    requeueArrayElement: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Replaying a request with the same key returns the original result. */
+                "Idempotency-Key"?: string | null;
+                "X-Correlation-Id"?: string | null;
+            };
+            path: {
+                name: string;
+                index: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Accepted"];
                 };
             };
             /** @description An RFC 9457 problem document */

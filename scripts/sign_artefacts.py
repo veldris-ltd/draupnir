@@ -161,7 +161,15 @@ def main(argv: list[str] | None = None) -> int:
         manifest = sign_distributions(names, key_material=key_material, key_id=args.key_id)
         target = args.out or (args.sbom_dir / "plugin-signatures.json")
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+        # LF on every platform (RF-23). This one matters more than most:
+        # the manifest is signed, and a signature is over bytes. A manifest
+        # written on Windows and verified on Linux would be a signature
+        # failure with no explanation anywhere.
+        target.write_text(
+            json.dumps(manifest, indent=2, sort_keys=True),
+            encoding="utf-8",
+            newline="\n",
+        )
         print(f"wrote {target} covering {len(names)} distribution(s)")
         return 0
 

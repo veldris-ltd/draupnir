@@ -145,6 +145,13 @@ def main(argv: list[str] | None = None) -> int:
             if current != expected:
                 stale.append(package.name)
             continue
+        # Only when it differs (RF-23). This rewrote all fifteen on every run,
+        # which on a checkout whose line endings are CRLF left fifteen modified
+        # files behind with no content change in any of them -- so `make static`
+        # dirtied the tree it was there to check. Read with universal newlines,
+        # so the comparison is about content whichever endings are on disk.
+        if target.is_file() and target.read_text(encoding="utf-8") == expected:
+            continue
         target.write_text(expected, encoding="utf-8", newline="\n")
         print(f"wrote {target.relative_to(ROOT)}")
 
@@ -152,6 +159,8 @@ def main(argv: list[str] | None = None) -> int:
         if stale:
             print(f"stale README(s): {', '.join(stale)}. Run `make module-readmes`.")
             return 1
+        print(f"{len(packages())} module README(s) current")
+    else:
         print(f"{len(packages())} module README(s) current")
     return 0
 

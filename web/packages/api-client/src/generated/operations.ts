@@ -78,6 +78,22 @@ export const OPERATIONS = {
     pathParams: [],
     hasBody: false,
   },
+  submitArray: {
+    operationId: "submitArray",
+    method: "POST",
+    path: "/v1/arrays",
+    summary: "Submit an array over many subjects as one scheduler array",
+    pathParams: [],
+    hasBody: true,
+  },
+  requeueArrayElement: {
+    operationId: "requeueArrayElement",
+    method: "POST",
+    path: "/v1/arrays/{name}/elements/{index}/requeue",
+    summary: "Resubmit one element of an array, leaving the others untouched",
+    pathParams: ["name", "index"],
+    hasBody: false,
+  },
   listCorpora: {
     operationId: "listCorpora",
     method: "GET",

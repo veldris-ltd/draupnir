@@ -2858,6 +2858,61 @@ development path; `make static` and `make ci` cannot pass on it.
   fails.
 - Gated in stage 3.2.
 
+> **Status: done, and the gate was hiding something bigger.**
+>
+> **Both fixes, because they answer different questions.** The register offered
+> them as alternatives and asked for one to be chosen and stated. Neither alone
+> is enough: normalising only the comparison leaves two developers committing
+> different bytes for the same document, and fixing only the generators leaves
+> the gate wrong about a file an editor converted. So every generator writes
+> `newline="\n"` explicitly, and `tasks.content_of` normalises before
+> comparing. The reasoning is in `content_of`'s docstring, where the next
+> person to meet this will be standing.
+>
+> **The root cause was on the write side, not the checkout side.**
+> `Path.write_text` with no `newline` translates every newline to
+> `os.linesep`, which on Windows is CRLF. Five of the nine generators passed
+> `newline="\n"` and four did not — so the same document had different bytes
+> depending on who ran the generator, while `git status` reported nothing,
+> because the index normalises. One of the four writes a manifest that is then
+> **signed**, where a byte difference is a verification failure with no
+> explanation anywhere near it.
+>
+> **`clients-check` could not run at all, and had not since RF-01.** Exporting
+> the document builds the application, and `create_app` refuses without a way
+> to authenticate a caller — RF-01's refusal, and a correct one. But an export
+> serves no request, so there is no caller to authenticate, and the refusal
+> made `python tasks.py openapi` impossible to run anywhere the variable was
+> not already set: on a developer machine, and in CI stages 2.5 and 3.2.
+>
+> **In that window both clients fell three operations behind.**
+> `submitArray` and `requeueArrayElement` from RF-13, and `listCorpora`, were
+> in the OpenAPI document and in neither generated client. AC-Q2 — "a drifted
+> client fails the build" — was unenforced for the whole series, and the
+> failure it exists to catch happened during it. The clients are regenerated
+> in this commit.
+>
+> `render()` now builds in the development posture, which is safe rather than
+> convenient: the paths, schemas and security schemes are identical either way,
+> and a test exports the document under both and compares the bytes. If a
+> change ever makes the contract depend on how a caller is authenticated, that
+> test fails rather than the export quietly publishing one of two contracts.
+>
+> **`module-readmes` rewrote all fifteen on every run.** It already wrote LF
+> and already read with universal newlines, so its check was sound; what it did
+> not do was compare before writing. On a CRLF checkout that left fifteen
+> modified files behind with no content change in any of them — `make static`
+> dirtying the tree it was there to check. It now writes only what differs, and
+> two consecutive runs leave nothing.
+>
+> **The tests are structural where that is the only thing that works.**
+> `test_every_generator_writes_lf_on_every_platform` parses each script and
+> looks for a `write_text` with no `newline`, over a list derived from the
+> `scripts/` directory, so a tenth generator arrives checked. And
+> `test_the_platform_actually_translates_so_this_matters` asserts the premise:
+> on Linux `os.linesep` is `\n` and this whole class of bug is invisible, which
+> is exactly why it survived — the pipeline runs on Linux and never saw it.
+
 ---
 
 ### RF-24 — P5 — `tasks.py ci` is not the pipeline
@@ -3228,7 +3283,7 @@ diff of.
 | RF-20 | P5 | HODD and GLEIPNIR are under no coverage floor — **done**; every shipped module is measured, floors 90/87/77 |
 | RF-21 | P5 | The breaking-change gate has no baseline — **done**; a parameter's schema was never compared either |
 | RF-22 | P5 | The visual regression gate never gates in CI — **gate done**, `-linux` baselines need one dispatch of `visual-baselines` on the CI runner |
-| RF-23 | P5 | `clients-check` fails on any CRLF checkout |
+| RF-23 | P5 | `clients-check` fails on any CRLF checkout — **done**; it could not run at all since RF-01, and both clients had drifted by three operations |
 | RF-24 | P5 | `tasks.py ci` is not the pipeline |
 | RF-25 | P5 | The secret scan cannot run on the documented Windows path |
 | RF-26 | P5 | Two frontend advisories sit below the audit threshold |

@@ -121,7 +121,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     document = json.loads(args.spec.read_text(encoding="utf-8"))
-    args.output.write_text(render(document), encoding="utf-8")
+    # LF on every platform. See `openapi_export.py` (RF-23).
+    args.output.write_text(render(document), encoding="utf-8", newline="\n")
     print(f"wrote {args.output}")
     return 0
 

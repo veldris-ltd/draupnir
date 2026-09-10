@@ -32,6 +32,7 @@ make test-unit
 - `tests/unit/test_checkpoints_and_retry.py`
 - `tests/unit/test_placement_and_arrays.py`
 - `tests/unit/test_slurm_driver.py`
+- `web/packages/api-client/src/generated/schema.d.ts`
 
 ---
 
