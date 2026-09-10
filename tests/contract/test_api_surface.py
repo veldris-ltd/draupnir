@@ -458,6 +458,59 @@ def test_every_cursor_declaring_operation_has_a_read_that_honours_it() -> None:
     )
 
 
+def test_readiness_builds_no_engine_however_often_it_is_probed() -> None:
+    """RF-17. It called `create_engine()` and `engine.dispose()` on every probe.
+
+    An engine is a connection pool. Built and disposed per probe it pools
+    nothing, and an orchestrator checking every few seconds was constructing
+    and tearing one down at that rate -- next to the pooled engine the lifespan
+    already owns, which is what the read model has been using all along.
+
+    Counted on `database`, in the module that calls `create_async_engine`,
+    rather than on `sqlalchemy.ext.asyncio` where it is defined. Both that
+    module and the old `health.py` bind their imports at module scope, so a
+    patch applied to where a name is *defined* rebinds nothing the caller
+    holds -- and the test would count zero while ten pools were built, which is
+    exactly the vacuous pass this is guarding against.
+
+    Ten probes rather than one, because a single probe cannot distinguish
+    "builds one per call" from "built one at startup".
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine as real
+
+    built = 0
+
+    def counting(*arguments: Any, **named: Any) -> Any:
+        nonlocal built
+        built += 1
+        return real(*arguments, **named)
+
+    client = client_as(OPERATOR)
+    with pytest.MonkeyPatch.context() as patched:
+        patched.setattr("draupnir.core.infrastructure.database.create_async_engine", counting)
+        for _ in range(10):
+            response = client.get("/readyz")
+            assert response.status_code == 200
+
+    assert built == 0, f"ten readiness probes built {built} engines"
+
+
+def test_readiness_reports_only_the_dependencies_this_deployment_has() -> None:
+    """A `false` for something nobody deployed is a probe operators ignore.
+
+    The contract application has no lifespan, so nothing is wired and the probe
+    answers with no checks at all -- which is the same rule seen from the other
+    end, and is why `status` is computed from what was checked rather than from
+    a fixed list of names.
+    """
+    response = client_as(OPERATOR).get("/readyz")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["checks"] == {}
+
+
 def test_an_invalid_page_size_is_a_problem_document() -> None:
     response = client_as(OPERATOR).get("/v1/runs?limit=0")
 

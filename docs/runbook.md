@@ -44,6 +44,41 @@ make test-degraded          # every row of SAD 11.2, faults injected for real
 
 ---
 
+## Reading `/readyz`
+
+```bash
+curl -s localhost:8000/readyz | jq
+```
+
+Every dependency the control plane can reach reports under its own name, and
+each name is a section below. A `false` is where to start.
+
+| Check | Section | What a `false` means |
+|---|---|---|
+| `database` | [5](#5-postgresql-unavailable) | PostgreSQL on ANDVARI did not answer |
+| `vault` | [4](#4-hodd-vault-unavailable) | the HODD vault is not mounted, or the mount point holds a directory somebody made rather than the vault |
+| `object_store` | [4](#4-hodd-vault-unavailable) | the bucket did not answer. Only on a forge with no vault: where one is configured, HODD uses it and never opens a bucket |
+| `scheduler` | [2](#2-slurm-controller-on-regin-unavailable) | `slurmrestd` on REGIN did not answer |
+| `federation` | [7](#7-wide-area-network-to-megingjord-lost) | MEGINGJORD did not answer over the wide-area link |
+
+**A dependency this forge does not have is absent, not `false`.** A forge with
+no scheduler configured reports no `scheduler` check and is `ready`. That is
+deliberate: a probe that reported `false` for something nobody deployed would
+leave every such forge permanently degraded, and a permanently degraded probe
+is one people stop reading.
+
+**`degraded` is not `down`.** SAD 11.2's whole design is that this system keeps
+running through these: a forge with `federation: false` trains, evaluates and
+refuses to release, which is decision S8 working rather than an outage. The
+sections below say what each one blocks.
+
+**Each check has its own two-second budget and they run together**, so a probe
+answers in about two seconds however many dependencies are unreachable. A
+readiness probe that took the sum would be timed out by whatever is polling it,
+and the whole process would be reported dead over one degraded dependency.
+
+---
+
 ## 1. Control plane restarts
 
 **How you find out.** The console stops loading and `/healthz` does not answer.

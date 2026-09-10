@@ -740,7 +740,9 @@ REGISTER: dict[str, Entry] = {
     "AC-D3": Entry(
         IMPLEMENTED,
         "The runbook has a section per row of SAD 11.2, and every section names the test "
-        "that injects that fault for real.",
+        "that injects that fault for real. `/readyz` reports each dependency under a name "
+        "the runbook indexes back to its row, so an operator reading a degraded probe is "
+        "sent to the procedure rather than to the logs (RF-17).",
         "make test-degraded",
         extra=("docs/runbook.md",),
     ),

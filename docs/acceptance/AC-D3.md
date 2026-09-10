@@ -7,7 +7,7 @@
 
 ## How it is demonstrated
 
-The runbook has a section per row of SAD 11.2, and every section names the test that injects that fault for real.
+The runbook has a section per row of SAD 11.2, and every section names the test that injects that fault for real. `/readyz` reports each dependency under a name the runbook indexes back to its row, so an operator reading a degraded probe is sent to the procedure rather than to the logs (RF-17).
 
 
 ```bash
@@ -18,9 +18,11 @@ make test-degraded
 
 - `docs/runbook.md`
 - `.github/workflows/ci.yaml`
+- `draupnir/api/readiness.py`
 - `draupnir/hodd/reconcile.py`
 - `tests/integration/test_degraded_modes.py`
 - `tests/unit/test_documentation.py`
+- `tests/unit/test_readiness.py`
 
 ---
 

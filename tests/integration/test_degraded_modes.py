@@ -17,6 +17,7 @@ until the night it mattered.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -495,7 +496,153 @@ def test_the_api_reports_degraded_readiness_when_the_database_is_gone() -> None:
     # a bare 500 or a connection refused: both mean the probe died with the
     # dependency it was there to report on.
     assert status in {200, 503}, status
-    assert "degraded" in body or "false" in body, body
+
+    # And it says *which* dependency, by a name the runbook has a section for
+    # (RF-17). "degraded" on its own sends an operator to read logs; the name
+    # sends them to section 5.
+    report = json.loads(body)
+    assert report["checks"]["database"] is False, report
+    assert report["status"] == "degraded"
+
+
+# ---------------------------------------------------------------------------
+# Readiness, across the rows that have a dependency to probe. RF-17.
+# ---------------------------------------------------------------------------
+
+
+def _readiness(port: int, **settings: str) -> dict[str, Any]:
+    """Start an API with these settings and return what `/readyz` reports.
+
+    A real process, because the point is what the probe does when a dependency
+    the *lifespan wired* is unreachable -- and the wiring is the half that was
+    missing. A `TestClient` over an app built without a lifespan reports no
+    checks at all, correctly, and would prove nothing here.
+    """
+    environment = {
+        **os.environ,
+        "DRAUPNIR_DEV": "1",
+        "PYTHONIOENCODING": "utf-8",
+        **settings,
+    }
+    process = subprocess.Popen(  # noqa: S603
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "draupnir.api.app:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--log-level",
+            "warning",
+        ],
+        cwd=ROOT,
+        env=environment,
+    )
+    try:
+        _wait_for(f"http://127.0.0.1:{port}/healthz", timeout=60)
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/readyz", timeout=30) as response:
+            return dict(json.loads(response.read()))
+    except urllib.error.HTTPError as error:
+        return dict(json.loads(error.read()))
+    finally:
+        process.kill()
+        process.wait(timeout=30)
+
+
+def test_an_unreachable_scheduler_is_a_named_false_check(migrated: str) -> None:
+    """SAD 11.2 row 2, on the probe. `docs/runbook.md` section 2.
+
+    The runbook sends an operator to `/readyz` for "runs stuck in QUEUED,
+    nothing dispatching", and before RF-17 the probe could not tell them
+    whether REGIN was answering -- it reported `database` and nothing else.
+
+    Pointed at a port nothing is listening on, which is what a stopped
+    `slurmrestd` looks like from here. The host has to be the allow-listed one:
+    a URL the broker refuses is also a false check, and it would pass this test
+    for the wrong reason.
+    """
+    report = _readiness(
+        8938,
+        DRAUPNIR_DATABASE_URL=migrated.replace("postgresql+psycopg", "postgresql+asyncpg"),
+        DRAUPNIR_DATABASE_URL_SYNC=migrated,
+        DRAUPNIR_SCHEDULER_URL="http://regin.sindri.veldris.internal:6820",
+    )
+
+    assert report["checks"]["database"] is True, report
+    assert report["checks"]["scheduler"] is False, report
+    assert report["status"] == "degraded"
+
+
+def test_an_unmounted_vault_is_a_named_false_check(migrated: str, tmp_path: Path) -> None:
+    """SAD 11.2 row 4, on the probe. `docs/runbook.md` section 4.
+
+    Through `require_vault`, so the two failures the runbook distinguishes are
+    both caught: an absent root is a mount to restore, and a present root with
+    no marker is a directory somebody made that has to be removed before the
+    real mount can go back over it. A bare `is_dir()` calls the second one
+    healthy, and it is the one that silently writes artefacts to a local disk.
+    """
+    absent = tmp_path / "vault-not-mounted"
+    settings = {
+        "DRAUPNIR_DATABASE_URL": migrated.replace("postgresql+psycopg", "postgresql+asyncpg"),
+        "DRAUPNIR_DATABASE_URL_SYNC": migrated,
+    }
+
+    unmounted = _readiness(8939, DRAUPNIR_VAULT_ROOT=str(absent), **settings)
+
+    assert unmounted["checks"]["vault"] is False, unmounted
+    assert unmounted["status"] == "degraded"
+
+    # The mount point exists but is not the vault, which is the failure that
+    # looks like success.
+    made_by_hand = tmp_path / "made-by-hand"
+    made_by_hand.mkdir()
+    empty = _readiness(8939, DRAUPNIR_VAULT_ROOT=str(made_by_hand), **settings)
+
+    assert empty["checks"]["vault"] is False, empty
+
+
+def test_a_severed_federation_link_is_a_named_false_check(migrated: str) -> None:
+    """SAD 11.2 row 7, on the probe. `docs/runbook.md` section 7.
+
+    The WireGuard link to Veldris_NXT is not built, so this name does not
+    resolve -- which is what a severed link looks like and is exactly the state
+    the estate is in. The check reports it rather than the probe failing.
+    """
+    report = _readiness(
+        8940,
+        DRAUPNIR_DATABASE_URL=migrated.replace("postgresql+psycopg", "postgresql+asyncpg"),
+        DRAUPNIR_DATABASE_URL_SYNC=migrated,
+        DRAUPNIR_REGISTRY_URL="https://megingjord.veldris.internal",
+    )
+
+    assert report["checks"]["federation"] is False, report
+    assert report["status"] == "degraded"
+
+
+def test_a_forge_with_no_scheduler_is_ready_rather_than_degraded(migrated: str) -> None:
+    """The other half of the rule, and the one that makes the probe usable.
+
+    A dependency this deployment does not have is absent from the report rather
+    than `false`. Without that, every forge without a scheduler sits
+    permanently degraded, an orchestrator configured to act on readiness never
+    brings one into service, and an operator learns to ignore the probe -- which
+    costs it the only thing it is for.
+    """
+    report = _readiness(
+        8941,
+        DRAUPNIR_DATABASE_URL=migrated.replace("postgresql+psycopg", "postgresql+asyncpg"),
+        DRAUPNIR_DATABASE_URL_SYNC=migrated,
+        DRAUPNIR_SCHEDULER_URL="",
+        DRAUPNIR_REGISTRY_URL="",
+        DRAUPNIR_VAULT_ROOT="",
+    )
+
+    assert "scheduler" not in report["checks"], report
+    assert "federation" not in report["checks"], report
+    assert report["checks"]["database"] is True, report
 
 
 # ---------------------------------------------------------------------------

@@ -151,6 +151,14 @@ class Settings(BaseSettings):
     # same GPUs would be a second thing to keep in step with a driver upgrade.
     prometheus_url: str = ""
 
+    # Where MEGINGJORD answers, empty where this forge is not federated. The
+    # worker has carried this since RF-07 to anchor the chain head; the API
+    # needs it too, because readiness has to be able to say whether the
+    # wide-area link is up (RF-17). `deploy/install.sh` already writes it into
+    # the one environment file both units read, so this names a setting that
+    # was already there rather than adding one.
+    registry_url: str = ""
+
     # The exporter's names for what is being read. Configuration because they
     # are the exporter's, they change between its versions, and section 48.2
     # already warns that an update can rename things underneath this estate --

@@ -10,12 +10,11 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Response
-from sqlalchemy import text
 
+from draupnir.api import readiness
 from draupnir.api.guards import unauthenticated
 from draupnir.api.schemas import Wire
 from draupnir.core.infrastructure.config import get_settings
-from draupnir.core.infrastructure.database import create_engine
 
 router = APIRouter(tags=["operations"])
 
@@ -34,7 +33,14 @@ class Health(Wire):
 
 
 class Readiness(Wire):
-    """Readiness answer, one entry per dependency."""
+    """Readiness answer, one entry per configured dependency.
+
+    A dependency this deployment does not have is absent rather than `false`
+    (RF-17): a forge with no scheduler is not degraded for want of one, and a
+    probe that says otherwise is a probe operators learn to ignore. What each
+    name means, and which section of `docs/runbook.md` it sends an operator to,
+    is in `readiness.RUNBOOK_SECTIONS`.
+    """
 
     status: Literal["ready", "degraded"]
     checks: dict[str, bool]
@@ -60,23 +66,18 @@ async def healthz() -> Health:
     "no run, artefact or ledger content, so there is nothing here to protect."
 )
 async def readyz() -> Readiness:
-    """Return readiness, having checked each dependency.
+    """Return readiness, having probed each configured dependency.
 
     SAD 11.2 requires degraded modes to be visible rather than fatal, so a
     failed dependency reports `degraded` rather than raising.
+
+    This constructs nothing (RF-17). It used to call `create_engine()` and
+    `engine.dispose()` on every probe, so an orchestrator checking every few
+    seconds built and tore down a connection pool at that rate -- next to the
+    pooled engine the lifespan already owns. The dependencies are wired once,
+    at startup, and this reads them.
     """
-    checks: dict[str, bool] = {}
-
-    engine = create_engine()
-    try:
-        async with engine.connect() as connection:
-            await connection.execute(text("SELECT 1"))
-        checks["database"] = True
-    except Exception:
-        checks["database"] = False
-    finally:
-        await engine.dispose()
-
+    checks = await readiness.dependencies().checks()
     status: Literal["ready", "degraded"] = "ready" if all(checks.values()) else "degraded"
     return Readiness(status=status, checks=checks)
 

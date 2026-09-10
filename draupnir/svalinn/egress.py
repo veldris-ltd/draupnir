@@ -131,10 +131,23 @@ class Destination:
 #: JWKS can reach the registry, because it is the same socket.
 FEDERATION_PURPOSE: Final = (
     "chain-head anchoring, policy pull, release metadata push, the JWKS this API "
-    "verifies bearer tokens against, and the authorisation-code exchange the console "
-    "signs in through"
+    "verifies bearer tokens against, the authorisation-code exchange the console "
+    "signs in through, and the readiness probe that reports whether the wide-area "
+    "link is up"
 )
 FEDERATION_POLICY: Final = "federation/2026.01"
+
+#: REGIN's scheduler, named rather than written twice. The allow-list entry and
+#: every caller cite the same constants, so a purpose that grows -- as it did
+#: when readiness started probing the link (RF-17) -- grows in one place. The
+#: policy is what the broker compares, and it is deliberately not the
+#: federation one: a caller approved to reach MEGINGJORD is not thereby
+#: approved to submit a job.
+SCHEDULING_PURPOSE: Final = (
+    "job submission, status and cancellation over slurmrestd, and the readiness "
+    "probe that reports whether the scheduler is answering"
+)
+SCHEDULING_POLICY: Final = "scheduling/2026.01"
 
 #: The Release 1 allow list. Short on purpose: each entry is a destination
 #: somebody argued for, and the list is evidence rather than configuration.
@@ -171,8 +184,8 @@ ALLOW_LIST: Final[tuple[Destination, ...]] = (
         host="regin.sindri.veldris.internal",
         scheme="http",
         port=6820,
-        purpose="job submission, status and cancellation over slurmrestd",
-        approving_policy="scheduling/2026.01",
+        purpose=SCHEDULING_PURPOSE,
+        approving_policy=SCHEDULING_POLICY,
         traverses_site_router=False,
     ),
     # The same host again, and deliberately a second entry rather than a wider

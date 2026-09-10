@@ -28,7 +28,7 @@ from fastapi import APIRouter, FastAPI, Request, Response
 from sqlalchemy import create_engine as sync_engine
 
 from draupnir import __version__
-from draupnir.api import authentication, deps, development, ledger_events, writing
+from draupnir.api import authentication, deps, development, ledger_events, readiness, writing
 from draupnir.api import context as request_context
 from draupnir.api.guards import enforce_declarations
 from draupnir.api.idempotency import IdempotencyStore
@@ -60,6 +60,8 @@ from draupnir.gullinbursti.telemetry import (
 from draupnir.svalinn.egress import (
     FEDERATION_POLICY,
     FEDERATION_PURPOSE,
+    SCHEDULING_POLICY,
+    SCHEDULING_PURPOSE,
     BrokeredClient,
 )
 
@@ -151,9 +153,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         stream_for=runs.stream_for,
     )
     listener.start()
+
+    # What `/readyz` probes (RF-17). Wired here, with the engine the read model
+    # already uses, because the probe used to build a connection pool and throw
+    # it away on every check -- and because a probe reaching the scheduler or
+    # MEGINGJORD is outbound traffic, so it goes through the broker like every
+    # other call rather than being the one nobody decided (threat T11).
+    settings = get_settings()
+    readiness.set_dependencies(
+        readiness.Dependencies(
+            engine=engine,
+            vault_root=settings.vault_root,
+            site_id=settings.site_id,
+            object_store=readiness.object_store_probe(settings),
+            scheduler_url=settings.scheduler_url,
+            registry_url=settings.registry_url,
+            scheduler_client=probe_client(purpose=SCHEDULING_PURPOSE, policy=SCHEDULING_POLICY),
+            federation_client=probe_client(purpose=FEDERATION_PURPOSE, policy=FEDERATION_POLICY),
+        )
+    )
     try:
         yield
     finally:
+        readiness.set_dependencies(readiness.Dependencies())
         await listener.stop()
         deps.set_reader(EmptyReadModel())
         deps.set_estate(Telemetry(client=None))
@@ -181,6 +203,31 @@ def jwks_client(settings: Any) -> authentication.Client | None:
         inner=httpx.Client(timeout=TIMEOUT_SECONDS),
         purpose=FEDERATION_PURPOSE,
         approving_policy=FEDERATION_POLICY,
+    )
+
+
+def probe_client(*, purpose: str, policy: str) -> BrokeredClient:
+    """A client readiness reaches one destination with. RF-17.
+
+    Brokered for the same reason the JWKS fetch is: a readiness probe is a call
+    out of this host, threat T11 is egress with no allow list decided, and the
+    broker's value is only realised where something is obliged to consult it.
+    A probe holding a raw client would be the one outbound call in the process
+    that went round the decision.
+
+    Per destination, because the broker approves a destination under a policy
+    and REGIN's is not MEGINGJORD's. One client for both would be the thing the
+    allow list's two separate entries exist to prevent.
+
+    Its own client rather than the JWKS one, which is built only when an issuer
+    is configured -- a forge with no OIDC still has a scheduler to reach.
+    """
+    import httpx
+
+    return BrokeredClient(
+        inner=httpx.Client(timeout=readiness.CHECK_TIMEOUT_SECONDS),
+        purpose=purpose,
+        approving_policy=policy,
     )
 
 

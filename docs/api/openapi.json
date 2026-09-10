@@ -1707,7 +1707,7 @@
       },
       "Readiness": {
         "additionalProperties": false,
-        "description": "Readiness answer, one entry per dependency.",
+        "description": "Readiness answer, one entry per configured dependency.\n\nA dependency this deployment does not have is absent rather than `false`\n(RF-17): a forge with no scheduler is not degraded for want of one, and a\nprobe that says otherwise is a probe operators learn to ignore. What each\nname means, and which section of `docs/runbook.md` it sends an operator to,\nis in `readiness.RUNBOOK_SECTIONS`.",
         "properties": {
           "checks": {
             "additionalProperties": {
@@ -3198,7 +3198,7 @@
     },
     "/readyz": {
       "get": {
-        "description": "Return readiness, having checked each dependency.\n\nSAD 11.2 requires degraded modes to be visible rather than fatal, so a\nfailed dependency reports `degraded` rather than raising.",
+        "description": "Return readiness, having probed each configured dependency.\n\nSAD 11.2 requires degraded modes to be visible rather than fatal, so a\nfailed dependency reports `degraded` rather than raising.\n\nThis constructs nothing (RF-17). It used to call `create_engine()` and\n`engine.dispose()` on every probe, so an orchestrator checking every few\nseconds built and tore down a connection pool at that rate -- next to the\npooled engine the lifespan already owns. The dependencies are wired once,\nat startup, and this reads them.",
         "operationId": "getReadiness",
         "responses": {
           "200": {

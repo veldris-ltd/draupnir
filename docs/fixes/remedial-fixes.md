@@ -2189,6 +2189,79 @@ situations it cannot report.
   timeout.
 - Gated in stage 2.4.
 
+> **Status: done.**
+>
+> **The probe builds nothing.** `draupnir/api/readiness.py` holds a
+> `Dependencies` the lifespan wires once, with the engine the read model is
+> already using. An engine is a connection pool; built and disposed per probe
+> it pools nothing, and an orchestrator checking every few seconds was
+> constructing and tearing one down at that rate.
+>
+> **Five checks, and each one is an operator's index into the runbook.**
+> `database`, `vault`, `object_store`, `scheduler`, `federation`. The vault
+> goes through `hodd.reconcile.require_vault` rather than `is_dir()`, because
+> the failure a bare check calls healthy is the dangerous one: a directory
+> somebody created on the mount point looks exactly like a mounted vault and
+> is empty. `docs/runbook.md` gained a "Reading `/readyz`" section mapping
+> each name to its row of SAD 11.2, `readiness.RUNBOOK_SECTIONS` is the same
+> join in code, and a test asserts every section it names exists — a mapping
+> kept in prose drifts the first time somebody renumbers a section.
+>
+> **A dependency that is not configured is absent, not `false`.** This is the
+> decision the rest of the design follows from. Reporting `false` for
+> something a forge does not deploy would leave it permanently degraded, an
+> orchestrator acting on readiness would never bring it into service, and an
+> operator would learn to ignore the probe — which costs it the only thing it
+> is for. So `status` is computed from what was actually checked. The object
+> store appears only where it is the store in use: `hodd.stores.store_for`
+> picks the vault when one is configured and never opens a bucket, so a bucket
+> check would be reporting on something that cannot affect service.
+>
+> **Reachability, not capability.** The scheduler and federation checks accept
+> any HTTP answer below 500, including 401 and 404. `slurmrestd` answering
+> "unauthorised" is `slurmrestd` answering, and these rows are about the link.
+> Naming an endpoint path here would put the driver's `API_VERSION` in a
+> second place and make the probe fail on a version bump that broke nothing.
+>
+> **Two brokered clients, not one.** Found while wiring it: the broker
+> approves a *destination under a policy*, and REGIN is `scheduling/2026.01`
+> while MEGINGJORD is `federation/2026.01`. A single client would have been
+> refused for one of them — and worse, a client that could reach both is
+> exactly what the allow list's two separate entries exist to prevent. The
+> allow list's literals became `SCHEDULING_PURPOSE`/`SCHEDULING_POLICY`
+> alongside the federation pair, and both purposes now say the probe is one of
+> the reasons this control plane reaches them: a purpose is evidence, and a
+> call the document does not describe is a call nobody approved.
+>
+> **`Settings` gained `registry_url`.** The worker has carried it since RF-07;
+> the API needs it to say whether the wide-area link is up.
+> `deploy/install.sh` already writes it into the one environment file both
+> units read, so this names a setting that was there rather than adding one.
+>
+> **Each check has its own timeout and they run concurrently.** Four
+> dependencies at two seconds each in sequence is eight, which is longer than
+> the interval an orchestrator probes on — the probes overlap and the pile-up
+> reads as the API being slow. Each check also has its own `except`:
+> `gather` propagates the first exception and discards the rest, so one
+> raising check would cost the operator the four answers that arrived.
+>
+> **Found while writing the test: the obvious engine count is vacuous.**
+> Patching `database.create_engine` counts nothing, because the old
+> `health.py` did `from ... import create_engine` at module scope and held its
+> own reference — and patching `sqlalchemy.ext.asyncio.create_async_engine`
+> fails the same way one level down, since `database.py` binds it at import
+> too. The counter goes on the name *as the caller resolves it*. Against the
+> previous commit the test now reports "ten readiness probes built 10
+> engines"; the first two versions of it passed while ten pools were being
+> built.
+>
+> The faults are injected for real in `tests/integration/test_degraded_modes.py`
+> — a scheduler URL nothing is listening on, an absent vault root, a mount
+> point holding a directory somebody made, and the MEGINGJORD name that does
+> not resolve because the WireGuard link is not built. Row 5's existing test
+> now asserts `checks["database"] is False` by name rather than searching the
+> body for the word "degraded", which sent an operator to the logs.
+
 ---
 
 ### RF-18 — P4 — `/metrics` exposes no DRAUPNIR metric, and traces go nowhere
@@ -2809,7 +2882,7 @@ diff of.
 | RF-14 | P4 | The idempotency store is process-local — **done** |
 | RF-15 | P4 | The event stream is process-local, one-kind, and not a stream — **done** |
 | RF-16 | P4 | `listApprovals` and `listModels` ignore their cursor — **done**; a malformed cursor was silently ignored too |
-| RF-17 | P4 | `readyz` checks one dependency and builds an engine per probe |
+| RF-17 | P4 | `readyz` checks one dependency and builds an engine per probe — **done** |
 | RF-18 | P4 | `/metrics` exposes no DRAUPNIR metric; traces go nowhere |
 | RF-19 | P5 | Eleven coverage targets collect nothing |
 | RF-20 | P5 | HODD and GLEIPNIR are under no coverage floor |

@@ -33,8 +33,8 @@ Something in the programme reaches these and section 10.5 does not permit them. 
 | `pkg-containers.githubusercontent.com` | blocked-by-the-router | image-build | the layers themselves, where ghcr.io serves them from |
 | `storage.googleapis.com` | blocked-by-the-router | image-build | the layers themselves, where gcr.io serves them from |
 | `www.legislation.gov.uk` | blocked-by-the-router | corpus | GBR primary legislation, under the Open Government Licence v3.0 |
-| `megingjord.veldris.internal` | internal-to-the-site | control-plane | chain-head anchoring, policy pull, release metadata push |
-| `regin.sindri.veldris.internal` | internal-to-the-site | control-plane | job submission, status and cancellation over slurmrestd; reading appliance thermal, throttle and fabric measurements |
+| `megingjord.veldris.internal` | internal-to-the-site | control-plane | chain-head anchoring, policy pull, release metadata push, the JWKS this API verifies bearer tokens against, the authorisation-code exchange the console signs in through, and the readiness probe that reports whether the wide-area link is up |
+| `regin.sindri.veldris.internal` | internal-to-the-site | control-plane | job submission, status and cancellation over slurmrestd, and the readiness probe that reports whether the scheduler is answering; reading appliance thermal, throttle and fabric measurements |
 | `api.github.com` | permitted-but-unclaimed | — | nothing in this programme is recorded as reaching it |
 | `api.ngc.nvidia.com` | permitted-but-unclaimed | — | nothing in this programme is recorded as reaching it |
 | `auth.docker.io` | permitted-but-unclaimed | — | nothing in this programme is recorded as reaching it |
@@ -58,7 +58,7 @@ Something in the programme reaches these and section 10.5 does not permit them. 
 
 A permission for a path that does not exist. Worth having declared, and worth not mistaking for a live one.
 
-- `megingjord.veldris.internal` — the WireGuard link to Veldris_NXT is not built (RF-E21), so this name does not resolve and this permission is for a path that does not exist yet
+- `megingjord.veldris.internal` — the WireGuard link to Veldris_NXT is not built, so this name does not resolve and this permission is for a path that does not exist yet. It terminates on REGIN rather than here (RF-E21): REGIN already carries wireguard-tools, it is the machine on both fabrics, and it returns from a power cut without anybody typing a FileVault password at a console. So the control plane reaches MEGINGJORD through a route, and what has to exist is a dnsmasq record on REGIN and a route on this host -- neither of which changes anything the broker decides.
 
 ## Deliberately absent
 
