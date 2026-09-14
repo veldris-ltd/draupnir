@@ -10,12 +10,11 @@ it is complete rather than leaving the caller to notice a gap.
 
 from __future__ import annotations
 
-import hashlib
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Path, Query
 
-from draupnir.api import telemetry
+from draupnir.api import release_documents, telemetry
 from draupnir.api.deps import Cursor, Guarded, PageSize, Reading, now
 from draupnir.api.guards import needs
 from draupnir.api.problems import ProblemError
@@ -25,7 +24,6 @@ from draupnir.api.schemas import (
     LedgerSlice,
     LineageOut,
 )
-from draupnir.core.domain.ledger import canonical
 from draupnir.svalinn.roles import Permission
 
 router = APIRouter(tags=["audit"])
@@ -171,28 +169,7 @@ async def attestation(artefact: Artefact, ctx: Guarded, reading: Reading) -> Att
             detail=f"no artefact {artefact[:12]} is registered at this site.",
         )
 
-    issued = now()
-    payload: dict[str, Any] = {
-        "artefact": found.artefact,
-        "siteId": ctx.site_id,
-        "issuedAt": issued.isoformat(),
-        "complete": found.complete,
-        "gaps": list(found.gaps),
-        "licences": list(found.licences),
-        "corpusHashes": list(found.corpus_hashes),
-        "nodes": list(found.nodes),
-        "approval": dict(found.approval),
-    }
-    digest = hashlib.sha256(canonical(payload)).hexdigest()
-
+    # Built by the same function S17's download uses (RF-27), so the exported
+    # attestation and the downloaded one cannot come to differ in shape.
     telemetry.log("attestation.exported", artefactSha256=artefact, complete=found.complete)
-    return AttestationOut(
-        artefact=found.artefact,
-        complete=found.complete,
-        gaps=list(found.gaps),
-        issued_at=issued,
-        site_id=ctx.site_id,
-        payload=payload,
-        payload_sha256=digest,
-        signature=f"sha256:{digest}" if found.complete else None,
-    )
+    return release_documents.attestation(found, site_id=ctx.site_id, issued_at=now())

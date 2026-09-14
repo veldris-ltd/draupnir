@@ -19,12 +19,14 @@ is on every screen.
 
 from __future__ import annotations
 
+import hashlib
+import re
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Path, Query, status
+from fastapi import APIRouter, Path, Query, Response, status
 
-from draupnir.api import telemetry, writing
+from draupnir.api import release_documents, telemetry, writing
 from draupnir.api.deps import (
     Cursor,
     Guarded,
@@ -53,6 +55,7 @@ from draupnir.api.schemas import (
 from draupnir.core.domain.identifiers import new_id
 from draupnir.hamarr import tiers
 from draupnir.motsognir import arrays as array_domain
+from draupnir.skidbladnir.article53 import Article53Error
 from draupnir.svalinn.roles import Permission
 
 router = APIRouter(tags=["models"])
@@ -153,6 +156,95 @@ async def get_release(artefact: Artefact, ctx: Guarded, reading: Reading) -> Rel
             f"artefact {artefact[:12]} has no release record at this site. An artefact that "
             "exists and is unreleased is not an error: read it at /v1/models/{artefact}."
         ),
+    )
+
+
+#: What may appear in a download's file name. A model name is ours, but a
+#: `Content-Disposition` header is parsed by every browser differently, and the
+#: safe set is the one no browser disagrees about.
+_UNSAFE_IN_FILENAME = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+@router.get(
+    "/releases/{artefact}/documents/{document}",
+    summary="Download one document of the release package",
+    operation_id="downloadReleaseDocument",
+    response_class=Response,
+    responses={
+        200: {
+            "description": "The document, generated from the release record.",
+            "content": {item.media_type: {} for item in release_documents.DOCUMENTS.values()},
+        }
+    },
+)
+@needs(Permission.READ)
+async def download_release_document(
+    artefact: Artefact,
+    document: Annotated[
+        release_documents.DocumentName, Path(description="Which document of the package.")
+    ],
+    ctx: Guarded,
+    reading: Reading,
+) -> Response:
+    """One document of the package, generated from the record. S17, RF-27.
+
+    S17's primary action, which had no operation: the release record held five
+    addresses and nothing served what was at them. Each document is generated
+    by the module that owns it and dated by the release, so the same download
+    produces the same bytes -- and the `ETag` is their SHA-256, which is what a
+    downloaded document is checked against.
+    """
+    found = await reading.release(ctx.site_id, artefact)
+    if found is None:
+        raise ProblemError(
+            status=404,
+            code="release-not-found",
+            title="No such release",
+            detail=(
+                f"artefact {artefact[:12]} has no release record at this site, so it has no "
+                "package to download."
+            ),
+        )
+    chain = await reading.lineage(ctx.site_id, artefact)
+    if chain is None:
+        raise ProblemError(
+            status=404,
+            code="artefact-not-found",
+            title="No such artefact",
+            detail=f"no artefact {artefact[:12]} is registered at this site.",
+        )
+    model = await reading.model(ctx.site_id, artefact)
+
+    try:
+        content = release_documents.render(
+            document, release=found, lineage=chain, model=model, site_id=ctx.site_id
+        )
+    except release_documents.UnissuedReleaseError as unissued:
+        raise ProblemError(
+            status=409,
+            code="release-unpublished",
+            title="This release has not been published",
+            detail=str(unissued),
+        ) from unissued
+    except Article53Error as empty:
+        raise ProblemError(
+            status=409,
+            code="training-content-unrecorded",
+            title="The licence register holds no source for this release",
+            detail=str(empty),
+        ) from empty
+
+    served = release_documents.DOCUMENTS[document]
+    digest = hashlib.sha256(content).hexdigest()
+    filename = _UNSAFE_IN_FILENAME.sub("-", f"{found.model}-{served.filename}")
+    telemetry.log("release.document.downloaded", artefactSha256=artefact, document=document)
+    return Response(
+        content=content,
+        media_type=served.media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "ETag": f'"{digest}"',
+        },
     )
 
 

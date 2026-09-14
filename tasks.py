@@ -150,6 +150,9 @@ CONTRACT_COVERAGE: tuple[str, ...] = (
     # `development` decides whether the unconfigured principal is allowed.
     "draupnir.api.authentication",
     "draupnir.api.development",
+    # S17's documents (RF-27). Generated per request from the read model, so
+    # the request is what exercises them, against a stub that holds a release.
+    "draupnir.api.release_documents",
 )
 
 #: The integration stage: what needs a database or an object store to exercise.

@@ -222,6 +222,14 @@ export const OPERATIONS = {
     pathParams: ["artefact"],
     hasBody: false,
   },
+  downloadReleaseDocument: {
+    operationId: "downloadReleaseDocument",
+    method: "GET",
+    path: "/v1/releases/{artefact}/documents/{document}",
+    summary: "Download one document of the release package",
+    pathParams: ["artefact", "document"],
+    hasBody: false,
+  },
   publishRelease: {
     operationId: "publishRelease",
     method: "POST",

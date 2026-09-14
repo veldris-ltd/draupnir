@@ -9,9 +9,49 @@ import {
   Table,
   type EvidenceRow,
 } from '@draupnir/jarngreipr';
+import { OPERATIONS, urlFor } from '@draupnir/api-client';
 import { useResource } from '../api/useResource';
 import { linkProps } from '../routing';
 import { PageHeading } from './parts';
+
+/**
+ * The package, in the order S17 lists it, with the document each download
+ * addresses (RF-27). "Download the package" is S17's primary action, and the
+ * screen used to print five addresses nothing served. Each document is now
+ * generated from the release record and dated by the release, so the same
+ * download is the same bytes.
+ */
+const PACKAGE = [
+  {
+    document: 'model-card',
+    label: 'Model card',
+    spoken: 'the model card',
+    uri: 'modelCardUri',
+    article53: false,
+  },
+  { document: 'sbom', label: 'SBOM', spoken: 'the SBOM', uri: 'sbomUri', article53: false },
+  {
+    document: 'lineage',
+    label: 'Lineage attestation',
+    spoken: 'the lineage attestation',
+    uri: 'lineageUri',
+    article53: false,
+  },
+  {
+    document: 'training-summary',
+    label: 'Training data summary',
+    spoken: 'the training data summary',
+    uri: 'trainingSummaryUri',
+    article53: true,
+  },
+  {
+    document: 'copyright-policy',
+    label: 'Copyright policy',
+    spoken: 'the copyright policy',
+    uri: 'copyrightPolicyUri',
+    article53: true,
+  },
+] as const;
 
 /**
  * S14 Model detail, S17 Release package, S27 Ledger entry detail and
@@ -230,32 +270,29 @@ export function ReleasePackage({ artefact }: { artefact: string }): JSX.Element 
             <section aria-labelledby="cn-package-heading">
               <h2 id="cn-package-heading">Package contents</h2>
               <ul className="cn-package" data-testid="release-contents">
-                <li>
-                  <span className="cn-package__label">Model card</span>
-                  <code>{data.modelCardUri}</code>
-                </li>
-                <li>
-                  <span className="cn-package__label">SBOM</span>
-                  <code>{data.sbomUri}</code>
-                </li>
-                <li>
-                  <span className="cn-package__label">Lineage attestation</span>
-                  <code>{data.lineageUri}</code>
-                </li>
-                <li>
-                  <span className="cn-package__label">
-                    Training data summary
-                    <span className="cn-package__note">EU AI Act Article 53</span>
-                  </span>
-                  <code>{data.trainingSummaryUri}</code>
-                </li>
-                <li>
-                  <span className="cn-package__label">
-                    Copyright policy
-                    <span className="cn-package__note">EU AI Act Article 53</span>
-                  </span>
-                  <code>{data.copyrightPolicyUri}</code>
-                </li>
+                {PACKAGE.map((item) => (
+                  <li key={item.document}>
+                    <span className="cn-package__label">
+                      {item.label}
+                      {item.article53 ? (
+                        <span className="cn-package__note">EU AI Act Article 53</span>
+                      ) : null}
+                    </span>
+                    <code>{data[item.uri]}</code>
+                    <a
+                      className="jg-button"
+                      data-jg-variant="secondary"
+                      data-jg-size="sm"
+                      href={urlFor(OPERATIONS.downloadReleaseDocument, {
+                        params: { artefact, document: item.document },
+                      })}
+                      download
+                      data-testid={`download-${item.document}`}
+                    >
+                      Download<span className="jg-sr-only"> {item.spoken}</span>
+                    </a>
+                  </li>
+                ))}
               </ul>
               <p className="cn-note">
                 The Article 53 artefacts are generated from the release, not authored beside it

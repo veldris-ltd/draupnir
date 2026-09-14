@@ -251,6 +251,15 @@ OPERATIONS: tuple[Operation, ...] = (
         has_body=False,
     ),
     Operation(
+        operation_id="downloadReleaseDocument",
+        command="download-release-document",
+        method="GET",
+        path="/v1/releases/{artefact}/documents/{document}",
+        summary="Download one document of the release package",
+        path_params=("artefact", "document"),
+        has_body=False,
+    ),
+    Operation(
         operation_id="publishRelease",
         command="publish-release",
         method="POST",

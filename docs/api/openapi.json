@@ -5806,6 +5806,143 @@
         ]
       }
     },
+    "/v1/releases/{artefact}/documents/{document}": {
+      "get": {
+        "description": "One document of the package, generated from the record. S17, RF-27.\n\n    S17's primary action, which had no operation: the release record held five\n    addresses and nothing served what was at them. Each document is generated\n    by the module that owns it and dated by the release, so the same download\n    produces the same bytes -- and the `ETag` is their SHA-256, which is what a\n    downloaded document is checked against.\n    \n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
+        "operationId": "downloadReleaseDocument",
+        "parameters": [
+          {
+            "description": "The artefact's SHA-256.",
+            "in": "path",
+            "name": "artefact",
+            "required": true,
+            "schema": {
+              "description": "The artefact's SHA-256.",
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Artefact",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Which document of the package.",
+            "in": "path",
+            "name": "document",
+            "required": true,
+            "schema": {
+              "description": "Which document of the package.",
+              "enum": [
+                "model-card",
+                "sbom",
+                "lineage",
+                "training-summary",
+                "copyright-policy"
+              ],
+              "title": "Document",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {},
+              "application/vnd.cyclonedx+json": {},
+              "text/markdown; charset=utf-8": {}
+            },
+            "description": "The document, generated from the release record."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Download one document of the release package",
+        "tags": [
+          "models"
+        ]
+      }
+    },
     "/v1/releases/{artefact}/publish": {
       "post": {
         "description": "Publish, having re-verified the artefact and its approval.\n\n    Every refusal in `skidbladnir.publish` applies: the bytes are re-hashed and\n    compared against the gate evidence (AC-S8), every built format must have\n    passing evidence (AC-F9), the approval must be present and signed, and the\n    federation must have countersigned an anchor at or beyond this release's\n    sequence (AC-S13).\n    \n\nRequires: `approver`.",

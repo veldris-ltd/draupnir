@@ -653,6 +653,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/releases/{artefact}/documents/{document}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download one document of the release package
+         * @description One document of the package, generated from the record. S17, RF-27.
+         *
+         *         S17's primary action, which had no operation: the release record held five
+         *         addresses and nothing served what was at them. Each document is generated
+         *         by the module that owns it and dated by the release, so the same download
+         *         produces the same bytes -- and the `ETag` is their SHA-256, which is what a
+         *         downloaded document is checked against.
+         *
+         *
+         *     Requires: `admin`, `approver`, `curator`, `operator`, `viewer`.
+         */
+        get: operations["downloadReleaseDocument"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/releases/{artefact}/publish": {
         parameters: {
             query?: never;
@@ -4422,6 +4451,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReleasePackageOut"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    downloadReleaseDocument: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Correlation-Id"?: string | null;
+            };
+            path: {
+                /** @description The artefact's SHA-256. */
+                artefact: string;
+                /** @description Which document of the package. */
+                document: "model-card" | "sbom" | "lineage" | "training-summary" | "copyright-policy";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The document, generated from the release record. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "application/vnd.cyclonedx+json": unknown;
+                    "text/markdown; charset=utf-8": unknown;
                 };
             };
             /** @description An RFC 9457 problem document */

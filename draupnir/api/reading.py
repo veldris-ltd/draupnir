@@ -1066,6 +1066,7 @@ async def _lineage(model: DatabaseReadModel, site_id: str, artefact: str) -> Lin
                 await session.execute(
                     text(
                         "SELECT id, url, licence_spdx, sha256, jurisdiction, personal_data, "
+                        "attribution_required, "
                         # Cast the parameter: a bind that appears only in an
                         # `IS NULL` test gives PostgreSQL nothing to infer a
                         # type from, and it refuses the statement rather than
@@ -1133,6 +1134,16 @@ async def _lineage(model: DatabaseReadModel, site_id: str, artefact: str) -> Lin
                 "label": source["url"],
                 "digest": source["sha256"],
                 "fact": source["licence_spdx"],
+                # The register's own answers, carried on the node (RF-27). The
+                # release documents are generated from this lineage, and a
+                # training content summary that could not see them would state
+                # every attribution and personal data determination as
+                # unrecorded -- a false absence, which Decision S11 exists to
+                # prevent as much as a false presence.
+                "licence": source["licence_spdx"],
+                "jurisdiction": source["jurisdiction"],
+                "attributionRequired": source["attribution_required"],
+                "personalData": source["personal_data"],
                 "gap": (
                     "Personal data declared with no DPIA reference."
                     if source["personal_data"] and not source["dpia_ref"]

@@ -18,6 +18,7 @@ make test-unit
 
 - `draupnir/skidbladnir/publish.py`
 - `draupnir/skidbladnir/sbom.py`
+- `tests/contract/test_release_documents.py`
 - `tests/contract/test_skills.py`
 - `tests/unit/test_release_payloads.py`
 - `tests/unit/test_skidbladnir.py`
