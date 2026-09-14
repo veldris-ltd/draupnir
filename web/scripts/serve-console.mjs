@@ -12,15 +12,21 @@
  *
  * This stands in for the reverse proxy that fronts the console in every real
  * environment. The console never learns the API's address -- it calls
- * same-origin `/v1`, `/healthz` and `/readyz` -- so something has to route
- * those, and in the dev server it was `server.proxy` in vite.config.ts. Here
- * it is the same three prefixes, to the same API.
+ * same-origin paths -- so something has to route those, and in the dev server
+ * it is `server.proxy` in vite.config.ts.
+ *
+ * Both read `proxied-prefixes.json`, which is the whole of the list (RF-36).
+ * This file held its own copy of the three prefixes Vite proxied before RF-03
+ * added `/auth/login`, so the served console answered a sign-in with its own
+ * HTML and the journey that proves sign-in begins could not pass.
+ * `tests/proxied-prefixes.test.ts` holds both servers, and the deployed nginx,
+ * to the one list.
  *
  * Written out rather than pulled in, for the reason serve-storybook.mjs gives:
  * a dependency in the test path is a dependency in the supply chain.
  */
 
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, request as httpRequest } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,9 +38,11 @@ const ROOT = resolve(
 const PORT = Number(process.env.DRAUPNIR_CONSOLE_PORT ?? 5173);
 const API = new URL(process.env.DRAUPNIR_API_URL ?? 'http://127.0.0.1:8000');
 
-// The three prefixes vite.config.ts proxies. Kept as prefixes rather than
-// exact paths because `/v1` carries the whole API beneath it.
-const PROXIED = ['/v1', '/healthz', '/readyz'];
+// Prefixes rather than exact paths, because `/v1` carries the whole API
+// beneath it.
+const PROXIED = JSON.parse(
+  readFileSync(new URL('proxied-prefixes.json', import.meta.url), 'utf8'),
+);
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',

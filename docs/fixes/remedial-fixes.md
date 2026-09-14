@@ -4204,6 +4204,44 @@ since RF-03.
 - Both proxies route the same prefixes, and a test says so.
 - Gated in stage 2.7.
 
+> **Status — done.**
+>
+> **One list.**
+> - `web/scripts/proxied-prefixes.json` holds the prefixes the console's
+>   servers route to the API: `/v1`, `/auth`, `/openapi.json`, `/healthz` and
+>   `/readyz`.
+> - `serve-console.mjs` and `apps/console/vite.config.ts` both read it, and
+>   neither writes a prefix of its own. A route added for one server is
+>   therefore added for both.
+> - The file is JSON rather than a module so both can read it without a
+>   build step. The script is plain Node; the config is TypeScript bundled by
+>   Vite.
+>
+> **Held to nginx as well.** The prompt asks for "wherever the console is
+> served", and the deployed console is served by `docker/nginx.conf`, which
+> already routed `/auth/` and `/openapi.json`.
+> - `/openapi.json` is added to the list, so the development servers
+>   now match what is deployed.
+> - `/metrics` stays out, because nginx refuses it on purpose (SAD 8.1:
+>   loopback only).
+>
+> **Tests.** `web/tests/proxied-prefixes.test.ts`, run by Vitest in stage 2.6,
+> checks that:
+> - the list includes `/auth`;
+> - each server reads the list, and contains no quoted prefix of its own;
+> - every listed prefix is one nginx passes to the API;
+> - every location nginx passes to the API falls under a listed prefix;
+> - `/metrics` is not listed.
+>
+> The RF-03 journeys exercise the served console in stage 2.7.
+>
+> **Results.**
+> - Vitest: 1,119, the five new tests among them. Typecheck, lint and
+>   formatting are clean.
+> - Journeys: 52 of 52, both of RF-03's sign-in journeys passing against the
+>   served console. This is the first full pass since RF-03.
+> - a11y: 73 of 73.
+
 ---
 
 ### RF-37 — P2 — SAD 9.5's transport security is not built
@@ -4554,7 +4592,7 @@ takes it outside a demonstration.
 | RF-33 | P3 | The release package is read from a table only the seed writes — **done**; artefacts, approvals and releases are projected from the chain, and a decision records its artefact |
 | RF-34 | P3 | A release does not record the licence policy it was judged under — **done**; the decision's version is carried to the release, and the copyright policy is rendered under it or refused |
 | RF-35 | P4 | The console's default specification is refused by its own API — **done**; the default takes its tier, base and site from a table generated from the API's and from `/healthz`, and J2 uses it; an over-budget checkpoint interval is a 422 rather than a 500, and the board reads a run it has not seen rather than labelling it by identifier |
-| RF-36 | P5 | The journey stack does not route `/auth`, so sign-in cannot pass |
+| RF-36 | P5 | The journey stack does not route `/auth`, so sign-in cannot pass — **done**; both development servers read one list of proxied prefixes, `/auth` among them, and a test holds it to nginx |
 | RF-37 | P2 | SAD 9.5's transport security is not built: nothing terminates TLS and nothing uses mTLS |
 | RF-38 | P5 | The Storybook axe sweep races Storybook's own axe run — **done**; the addon's automatic run is off on the sweep's pages, and the shard fails if it ever starts again |
 | RF-39 | P4 | `draupnirctl` cannot perform a conditional write: it never sends `If-Match` |
