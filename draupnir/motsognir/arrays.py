@@ -56,6 +56,19 @@ TERMINAL: frozenset[ElementState] = frozenset(
     {ElementState.COMPLETED, ElementState.EXHAUSTED, ElementState.CANCELLED}
 )
 
+#: The states a requeue is for: an element that stopped without completing
+#: (RF-27). Not `PENDING` or `RUNNING`, which are already on the queue, and not
+#: `COMPLETED`, where `scontrol requeue` would discard a finished adapter and
+#: train it again -- days of an appliance, for a result that already existed.
+REQUEUEABLE: frozenset[ElementState] = frozenset(
+    {
+        ElementState.FAILED,
+        ElementState.AWAITING_RETRY,
+        ElementState.EXHAUSTED,
+        ElementState.CANCELLED,
+    }
+)
+
 
 @dataclass(frozen=True, slots=True)
 class Element:

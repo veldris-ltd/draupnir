@@ -198,6 +198,13 @@ def requeue_element(request: Any, submitter: Submitter) -> Outcome:
             raise ArrayWorkError(msg)
 
         element = record.element(index)
+        if element.state not in arrays.REQUEUEABLE:
+            msg = (
+                f"element {index} ({element.subject}) is {element.state}. A requeue is for an "
+                "element that stopped without completing; this one is already on the queue "
+                "or has finished, and requeueing a finished element trains it again."
+            )
+            raise ArrayWorkError(msg)
         # Placed first, so that a requeue onto an estate with nothing available
         # is refused before the element is disturbed rather than after.
         place(

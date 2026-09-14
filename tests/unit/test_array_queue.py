@@ -198,16 +198,63 @@ def test_an_array_over_an_estate_with_nothing_available_is_refused_not_raised() 
 # ---------------------------------------------------------------------------
 
 
-def _submitted(scheduler: _Recording) -> tuple[LedgerEntry, ...]:
-    """A chain holding one submitted fifty-six element array."""
+def _submitted(scheduler: _Recording, *, seventeen: str = "FAILED") -> tuple[LedgerEntry, ...]:
+    """A chain holding one submitted fifty-six element array, element 17 observed.
+
+    Observed in a state a requeue is for, because a requeue of an element that
+    is still pending is refused (RF-27) and these tests are about the requeue.
+    """
     outcome = array_queue.submit_array(
         _request(4, arrays.ARRAY_ACCEPTED, subjects=list(tiers.ALL), name=NAME),
         array_queue.Submitter(scheduler=scheduler, estate=_estate()),
     )
+    observed = {
+        "element": {
+            "index": 17,
+            "subject": tiers.ALL[17],
+            "state": seventeen,
+            "attempts": 0,
+            "jobId": "4001_17",
+            "node": "dvalin",
+            "exitCode": 1 if seventeen == "FAILED" else None,
+        }
+    }
     return (
         _entry(4, arrays.ARRAY_ACCEPTED, {"name": NAME}),
         _entry(5, outcome.transition, outcome.payload),
+        _entry(6, arrays.ELEMENT_OBSERVED, observed),
     )
+
+
+@pytest.mark.parametrize("state", ["PENDING", "RUNNING", "COMPLETED"])
+def test_an_element_that_did_not_stop_short_is_not_requeued(state: str) -> None:
+    """RF-27. `scontrol requeue` on a completed element trains it again.
+
+    Days of an appliance for an adapter that already exists; and a pending or
+    running element is already on the queue. The console offers the control
+    only on elements that stopped without completing, and the worker holds the
+    same line, because a request can reach the API without the console.
+    """
+    scheduler = _Recording()
+    entries = _submitted(scheduler, seventeen=state)
+
+    outcome = array_queue.requeue_element(
+        _request(7, arrays.ELEMENT_REQUEUE_ACCEPTED, index=17),
+        array_queue.Submitter(scheduler=scheduler, estate=_estate(), entries=entries),
+    )
+
+    assert not outcome.succeeded
+    assert state in outcome.payload["reason"]
+    assert scheduler.requeued == [], f"a {state} element was put back on the queue"
+
+
+def test_the_requeueable_states_are_the_ones_that_stopped_short() -> None:
+    assert {str(state) for state in arrays.REQUEUEABLE} == {
+        "FAILED",
+        "AWAITING_RETRY",
+        "EXHAUSTED",
+        "CANCELLED",
+    }
 
 
 def test_requeueing_element_seventeen_touches_element_seventeen() -> None:

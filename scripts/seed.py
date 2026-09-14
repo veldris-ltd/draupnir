@@ -51,6 +51,9 @@ from draupnir.core.domain.sites import SiteScope
 from draupnir.core.domain.states import RUN_PHASE_STATES, RunState, Transition, find
 from draupnir.core.infrastructure.config import get_settings
 from draupnir.core.infrastructure.repositories import RunProjection
+from draupnir.hamarr import tiers
+from draupnir.motsognir import arrays
+from draupnir.worker.accepted import ANSWERS
 
 SEED = 20260901
 EPOCH = datetime(2026, 3, 2, 9, 0, tzinfo=UTC)
@@ -222,6 +225,29 @@ PLUGINS = (
     ("raun.lmeval", "2.1.0", "EvaluationDriver", True, True),
     ("brisingamen.mergekit", "0.6.1", "MergeDriver", True, True),
     ("skidbladnir.llamacpp", "1.2.0", "QuantisationDriver", True, True),
+)
+
+#: The seeded adapter array: its name, scheduler job, and the appliances its
+#: elements run on, one each (SAD 5.2).
+ARRAY_NAME = "cim-56-adapters"
+ARRAY_JOB = "4821"
+ARRAY_APPLIANCES = ("dvalin", "durin", "dain")
+ARRAY_RETRY_BUDGET = 3
+
+#: The elements of the seeded array that have moved since submission: index,
+#: state, attempts, exit code. RF-27: S12's primary action requeues an element
+#: that stopped without completing, and a seeded stack whose array had none of
+#: those would give the journey that performs it nothing to press. One in each
+#: such state, beside elements that finished, elements still running, and the
+#: pending remainder the monitor exists to show.
+ARRAY_OBSERVED: tuple[tuple[int, str, int, int | None], ...] = (
+    *((index, "COMPLETED", 1, 0) for index in range(10)),
+    (10, "RUNNING", 1, None),
+    (11, "RUNNING", 1, None),
+    (12, "RUNNING", 1, None),
+    (13, "AWAITING_RETRY", 1, 137),
+    (14, "EXHAUSTED", 4, 137),
+    (15, "FAILED", 1, 1),
 )
 
 
@@ -581,6 +607,84 @@ def build() -> dict[str, Any]:
                 "anchored": True,
             },
             entry_id=ids.next(clock[site_id]),
+        )
+
+    # -- the adapter array, part way through --------------------------------
+    # Written as the API and the worker write it: accepted, then submitted as
+    # one scheduler array answering that acceptance, then observed element by
+    # element. S12 folds exactly these entries (RF-13), so a seeded array that
+    # took a shortcut would be an array the monitor reads differently.
+    array_site = "sindri"
+    array_chain = chains[array_site]
+    size = len(tiers.ALL)
+    throttle = f"0-{size - 1}%{len(ARRAY_APPLIANCES)}"
+    array_chain.append(
+        ts=tick(array_site, 10, 60),
+        actor="operator@veldris.internal",
+        subject_type=arrays.ARRAY_SUBJECT,
+        subject_id=ARRAY_NAME,
+        transition=arrays.ARRAY_ACCEPTED,
+        payload={
+            "name": ARRAY_NAME,
+            "subjects": list(tiers.ALL),
+            "retryBudget": ARRAY_RETRY_BUDGET,
+            "run_id": str(ids.next(clock[array_site])),
+        },
+        entry_id=ids.next(clock[array_site]),
+    )
+    array_chain.append(
+        ts=tick(array_site, 1, 5),
+        actor="system:motsognir",
+        subject_type=arrays.ARRAY_SUBJECT,
+        subject_id=ARRAY_NAME,
+        transition=arrays.ARRAY_SUBMITTED,
+        payload={
+            "subject": ARRAY_NAME,
+            ANSWERS: array_chain.seq,
+            "name": ARRAY_NAME,
+            "size": size,
+            "concurrency": len(ARRAY_APPLIANCES),
+            "slurmArray": throttle,
+            "arguments": [f"--array={throttle}", "--partition=adapters"],
+            "partition": "adapters",
+            "appliances": list(ARRAY_APPLIANCES),
+            "retryBudget": ARRAY_RETRY_BUDGET,
+            "jobId": ARRAY_JOB,
+            "driver": "motsognir.slurm/v1",
+            "elements": [
+                {
+                    "index": index,
+                    "subject": subject,
+                    "state": "PENDING",
+                    "attempts": 0,
+                    "jobId": f"{ARRAY_JOB}_{index}",
+                    "node": None,
+                    "exitCode": None,
+                }
+                for index, subject in enumerate(tiers.ALL)
+            ],
+        },
+        entry_id=ids.next(clock[array_site]),
+    )
+    for index, state, attempts, exit_code in ARRAY_OBSERVED:
+        array_chain.append(
+            ts=tick(array_site, 20, 240),
+            actor="system:motsognir",
+            subject_type=arrays.ARRAY_SUBJECT,
+            subject_id=ARRAY_NAME,
+            transition=arrays.ELEMENT_OBSERVED,
+            payload={
+                "element": {
+                    "index": index,
+                    "subject": tiers.ALL[index],
+                    "state": state,
+                    "attempts": attempts,
+                    "jobId": f"{ARRAY_JOB}_{index}",
+                    "node": ARRAY_APPLIANCES[index % len(ARRAY_APPLIANCES)],
+                    "exitCode": exit_code,
+                }
+            },
+            entry_id=ids.next(clock[array_site]),
         )
 
     # -- pad the chains to exactly 400 entries ------------------------------

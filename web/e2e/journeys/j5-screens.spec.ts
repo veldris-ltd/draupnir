@@ -46,6 +46,35 @@ test.describe('S12 — the array monitor', () => {
     await expect(page.getByRole('table')).toContainText('Element');
     await expect(page.getByRole('meter')).toBeVisible();
   });
+
+  test('requeues one element that stopped short, and offers it on no other', async ({ page }) => {
+    // RF-27. `requeueArrayElement` existed from RF-13 and this screen had no
+    // control for it, so S12's primary action could not be performed from S12.
+    await page.goto('/runs/array');
+    const table = page.getByRole('table');
+    await expect(table).toContainText('EXHAUSTED', { timeout: 15_000 });
+
+    // The seeded array has one element each AWAITING_RETRY, EXHAUSTED and
+    // FAILED, beside ten completed and three running. Only the three carry the
+    // control: a completed element requeued is an adapter trained twice.
+    await expect(page.getByRole('button', { name: /^Requeue element \d+$/ })).toHaveCount(3);
+
+    await page.getByRole('button', { name: 'Requeue element 15' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('are not touched');
+
+    const requeued = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname.endsWith('/elements/15/requeue'),
+    );
+    await dialog.getByRole('button', { name: 'Requeue the element' }).click();
+
+    expect((await requeued).status()).toBe(202);
+    // Accepted rather than done: the worker performs it and records the
+    // outcome, which at Sindri is a refusal naming what to run on REGIN.
+    await expect(page.getByTestId('requeue-result')).toContainText('accepted');
+  });
 });
 
 test.describe('S14, S17, S28 — model, release and attestation', () => {

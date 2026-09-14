@@ -1,6 +1,17 @@
 import type { JSX } from 'react';
-import { Badge, CapacityGauge, StateSurface, SweepMatrix, Table } from '@draupnir/jarngreipr';
-import { pageIsEmpty, useResource } from '../api/useResource';
+import { useState } from 'react';
+import {
+  Badge,
+  Button,
+  CapacityGauge,
+  Dialog,
+  StateSurface,
+  SweepMatrix,
+  Table,
+  type ComponentState,
+} from '@draupnir/jarngreipr';
+import { ApiError, call, idempotencyKey } from '@draupnir/api-client';
+import { pageIsEmpty, stateForError, useResource } from '../api/useResource';
 import { linkProps } from '../routing';
 import { PageHeading } from './parts';
 
@@ -33,21 +44,62 @@ const ELEMENT_TONE: Record<string, 'neutral' | 'info' | 'success' | 'warning' | 
 };
 
 /**
+ * The element states a requeue is for: an element that stopped without
+ * completing (RF-27). The same set as `motsognir.arrays.REQUEUEABLE`, and the
+ * worker refuses the others as well -- a request can reach the API without
+ * this screen, and a completed element requeued is an adapter trained twice.
+ */
+const REQUEUEABLE = new Set(['FAILED', 'AWAITING_RETRY', 'EXHAUSTED', 'CANCELLED']);
+
+/**
  * S12. The array, element by element.
  *
  * The element vocabulary is deliberately not the run vocabulary. An element
  * that failed inside its retry budget is `AWAITING_RETRY` — neither running
  * nor finished — and collapsing that into `FAILED` loses the budget, which is
  * the one number an operator needs to decide whether to intervene.
+ *
+ * Its primary action is requeueing one element (RF-27). `requeueArrayElement`
+ * existed from RF-13 and nothing on this screen called it, so the action the
+ * UX inventory names for S12 could not be performed from S12.
  */
 export function ArrayMonitor(): JSX.Element {
   const array = useResource('getArray', { query: { limit: 100 } });
   const data = array.data;
   const elements = (data?.elements ?? []) as Element[];
   const summary = data?.summary ?? {};
+  const [requeueing, setRequeueing] = useState<Element | null>(null);
+  const [outcome, setOutcome] = useState<{ state: ComponentState; message: string } | null>(null);
 
   const completed = summary.COMPLETED ?? 0;
   const size = data?.size ?? 0;
+
+  async function requeue(element: Element): Promise<void> {
+    setRequeueing(null);
+    setOutcome({ state: 'loading', message: `Requeueing element ${String(element.index)}.` });
+    try {
+      await call('requeueArrayElement', {
+        params: { name: data?.name ?? '', index: String(element.index) },
+        idempotencyKey: idempotencyKey(),
+      });
+      // Accepted, not done. The worker performs the requeue and records the
+      // outcome against the array -- and at a site whose scheduler transport
+      // cannot requeue, the outcome is a refusal naming what to run instead.
+      // Saying "requeued" here would claim a result nobody has seen yet.
+      setOutcome({
+        state: 'ready',
+        message:
+          `Requeue of element ${String(element.index)} (${element.subject}) accepted. The ` +
+          'worker performs it and records the outcome against the array; where the scheduler ' +
+          'cannot requeue, that record says what to run instead.',
+      });
+    } catch (cause) {
+      setOutcome({
+        state: cause instanceof ApiError ? stateForError(cause) : 'error',
+        message: cause instanceof ApiError ? cause.problem.title : 'The requeue did not complete.',
+      });
+    }
+  }
 
   const columns = [
     { key: 'index', header: '#', numeric: true, render: (row: Element) => row.index },
@@ -77,6 +129,24 @@ export function ArrayMonitor(): JSX.Element {
           </>
         ) : (
           <a {...linkProps(`/runs/${row.runId}`)}>open</a>
+        ),
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      render: (row: Element) =>
+        REQUEUEABLE.has(row.state) ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setRequeueing(row);
+            }}
+          >
+            {`Requeue element ${String(row.index)}`}
+          </Button>
+        ) : (
+          <span className="jg-sr-only">Nothing to requeue</span>
         ),
     },
   ];
@@ -117,6 +187,42 @@ export function ArrayMonitor(): JSX.Element {
         state={elements.length === 0 && array.state === 'ready' ? 'empty' : array.state}
         problem={array.problem}
       />
+
+      {outcome === null ? null : (
+        <p
+          className="cn-action-result"
+          role="status"
+          data-testid="requeue-result"
+          data-jg-state={outcome.state}
+        >
+          {outcome.message}
+        </p>
+      )}
+
+      {requeueing === null ? null : (
+        <Dialog
+          title={`Requeue element ${String(requeueing.index)}?`}
+          consequence={
+            `Element ${String(requeueing.index)} (${requeueing.subject}) goes back on the ` +
+            'scheduler queue as the same element of the same array. The other ' +
+            `${String(Math.max(size - 1, 0))} are not touched. It holds an appliance for as ` +
+            'long as the adapter trains.'
+          }
+          confirmLabel="Requeue the element"
+          onConfirm={() => {
+            void requeue(requeueing);
+          }}
+          onDismiss={() => {
+            setRequeueing(null);
+          }}
+        >
+          <p>
+            {requeueing.state} after {requeueing.attempts}{' '}
+            {requeueing.attempts === 1 ? 'attempt' : 'attempts'}, on{' '}
+            {requeueing.node ?? 'no recorded node'}.
+          </p>
+        </Dialog>
+      )}
     </>
   );
 }
