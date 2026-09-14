@@ -373,6 +373,17 @@ def admit(specification: Mapping[str, Any], *, site_id: str, group: str = "") ->
             title="This specification contradicts the tier its jurisdiction is in",
             detail=str(refusal),
         ) from refusal
+    except checkpoints.CheckpointError as refusal:
+        # An authored interval that would leave more than the budget unwritten.
+        # `prepare` has always refused it, and nothing here caught the refusal,
+        # so it reached the operator as a 500 asking them to report a fault
+        # (RF-35: the console's own default authored one).
+        raise ProblemError(
+            status=422,
+            code="specification-rejected",
+            title="This specification's checkpoint interval would lose too much work",
+            detail=str(refusal),
+        ) from refusal
 
     merging = prepared.kind.lower() == "mergerun"
     chosen = group or ("draupnir.merge" if merging else "draupnir.train")

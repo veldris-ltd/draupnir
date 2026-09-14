@@ -1028,6 +1028,8 @@ def clients() -> int:
     pnpm("run", "generate:client")
     say("TypeScript operation table")
     uv_run("python", "scripts/generate_ts_operations.py")
+    say("TypeScript tier table")
+    uv_run("python", "scripts/generate_ts_tiers.py")
     return 0
 
 
@@ -1069,6 +1071,7 @@ GENERATED = (
     ROOT / "draupnirctl" / "_generated.py",
     ROOT / "web" / "packages" / "api-client" / "src" / "generated" / "schema.d.ts",
     ROOT / "web" / "packages" / "api-client" / "src" / "generated" / "operations.ts",
+    ROOT / "web" / "packages" / "api-client" / "src" / "generated" / "tiers.ts",
 )
 
 

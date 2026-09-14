@@ -29,6 +29,12 @@ export type {
 
 export { GENERATED_FROM_OPENAPI_VERSION } from './generated/operations';
 
+// The tier table the API validates a specification against, generated from
+// `draupnir/hamarr/tiers.py`. A client composing a specification takes its base
+// from here rather than naming one (RF-35).
+export { BASE_FOR_TIER, TIER_OF } from './generated/tiers';
+export type { Tier } from './generated/tiers';
+
 import type { paths } from './generated/schema';
 
 export type { paths };

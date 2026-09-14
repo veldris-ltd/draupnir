@@ -19,8 +19,10 @@ make clients-check
 - `draupnirctl/_generated.py`
 - `scripts/generate_cli.py`
 - `scripts/generate_ts_operations.py`
+- `scripts/generate_ts_tiers.py`
 - `tasks.py`
 - `web/packages/api-client/src/generated/operations.ts`
+- `web/packages/api-client/src/generated/tiers.ts`
 - `web/packages/api-client/src/index.ts`
 
 ---

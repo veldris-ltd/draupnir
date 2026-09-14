@@ -4098,6 +4098,85 @@ saw, because the journeys were not run between RF-11 and RF-27.
 - A test fails if the default names a base its jurisdiction's tier refuses.
 - Gated in stage 2.7.
 
+> **Status — done.**
+>
+> **The base was wrong in two ways, not one.** It was the Tier B base for a
+> Tier A jurisdiction. It was also addressed at no site:
+> `hamarr.config.prepare` expects `tiers.base_artefact`'s
+> `hodd://<site>/models/core/<base>`, and the default said
+> `hodd://models/core/…`. Correcting only the model name would have been
+> refused too. The address depends on deployment configuration, so no base
+> written into the console could be right at every site.
+>
+> **Derived, from the table the API validates against.**
+> - `scripts/generate_ts_tiers.py` writes
+>   `web/packages/api-client/src/generated/tiers.ts` from
+>   `draupnir/hamarr/tiers.py`: each jurisdiction's tier and each tier's base.
+> - The script refuses to write a table that does not enumerate CIM-56.
+> - `tasks.py clients` runs it, and the file is in `clients-check`'s list, so
+>   a hand edit or a stale table fails that gate like the rest of the
+>   generated client.
+> - `web/apps/console/src/specification.ts` builds the default: tier from the
+>   jurisdiction, base from the tier, and site from `/healthz`, which the
+>   shell already reads.
+> - It throws on a jurisdiction outside the programme rather than guessing a
+>   tier.
+> - The compose screen waits for the site before composing, rather than
+>   composing a base at no site.
+> - J2's fixture no longer holds its own copy. It takes the console's default
+>   at the site the stack reports, so the journey and the screen cannot
+>   disagree.
+>
+> **Left alone:** `release.route: 'tier-a'`, which nothing refuses at
+> admission and which is not this finding.
+>
+> **Two more failures were behind the base.** The criterion is that J2's
+> submission journeys pass, and with the base right they still did not.
+> - *The checkpoint interval.* The default authored `save_steps: 500`. At the
+>   assumed twelve seconds a step that leaves a hundred minutes unwritten, and
+>   `prepare` refuses anything over thirty.
+>   - `admit` caught tier and configuration refusals but not
+>     `CheckpointError`, so this refusal reached the operator as a 500
+>     `internal-error` asking them to report a fault.
+>   - `admit` now answers it with 422 `specification-rejected`.
+>   - The default authors no interval, so HAMARR derives one as it does for
+>     any specification that names none.
+> - *The board labelled a new run by its identifier.* Since RF-15 a board
+>   delta is built from the ledger's notification, which carries the new
+>   state and not the run's name. The board's merge fell back to the
+>   identifier, so J2's "reflects a new run within five seconds" waited for a
+>   name that never appeared.
+>   - This was hidden because the journey had failed earlier since RF-11.
+>   - When a delta names a run the board does not hold, the board now reads
+>     that one run with `getRun` and replaces the placeholder.
+>   - That is one run and not the list, so AC-U4's "no full list poll" still
+>     holds, and J2's poll-counting journey still counts only `GET /v1/runs`.
+>
+> **Tests.**
+> - `tests/contract/test_run_admission.py` adds the over-budget interval to
+>   the cases both handlers must refuse alike, as `specification-rejected`.
+> - `web/apps/console/src/specification.test.ts` (Vitest, stage 2.6):
+>   - the GBR default names `hodd://sindri/models/core/MIDGARD-CORE-GEMMA3-27B-v1.0`;
+>   - for each of the 56 jurisdictions, the default declares that
+>     jurisdiction's tier and names that tier's base;
+>   - an unknown jurisdiction is refused.
+> - `tests/unit/test_generated_tiers.py`:
+>   - the committed table is the generator's output;
+>   - it matches `tiers.py`;
+>   - the console builds the address the way `base_artefact` does;
+>   - a drifted table is not written;
+>   - the old default is refused by `prepare`.
+> - J2's two submission journeys, stage 2.7: the default dry runs and submits.
+>
+> **Results.**
+> - Python: 2,161 unit, property and contract tests, and 223 integration.
+> - Vitest: 1,114. Typecheck, lint and formatting are clean, and
+>   `clients-check` reports the clients current with the tier table among
+>   them.
+> - Journeys: 51 of 52, both of J2's submission journeys passing. The one
+>   failure is RF-03's sign-in, which is RF-36.
+> - a11y: 73 of 73.
+
 ---
 
 ### RF-36 — P5 — The journey stack does not route `/auth`, so sign-in cannot pass
@@ -4474,7 +4553,7 @@ takes it outside a demonstration.
 | RF-32 | P2 | A conditional write is conditional on nothing; the console's four conditional actions cannot succeed — **done**; each tag is over the state the write changes, the reads return it, and the console sends it |
 | RF-33 | P3 | The release package is read from a table only the seed writes — **done**; artefacts, approvals and releases are projected from the chain, and a decision records its artefact |
 | RF-34 | P3 | A release does not record the licence policy it was judged under — **done**; the decision's version is carried to the release, and the copyright policy is rendered under it or refused |
-| RF-35 | P4 | The console's default specification is refused by its own API |
+| RF-35 | P4 | The console's default specification is refused by its own API — **done**; the default takes its tier, base and site from a table generated from the API's and from `/healthz`, and J2 uses it; an over-budget checkpoint interval is a 422 rather than a 500, and the board reads a run it has not seen rather than labelling it by identifier |
 | RF-36 | P5 | The journey stack does not route `/auth`, so sign-in cannot pass |
 | RF-37 | P2 | SAD 9.5's transport security is not built: nothing terminates TLS and nothing uses mTLS |
 | RF-38 | P5 | The Storybook axe sweep races Storybook's own axe run — **done**; the addon's automatic run is off on the sweep's pages, and the shard fails if it ever starts again |

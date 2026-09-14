@@ -1,5 +1,5 @@
 import type { JSX } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Badge,
   Button,
@@ -17,6 +17,7 @@ import type { DryRun, Run } from '@draupnir/api-client';
 import { pageIsEmpty, problemOf, stateForError, useResource } from '../api/useResource';
 import { freshnessSentence, useEvents, type RunDelta } from '../api/useEvents';
 import { linkProps, navigate, useQueryParam } from '../routing';
+import { defaultSpecification } from '../specification';
 import { ErrorSurface, PageHeading } from './parts';
 
 /**
@@ -64,6 +65,8 @@ export function RunBoard(): JSX.Element {
   });
 
   const [rows, setRows] = useState<Run[]>([]);
+  const held = useRef<readonly Run[]>(rows);
+  held.current = rows;
   useEffect(() => {
     setRows(runs.data?.items ?? []);
   }, [runs.data]);
@@ -73,7 +76,26 @@ export function RunBoard(): JSX.Element {
   const delta = feed.last;
   useEffect(() => {
     if (delta === null) return;
+    const id = delta.runId ?? delta.subjectId;
+    const unseen = !held.current.some((row) => row.id === id);
     setRows((current) => merge(current, delta));
+    if (!unseen) return;
+
+    // A run the board has not seen. Its delta is built from the ledger's
+    // notification, which carries the new state and not the run's name
+    // (RF-15), so the row it adds is labelled by its identifier until this
+    // read of that one run replaces it. One run, not the list: the full list
+    // poll AC-U4 rules out is still never made. RF-35 found the board showing
+    // identifiers where J2 looked for a name.
+    call('getRun', { params: { run_id: id } })
+      .then((result) => {
+        const run = result.data;
+        setRows((current) => current.map((row) => (row.id === id ? { ...row, ...run } : row)));
+      })
+      .catch(() => {
+        // The placeholder stands. A run that cannot be read is still a run
+        // the stream reported, and the next delta for it merges as usual.
+      });
   }, [delta]);
 
   const columns = useMemo(
@@ -518,9 +540,31 @@ function histogram(values: readonly number[]): { label: string; count: number; s
  * submitting without a dry run takes an extra confirmation. An allocation on
  * this estate is the scarce resource; a specification error should cost
  * nothing to find.
+ *
+ * The editor waits for the site, because the default specification's base is
+ * addressed at it (RF-35): a default composed before `/healthz` answered would
+ * name a base at no site, and the API would refuse it.
  */
-export function ComposeRun(): JSX.Element {
-  const [text, setText] = useState(SAMPLE_SPECIFICATION);
+export function ComposeRun({ siteId }: { siteId: string | null }): JSX.Element {
+  if (siteId === null) {
+    return (
+      <>
+        <PageHeading title="Compose a run" />
+        <StateSurface
+          state="loading"
+          label="Run specification"
+          stateMessage="Finding the site this run would be composed for."
+        >
+          <span />
+        </StateSurface>
+      </>
+    );
+  }
+  return <Composer key={siteId} site={siteId} />;
+}
+
+function Composer({ site }: { site: string }): JSX.Element {
+  const [text, setText] = useState(() => JSON.stringify(defaultSpecification({ site }), null, 2));
   const [plan, setPlan] = useState<DryRun | null>(null);
   const [problem, setProblem] = useState<ReturnType<typeof problemOf> | null>(null);
   const [busy, setBusy] = useState(false);
@@ -718,37 +762,3 @@ function DryRunResult({ plan, onSubmit }: { plan: DryRun; onSubmit: () => void }
     </section>
   );
 }
-
-const SAMPLE_SPECIFICATION = JSON.stringify(
-  {
-    apiVersion: 'draupnir/v1',
-    kind: 'AdapterRun',
-    metadata: { name: 'cim-gbr-v0.5', jurisdiction: 'GBR', tier: 'A' },
-    spec: {
-      base: {
-        artefact: 'hodd://models/core/MIDGARD-CORE-QWEN36-35B-A3B-v1.0',
-        expectSha256: 'a'.repeat(64),
-      },
-      dataset: {
-        artefact: 'hodd://corpora/GBR/curated',
-        expectSha256: 'b'.repeat(64),
-        cutoffPercentile: 99,
-      },
-      train: {
-        driver: 'hamarr.llamafactory/v1',
-        method: 'lora',
-        precision: 'bf16',
-        // The checkpoint interval HAMARR derives so that no more than
-        // thirty minutes of work is ever unwritten. The editor arrives
-        // with a specification that dry runs cleanly, because the first
-        // thing an operator does with it is press Dry run.
-        params: { rank: 16, save_steps: 500 },
-      },
-      placement: { driver: 'motsognir.slurm/v1', partition: 'default', nodes: 1 },
-      evaluate: { driver: 'raun.lmeval/v1', suites: ['legal-qa'], gates: ['E1'], baseline: null },
-      release: { route: 'tier-a', formats: ['gguf'], approval: 'required' },
-    },
-  },
-  null,
-  2,
-);

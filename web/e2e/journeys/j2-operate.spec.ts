@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from '@playwright/test';
+import { defaultSpecification, type RunSpecification } from '../../apps/console/src/specification';
 
 /**
  * J2 Operate — SAD 11F.2 / UX 10.2, and the acceptance evidence for AC-U1.
@@ -85,7 +86,7 @@ test.describe('J2 Operate', () => {
 
     const response = await page.request.post('/v1/runs', {
       headers: { 'Idempotency-Key': `journey-${String(started)}` },
-      data: { specification: specificationNamed(name) },
+      data: { specification: await specificationNamed(page, name) },
     });
     expect(response.status(), await response.text()).toBe(202);
 
@@ -200,30 +201,14 @@ async function firstRunId(page: Page): Promise<string> {
   return run.id;
 }
 
-function specificationNamed(name: string): Record<string, unknown> {
-  return {
-    apiVersion: 'draupnir/v1',
-    kind: 'AdapterRun',
-    metadata: { name, jurisdiction: 'GBR', tier: 'A' },
-    spec: {
-      base: {
-        artefact: 'hodd://models/core/MIDGARD-CORE-QWEN36-35B-A3B-v1.0',
-        expectSha256: 'a'.repeat(64),
-      },
-      dataset: {
-        artefact: 'hodd://corpora/GBR/curated',
-        expectSha256: 'b'.repeat(64),
-        cutoffPercentile: 99,
-      },
-      train: {
-        driver: 'hamarr.llamafactory/v1',
-        method: 'lora',
-        precision: 'bf16',
-        params: { rank: 16, save_steps: 500 },
-      },
-      placement: { driver: 'motsognir.slurm/v1', partition: 'default', nodes: 1 },
-      evaluate: { driver: 'raun.lmeval/v1', suites: ['legal-qa'], gates: ['E1'], baseline: null },
-      release: { route: 'tier-a', formats: ['gguf'], approval: 'required' },
-    },
-  };
+/**
+ * The console's own default, named. RF-35: this fixture named its base by hand,
+ * the Tier B base for GBR, and the API has refused it since RF-11. It now takes
+ * the default the compose screen starts from, at the site the stack reports,
+ * so the two cannot disagree about what a valid specification is.
+ */
+async function specificationNamed(page: Page, name: string): Promise<RunSpecification> {
+  const response = await page.request.get('/healthz');
+  const { siteId } = (await response.json()) as { siteId: string };
+  return defaultSpecification({ site: siteId, name });
 }

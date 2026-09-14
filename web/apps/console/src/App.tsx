@@ -73,12 +73,12 @@ export function App(): JSX.Element {
 
   return (
     <Shell siteId={health.data?.siteId ?? null} sites={sites.data?.items ?? []} roles={roles}>
-      {render(route)}
+      {render(route, health.data?.siteId ?? null)}
     </Shell>
   );
 }
 
-function render(route: ReturnType<typeof useRoute>): JSX.Element {
+function render(route: ReturnType<typeof useRoute>, siteId: string | null): JSX.Element {
   if (route === null) {
     return (
       <StateSurface
@@ -97,7 +97,7 @@ function render(route: ReturnType<typeof useRoute>): JSX.Element {
     case '/runs':
       return <RunBoard />;
     case '/runs/compose':
-      return <ComposeRun />;
+      return <ComposeRun siteId={siteId} />;
     case '/runs/:runId':
       return <RunDetail runId={route.params.runId ?? ''} />;
     case '/corpora':

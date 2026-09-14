@@ -117,6 +117,18 @@ CASES: tuple[tuple[str, dict[str, Any], str | None], ...] = (
         _altered(train={**SPEC["spec"]["train"], "method": "telepathy"}),
         "driver-unavailable",
     ),
+    (
+        # RF-35: `prepare` refused this and `admit` did not catch it, so it was
+        # a 500. 500 steps at the assumed twelve seconds is a hundred minutes.
+        "an authored checkpoint interval that leaves more than the budget unwritten",
+        _altered(
+            train={
+                **SPEC["spec"]["train"],
+                "params": {**SPEC["spec"]["train"].get("params", {}), "save_steps": 500},
+            }
+        ),
+        "specification-rejected",
+    ),
     ("something that is not a specification", {"not": "a specification"}, "specification-invalid"),
 )
 
