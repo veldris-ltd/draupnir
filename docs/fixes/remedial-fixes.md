@@ -3971,6 +3971,80 @@ transport itself is this finding.
 
 ---
 
+### RF-38 — P5 — The Storybook axe sweep races Storybook's own axe run
+
+`web/e2e/a11y/components.spec.ts` loads each story's `iframe.html` and runs
+`AxeBuilder` over it. `@storybook/addon-a11y`, registered in
+`web/.storybook/main.ts`, runs axe on the same page itself, in an `afterEach`
+hook once the story renders. When the addon's run had not finished, axe refused
+the sweep's:
+
+```
+Error: frame.evaluate: Error: Axe is already running. Use `await axe.run()` to
+wait for the previous run to finish before starting a new run.
+  at AxeBuilder.analyze … at web/e2e/a11y/components.spec.ts:58
+```
+
+The stack runs through Storybook's bundled `assets/axe-*.js`, not an axe the
+sweep injected. Seen on 14 September 2026 while RF-31 ran the a11y project:
+shard 6 of 8 failed in one run of 73 tests, and identical runs immediately
+before and after passed it.
+
+A gate that fails on a race gets re-run until it is green, and a habit of
+re-running is how a real violation gets waved through with the flake.
+
+**Prompt**
+
+> Make the sweep deterministic without weakening it. Stop the addon's automatic
+> run on the pages the sweep loads, or wait for it to finish before `AxeBuilder`
+> starts. Do not add retries. Keep the rule tags and the serious-or-critical
+> threshold unchanged, and verify by running the a11y project several times in
+> a row.
+
+**Acceptance criteria**
+
+- No axe run but the sweep's starts on a page the sweep loads, and a change
+  that brings one back fails the shard every time rather than occasionally.
+- The rule tags and the threshold are unchanged.
+- The a11y project passes several consecutive runs.
+- Gated in stage 2.8.
+
+> **Status: done, by turning the addon's automatic run off on the sweep's
+> pages.**
+>
+> **Confirmed before changing anything.** The addon's preview code (8.6.18)
+> runs axe in `afterEach` unless the story's `a11y` parameter says `manual`,
+> `disable` or `test: "off"`, or the `a11y.manual` global is set. A probe
+> against the built Storybook loaded one story twice:
+> - with `globals=a11y.manual:!true` on the URL, the addon fetched no axe
+>   chunk and `window.axe` was undefined after rendering;
+> - without it, the addon fetched its axe and `window.axe` was set.
+>
+> **The fix.** `components.spec.ts` loads every story with that global, so
+> `AxeBuilder`'s run is the only one on the page.
+> - No retries.
+> - The rule tags and the serious-or-critical threshold are unchanged. The
+>   tags are five, not the four the finding named: `wcag22aa` was already
+>   there, and it stays.
+> - Waiting for the addon's run was rejected: it depends on Storybook
+>   internals to know when a run has finished, and it runs axe twice per story
+>   for a result nobody reads.
+> - Developers' Storybook is untouched: the global is only on the sweep's URLs,
+>   and the addon's panel was never part of the gate.
+>
+> **Guarded, so it fails every time rather than sometimes.** The sweep records
+> requests for the addon's bundled `assets/axe-*.js`, and fails the shard,
+> naming the story and why, if one is made. `AxeBuilder` injects its own axe by
+> evaluation, so any such request is the addon.
+>
+> **Verified.**
+> - **Five consecutive runs** of `tasks.py test-a11y` passed 73 of 73 each,
+>   with no "Axe is already running" and no guard trip.
+> - **With the global removed**, the sweep failed all 8 shards, each on the
+>   guard's message. The global was then put back.
+
+---
+
 ## 5  Summary
 
 | ID | Severity | Finding |
@@ -4012,6 +4086,7 @@ transport itself is this finding.
 | RF-35 | P4 | The console's default specification is refused by its own API |
 | RF-36 | P5 | The journey stack does not route `/auth`, so sign-in cannot pass |
 | RF-37 | P2 | SAD 9.5's transport security is not built: nothing terminates TLS and nothing uses mTLS |
+| RF-38 | P5 | The Storybook axe sweep races Storybook's own axe run — **done**; the addon's automatic run is off on the sweep's pages, and the shard fails if it ever starts again |
 
 ---
 

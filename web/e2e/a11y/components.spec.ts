@@ -8,6 +8,27 @@ interface StoryIndex {
 const STORYBOOK = process.env.DRAUPNIR_STORYBOOK_URL ?? 'http://127.0.0.1:6006';
 
 /**
+ * Storybook's own a11y addon, told not to run by itself on these pages. RF-38.
+ *
+ * `@storybook/addon-a11y` runs axe in an `afterEach` hook once a story renders,
+ * on the bare `iframe.html` as much as in the Storybook UI. The sweep then
+ * started `AxeBuilder` on the same frame, and when the addon's run had not
+ * finished, axe refused the second: "Axe is already running". The shard failed
+ * on a race between two axe runs rather than on a violation, and the next run
+ * of the same code passed.
+ *
+ * The addon honours the `a11y.manual` global from the URL. Set, it loads no axe
+ * and runs nothing, so `AxeBuilder`'s run is the only one on the page. The
+ * addon's run was never part of the gate: it reports to the Storybook panel,
+ * which nothing here reads. Developers' Storybook is unchanged, because this is
+ * only on the URLs the sweep loads.
+ */
+const ADDON_MANUAL = 'globals=a11y.manual:!true';
+
+/** The addon's axe, bundled by Storybook. `AxeBuilder` injects its own by evaluation. */
+const ADDON_AXE = /\/assets\/axe-[^/]*\.js/;
+
+/**
  * WCAG 2.2 AA at the component level, which is what a route-level sweep cannot
  * give you.
  *
@@ -51,9 +72,23 @@ for (let shard = 0; shard < SHARDS; shard += 1) {
     const blocking: string[] = [];
     const advisory: string[] = [];
 
+    // If a Storybook upgrade stops honouring the global, the race comes back as
+    // an occasional red shard that goes green on a re-run, which is how real
+    // failures get waved through. So the addon loading its axe fails the shard
+    // every time instead, naming why.
+    const addonRuns: string[] = [];
+    page.on('request', (request) => {
+      if (ADDON_AXE.test(request.url())) addonRuns.push(request.url());
+    });
+
     for (const story of stories) {
-      await page.goto(`${STORYBOOK}/iframe.html?id=${story.id}&viewMode=story`);
+      await page.goto(`${STORYBOOK}/iframe.html?id=${story.id}&viewMode=story&${ADDON_MANUAL}`);
       await page.waitForSelector('#storybook-root > *', { state: 'attached' });
+      expect(
+        addonRuns,
+        `${story.title} / ${story.name}: Storybook's a11y addon started its own axe run, so ` +
+          'the sweep would race it (RF-38). The addon no longer honours the a11y.manual global.',
+      ).toEqual([]);
 
       const results = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
