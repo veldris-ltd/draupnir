@@ -35,7 +35,6 @@ difference between this and the manual sequence it replaces.
 from __future__ import annotations
 
 import hashlib
-import json
 import shutil
 import sys
 import time
@@ -595,28 +594,82 @@ def m7_merge_and_quantise(procedure: Procedure, scheduler: Any) -> Mapping[str, 
     The transition is recorded last, after the quantised artefacts exist, so the
     state QUANTISED is true of the run at the moment the chain says it is.
     """
+    from datetime import UTC, datetime
+
+    from draupnir.core.domain.evidence import Evidence
+
     base = _base_model_digest(procedure)
     adapter = procedure.artefacts["adapter"]
-    merged_path = procedure.path("artefacts", "merged.safetensors")
-
-    sweep = sweeps.linear(method="slerp", base_sha256=base, adapter_sha256=adapter, points=5)
-    job_id, _ = _dispatch(
-        procedure,
-        scheduler,
-        _stand_in_plan(
-            procedure, merged_path, [procedure.path("artefacts", "adapter.safetensors")]
-        ),
-    )
-    merged = procedure.record("merged", merged_path)
-
+    adapter_path = procedure.path("artefacts", "adapter.safetensors")
     suite = raun_suites.default_registry().resolve("merged", procedure.jurisdiction)[0]
-    measurements = _measurements(merged, suite.gates)
-    result = gleipnir_gates.evaluate(
-        measurements, _baselines(suite.gates, measurements), suite_version=suite.version
+
+    # Every point merged and re-gated (RF-27). This merged once and recorded how
+    # many points the sweep had, so AC-F8's comparison had one column of real
+    # numbers and four of nothing.
+    sweep = sweeps.linear(method="slerp", base_sha256=base, adapter_sha256=adapter, points=5)
+    paths: dict[str, Any] = {}
+    job_id = ""
+    for index, point in enumerate(sweep.points, start=1):
+        point_path = procedure.path("artefacts", f"merged-{index}.safetensors")
+        job_id, _ = _dispatch(
+            procedure, scheduler, _stand_in_plan(procedure, point_path, [adapter_path])
+        )
+        digest = procedure.record(f"merged-{index}", point_path)
+        measurements = _measurements(digest, suite.gates)
+        result = gleipnir_gates.evaluate(
+            measurements, _baselines(suite.gates, measurements), suite_version=suite.version
+        )
+        sweep = sweep.with_result(
+            point.parameters,
+            artefact_sha256=digest,
+            evidence=Evidence(
+                artefact_sha256=digest,
+                artefact_kind="merged",
+                outcomes=tuple(result.outcomes),
+                passed=result.passed,
+                suite=suite.name,
+                suite_version=result.suite_version,
+                evaluated_at=datetime.now(UTC),
+                measurements=measurements,
+            ),
+        )
+        paths[digest] = point_path
+
+    procedure.orchestrator.record(
+        subject_type=sweeps.SWEEP_SUBJECT,
+        subject_id=str(procedure.run_id),
+        transition=sweeps.EVALUATED,
+        payload=sweeps.record(sweep),
     )
-    if not result.passed:
-        msg = f"the merged artefact failed re-gate: {', '.join(result.blocking_failures)}"
+
+    # The choice is S15's, an operator's. The procedure is M1 to M10 with no
+    # manual step (AC-F12), so it stands in for the operator -- and says so on
+    # the record, with the gate it ranked on, rather than choosing silently.
+    criterion = suite.gates[0]
+    ranked = sweep.ranked(criterion)
+    if not ranked:
+        msg = (
+            f"no merge point clears every blocking gate "
+            f"({', '.join(point.label for point in sweep.points)})"
+        )
         raise ProcedureError(msg)
+    chosen = ranked[0]
+    sweep = sweep.select(chosen.parameters, criterion=criterion)
+    procedure.orchestrator.record(
+        subject_type=sweeps.SWEEP_SUBJECT,
+        subject_id=str(procedure.run_id),
+        transition=sweeps.SELECTED,
+        payload={
+            "parameters": dict(chosen.parameters),
+            "label": chosen.label,
+            "configHash": chosen.config_hash(),
+            "artefactSha256": chosen.artefact_sha256,
+            "criterion": criterion,
+            "selectedBy": "procedure M7, standing in for the operator",
+        },
+    )
+    merged_path = paths[chosen.artefact_sha256 or ""]
+    procedure.artefacts["merged"] = chosen.artefact_sha256 or ""
 
     built: dict[str, str] = {}
     for fmt in FORMATS:
@@ -627,22 +680,21 @@ def m7_merge_and_quantise(procedure: Procedure, scheduler: Any) -> Mapping[str, 
     applied = procedure.orchestrator.transition(
         procedure.run_id,
         RunState.QUANTISED,
-        facts={"failing_gates": list(result.failing)},
+        facts={"failing_gates": list(chosen.evidence.failing) if chosen.evidence else []},
         payload={
-            "merge_config_hash": hashlib.sha256(
-                json.dumps(sweep.matrix(), sort_keys=True).encode()
-            ).hexdigest(),
-            "sweep_result": {"points": len(sweep.points), "method": sweep.method},
+            "merge_config_hash": chosen.config_hash(),
+            "sweep_result": sweep.for_model_card(),
             "formats_built": built,
             "scheduler_job_id": job_id,
         },
     )
     return _evidence(
         applied,
-        merged_sha256=merged,
+        merged_sha256=chosen.artefact_sha256,
         sweep_points=len(sweep.points),
+        selected=chosen.label,
         formats=built,
-        merge_gate_results=result.as_payload(),
+        merge_gate_results=chosen.evidence.as_payload() if chosen.evidence else {},
     )
 
 

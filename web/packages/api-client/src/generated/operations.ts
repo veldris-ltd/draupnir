@@ -358,6 +358,14 @@ export const OPERATIONS = {
     pathParams: ["run_id"],
     hasBody: false,
   },
+  selectMergePoint: {
+    operationId: "selectMergePoint",
+    method: "POST",
+    path: "/v1/sweeps/{run_id}/select",
+    summary: "Choose the merge point a run is quantised from",
+    pathParams: ["run_id"],
+    hasBody: true,
+  },
 } as const satisfies Record<string, Operation>;
 
 /** Every operation identifier the API declares. */

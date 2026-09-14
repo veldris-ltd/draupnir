@@ -161,6 +161,47 @@ class StubReadModel(EmptyReadModel):
             updated_at=MOMENT,
         )
 
+    async def sweep(self, site_id: str, run_id: UUID) -> Any:
+        """The sweep the worker recorded: five points, the outer two failing E1.
+
+        What `getSweep` reads now (RF-27). It used to invent five points by
+        scaling one run's gate values, which is why this stub had no sweep.
+        """
+        del site_id, run_id
+        from draupnir.brisingamen import sweep as sweeps
+        from draupnir.core.domain.evidence import Evidence
+        from draupnir.interfaces.types import GateOutcome
+
+        current = sweeps.linear(method="slerp", base_sha256="b" * 64, adapter_sha256="a" * 64)
+        for index, point in enumerate(current.points, start=1):
+            passed = index not in {1, 5}
+            digest = f"{index:x}" * 64
+            value = 0.70 + index / 100
+            current = current.with_result(
+                point.parameters,
+                artefact_sha256=digest,
+                evidence=Evidence(
+                    artefact_sha256=digest,
+                    artefact_kind="merged",
+                    outcomes=(
+                        GateOutcome(
+                            gate="E1",
+                            suite_version="2026.01",
+                            value=value,
+                            baseline_value=0.72,
+                            margin=round(value - 0.72, 6),
+                            passed=passed,
+                        ),
+                    ),
+                    passed=passed,
+                    suite="general-core",
+                    suite_version="2026.01",
+                    evaluated_at=MOMENT,
+                    measurements={"E1": value},
+                ),
+            )
+        return current
+
     async def runs(
         self, site_id: str, *, limit: int, cursor: str | None, state: str | None = None
     ) -> RunPage:
@@ -489,20 +530,42 @@ def test_a_site_with_no_array_says_so_rather_than_counting_runs() -> None:
 def test_a_sweep_states_the_trade_in_words(stubbed: None) -> None:
     """UX 9.6: twenty numbers do not by themselves tell an operator anything."""
     del stubbed
-    body = client().get(f"/v1/sweeps/{RUN_ID}").json()
+    response = client().get(f"/v1/sweeps/{RUN_ID}")
+    body = response.json()
 
-    assert body["points"]
-    assert body["trade"]
+    assert body["evaluated"] is True
+    assert [point["passed"] for point in body["points"]] == [False, True, True, True, False]
+    assert body["selected"] is None, "a choice nobody made is not reported as selected"
     assert len(body["trade"]) > 40
+    assert response.headers["etag"] == body["etag"]
 
 
-def test_a_sweep_of_a_run_with_no_gates_says_there_is_no_trade(stubbed: None) -> None:
-    """Rather than rendering an empty matrix as though it were a decision."""
-    del stubbed
-    body = client().get(f"/v1/sweeps/{RUN_ID}").json()
-    # The stub's `model` is keyed on the run's spec hash and returns gates, so
-    # a run whose spec hash resolves to nothing is the empty case.
-    assert "trade" in body
+class Unevaluated(StubReadModel):
+    """A merged run whose sweep the worker has not evaluated yet."""
+
+    async def sweep(self, site_id: str, run_id: UUID) -> Any:
+        del site_id, run_id
+        return None
+
+
+def test_a_sweep_that_has_not_been_evaluated_has_no_points() -> None:
+    """RF-27. Rather than five points estimated from one run's gates.
+
+    The old handler scaled the run's measured gates by the weight and presented
+    the result as a comparison, with the first point that passed as "selected".
+    A run with no evaluated sweep has nothing to compare, and says so.
+    """
+    original = deps.READER
+    deps.set_reader(Unevaluated())
+    try:
+        body = client().get(f"/v1/sweeps/{RUN_ID}").json()
+    finally:
+        deps.set_reader(original)
+
+    assert body["evaluated"] is False
+    assert body["points"] == []
+    assert body["selected"] is None
+    assert "No sweep has been evaluated" in body["trade"]
 
 
 def test_corpora_counts_a_missing_dpia_separately(stubbed: None) -> None:

@@ -7,7 +7,7 @@
 
 ## How it is demonstrated
 
-A retention action deletes the raw corpus and keeps the curated manifests and licence entries; the lineage stays complete.
+An approved retention action is carried out by the worker's retention duty: the raw corpus is deleted, the curated manifests and licence entries are kept, and the outcome is recorded. Approval is conditional and needs a hardware factor (RF-27).
 
 
 ```bash

@@ -1,0 +1,171 @@
+{
+  "$comment": "What performs each screen's primary action in VLD-UX-DRAUPNIR-001 section 8. RF-27. Read by tests/unit/test_screen_inventory.py, which fails if a screen, its action text, or an operation named here drifts from the UX specification or from docs/api/openapi.json. Three kinds: an operation that performs the action; navigation, where the action opens a view and names the read that view uses; and readOnly, where the screen performs no action in this release and says why. A readOnly entry for a screen whose section 8 row still names an action cites the amendment proposing the row change.",
+  "screens": {
+    "S01": {
+      "action": "Navigate to the thing that needs attention",
+      "kind": "navigation",
+      "reads": ["listRuns", "listGates"],
+      "reason": "The overview links to the run or gate that needs attention; following a link performs nothing, and the views it opens read the run board and the approval queue."
+    },
+    "S02": {
+      "action": "Open a corpus",
+      "kind": "navigation",
+      "reads": ["listCorpora", "listSources"],
+      "reason": "Opening a corpus moves to its sources in the licence register; nothing is changed by opening it."
+    },
+    "S03": {
+      "action": "Register a source",
+      "kind": "operation",
+      "operations": ["registerSource"]
+    },
+    "S04": {
+      "action": "Continue, or resolve the gate",
+      "kind": "operation",
+      "operations": ["registerSource"]
+    },
+    "S05": {
+      "action": "Re-run a stage",
+      "kind": "readOnly",
+      "amendment": "docs/fixes/proposed-ux-amendments.md",
+      "reason": "A curated corpus is ingested into HODD and sealed at its address, so curating the same jurisdiction again is refused by the store rather than overwriting it. A different curation is a new corpus with its own address and lineage. A single stage is not re-run on its own because decontamination against the evaluation sets cannot be skipped."
+    },
+    "S06": {
+      "action": "Approve a retention action",
+      "kind": "operation",
+      "operations": ["approveRetention"]
+    },
+    "S07": {
+      "action": "Submit a run",
+      "kind": "operation",
+      "operations": ["submitRun"]
+    },
+    "S08": {
+      "action": "Cancel, or retry",
+      "kind": "operation",
+      "operations": ["cancelRun", "retryRun"]
+    },
+    "S09": {
+      "action": "Dry run",
+      "kind": "operation",
+      "operations": ["dryRunSpecification"]
+    },
+    "S10": {
+      "action": "Submit",
+      "kind": "operation",
+      "operations": ["submitRun"]
+    },
+    "S11": {
+      "action": "Retry with the correction applied",
+      "kind": "operation",
+      "operations": ["retryRun"]
+    },
+    "S12": {
+      "action": "Requeue a single element",
+      "kind": "operation",
+      "operations": ["requeueArrayElement"]
+    },
+    "S13": {
+      "action": "Open a model",
+      "kind": "navigation",
+      "reads": ["getModel"],
+      "reason": "Opening a model moves from the registry to that model's artefacts and evidence; nothing is changed by opening it."
+    },
+    "S14": {
+      "action": "Open lineage",
+      "kind": "navigation",
+      "reads": ["getLineage"],
+      "reason": "Opening the lineage moves from a model to its chain back to base licences and corpus hashes; nothing is changed by opening it."
+    },
+    "S15": {
+      "action": "Select a merge point",
+      "kind": "operation",
+      "operations": ["selectMergePoint"]
+    },
+    "S16": {
+      "action": "Export attestation",
+      "kind": "operation",
+      "operations": ["exportAttestation"]
+    },
+    "S17": {
+      "action": "Download the package",
+      "kind": "operation",
+      "operations": ["downloadReleaseDocument"]
+    },
+    "S18": {
+      "action": "Review",
+      "kind": "navigation",
+      "reads": ["listGates"],
+      "reason": "Reviewing moves from the queue to one artefact's evidence and decision, where the decision itself is S19's action."
+    },
+    "S19": {
+      "action": "Sign and approve",
+      "kind": "operation",
+      "operations": ["decideGate"]
+    },
+    "S20": {
+      "action": "Publish to registry",
+      "kind": "operation",
+      "operations": ["publishRelease"]
+    },
+    "S21": {
+      "action": "Reject",
+      "kind": "operation",
+      "operations": ["decideGate"]
+    },
+    "S22": {
+      "action": "Register a site",
+      "kind": "readOnly",
+      "amendment": "docs/fixes/proposed-ux-amendments.md",
+      "reason": "A site is registered in MEGINGJORD when it is commissioned, together with deploying the core and issuing its certificates (SAD 10.2 and 11A.1). A forge that registered sites from its own console would be a second site registry that the federation does not hold."
+    },
+    "S23": {
+      "action": "Enable or disable",
+      "kind": "readOnly",
+      "amendment": "docs/fixes/proposed-ux-amendments.md",
+      "reason": "Plug-ins install into the API environment as signed distributions and are verified at first load (SAD 11.1), and the installed set cannot change without a restart. Enabling one is a signed, deploy-time step rather than a switch in the console."
+    },
+    "S24": {
+      "action": "Publish a policy version",
+      "kind": "readOnly",
+      "amendment": "docs/fixes/proposed-ux-amendments.md",
+      "reason": "A policy change is a GLEIPNIR configuration change that is file based and version controlled (SAD 5.2 and 11.1), distributed by MEGINGJORD and pulled by each forge (SAD 11A.1). A forge that published versions itself would diverge from the version the federation distributes."
+    },
+    "S25": {
+      "action": "Assign a role",
+      "kind": "readOnly",
+      "amendment": "docs/fixes/proposed-ux-amendments.md",
+      "reason": "Roles are assigned in the identity provider and arrive in the token's roles or groups claim, with MEGINGJORD the RBAC source of truth (SAD 11A.1). A role assigned in the console would be a grant the identity provider knows nothing about."
+    },
+    "S26": {
+      "action": "Verify chain",
+      "kind": "operation",
+      "operations": ["getLedger"]
+    },
+    "S27": {
+      "action": "Copy entry",
+      "kind": "navigation",
+      "reads": ["getLedgerEntry"],
+      "reason": "Copying an entry puts the entry the screen already read onto the clipboard, in the browser; there is nothing for the API to perform."
+    },
+    "S28": {
+      "action": "Export",
+      "kind": "operation",
+      "operations": ["exportAttestation"]
+    },
+    "S29": {
+      "action": "Sign in",
+      "kind": "operation",
+      "operations": ["beginLogin"]
+    },
+    "S30": {
+      "action": "None. Read only",
+      "kind": "readOnly",
+      "reason": "The CON-A local view reads the appliance it is attached to and has no API dependency at all (Decision U2), so it survives the network failure it exists for."
+    },
+    "S31": {
+      "action": "None. Read only",
+      "kind": "readOnly",
+      "reason": "The CON-B panel is a kiosk nobody stands at, so it has no navigation, no site switcher and no control of any kind."
+    }
+  }
+}

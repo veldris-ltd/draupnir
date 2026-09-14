@@ -970,7 +970,16 @@ def judge(context: Context, facts: RunFacts) -> Outcome:
 
 
 def merge_and_quantise(context: Context, facts: RunFacts) -> Outcome:
-    """Merge with a sweep, re-gate the merge, and build the formats.
+    """Sweep, wait for a choice, then build the formats from the chosen point.
+
+    Three ticks' worth of work, each resumable from the chain (RF-27, AC-F8):
+
+    * No sweep recorded: merge and re-gate every point, and record the sweep.
+      This merged once and recorded how many points the sweep *had*, so the
+      comparison S15 showed was invented and there was nothing to choose from.
+    * A sweep and no selection: wait. Choosing among the points RAUN passed is
+      S15's primary action, an operator's, and not the worker's to make.
+    * A selection: quantise the chosen point's bytes, verified first.
 
     The transition is recorded last, after the quantised artefacts exist, so
     that the state QUANTISED is true of the run at the moment the chain says it
@@ -1022,70 +1031,62 @@ def merge_and_quantise(context: Context, facts: RunFacts) -> Outcome:
     except integrity.IntegrityError as refusal:
         return Outcome(facts.run_id, Result.DEFERRED, f"the adapter did not verify: {refusal}")
 
-    base = hashlib.sha256(b"MIDGARD-CORE-QWEN36-35B-A3B-v1.0").hexdigest()
-    sweep = linear(method="slerp", base_sha256=base, adapter_sha256=adapter_digest)
+    from draupnir.brisingamen import sweep as sweeps
 
-    try:
-        merge_plan = _plan_for(
+    recorded = sweeps.fold(context.orchestrator.history(facts.run_id))
+    if recorded is None:
+        base = hashlib.sha256(b"MIDGARD-CORE-QWEN36-35B-A3B-v1.0").hexdigest()
+        return _evaluate_sweep(
             context,
             facts,
-            group="draupnir.merge",
-            output=merged,
-            inputs=[adapter],
+            linear(method="slerp", base_sha256=base, adapter_sha256=adapter_digest),
+            adapter=adapter,
             workdir=workdir,
-            partition=str(Partition.EXPORT),
-        )
-    except NoPlanError as refusal:
-        return Outcome(facts.run_id, Result.DEFERRED, f"no merge plan: {refusal}")
-
-    try:
-        completed = execution.dispatch(
-            context.scheduler,
-            merge_plan,
-            timeout=context.timeout,
-            leak_check=context.secrets,
-        )
-    except execution.DispatchError as refusal:
-        return Outcome(facts.run_id, Result.DEFERRED, f"merge not placed: {refusal}")
-    if not completed.succeeded:
-        return Outcome(facts.run_id, Result.DEFERRED, f"the merge exited {completed.exit_code}")
-    merged = _expected(merge_plan, workdir, ARTEFACTS["merged"])
-    if not merged.is_file():
-        # A job that exits zero and writes nothing is a job that wrote
-        # somewhere else. Saying so beats hashing a file that is not there.
-        return Outcome(
-            facts.run_id,
-            Result.DEFERRED,
-            f"the merge exited zero and wrote no {merged.name} in {merged.parent}",
         )
 
-    try:
-        staged_merge = _stage(context, "merged", facts.run_id, merged)
-    except NotStagedError as refusal:
-        return Outcome(facts.run_id, Result.DEFERRED, str(refusal))
-
-    merged_digest = staged_merge.sha256
-    suite = raun_suites.default_registry().resolve("merged")[0]
-    try:
-        regate = _judged(
-            context,
-            facts,
-            artefact_kind="merged",
-            digest=merged_digest,
-            workdir=workdir,
-            suite=suite,
-        )
-    except NoJudgementError as refusal:
-        return Outcome(facts.run_id, Result.DEFERRED, f"the merge was not re-gated: {refusal}")
-    if not regate.passed:
+    chosen = recorded.selected_point
+    if chosen is None:
         return Outcome(
             facts.run_id,
             Result.IDLE,
-            f"the merged artefact failed re-gate: {', '.join(regate.blocking_failures)}",
+            (
+                f"{len(recorded.passing)} of {recorded.size} merge points clear every "
+                "blocking gate; awaiting an operator's selection (S15)"
+                if recorded.passing
+                else (
+                    f"no point of the {recorded.size}-point sweep clears every blocking gate, "
+                    "so there is nothing to select"
+                )
+            ),
+        )
+
+    located = _sweep_file(context, facts, chosen.artefact_sha256 or "")
+    if located is None:
+        return Outcome(
+            facts.run_id,
+            Result.DEFERRED,
+            (
+                f"the selected merge point {chosen.label} was merged by a worker with a "
+                "different scratch, so its bytes are not here to quantise"
+            ),
+        )
+    merged, staged_record = located
+    # The bytes about to be quantised are the bytes the selection was made on.
+    try:
+        integrity.verify_before_load(
+            merged,
+            artefact="merged",
+            expected=chosen.artefact_sha256 or "",
+            at=datetime.now(UTC),
+            run_id=str(facts.run_id),
+        )
+    except integrity.IntegrityError as refusal:
+        return Outcome(
+            facts.run_id, Result.DEFERRED, f"the selected merge did not verify: {refusal}"
         )
 
     built: dict[str, str] = {}
-    addresses: list[dict[str, Any]] = [staged_merge.as_record()]
+    addresses: list[dict[str, Any]] = [staged_record]
     for fmt in FORMATS:
         target = workdir / f"{fmt}.bin"
         try:
@@ -1128,12 +1129,14 @@ def merge_and_quantise(context: Context, facts: RunFacts) -> Outcome:
     applied = context.orchestrator.transition(
         facts.run_id,
         RunState.QUANTISED,
-        facts={"failing_gates": list(regate.failing)},
+        facts={"failing_gates": list(chosen.evidence.failing) if chosen.evidence else []},
         payload={
-            "merge_config_hash": _sweep_hash(sweep),
-            "sweep_result": {"points": len(sweep.points), "method": sweep.method},
+            # The chosen point's configuration, and the whole comparison it was
+            # chosen from, which is what the model card records (AC-F8).
+            "merge_config_hash": chosen.config_hash(),
+            "sweep_result": recorded.for_model_card(),
             "formats_built": built,
-            "merged_sha256": merged_digest,
+            "merged_sha256": chosen.artefact_sha256,
             # Every artefact this stage produced, each with its own address.
             # A list rather than one `artefact_uri` because a release run
             # produces several and a publication resolves one of them by its
@@ -1398,3 +1401,167 @@ __all__ = [
     "advance",
     "placement_of",
 ]
+
+
+# ---------------------------------------------------------------------------
+# The sweep, point by point. RF-27, AC-F8.
+# ---------------------------------------------------------------------------
+
+
+def _with_point(facts: RunFacts, parameters: Mapping[str, float]) -> RunFacts:
+    """The run's facts, with one sweep point in the merge driver's parameters.
+
+    The point travels in the specification the driver renders, because that is
+    the only thing a driver renders from: a weight passed any other way reaches
+    no merge, which is how five merges came to be one merge five times.
+    """
+    specification = facts.specification
+    if not isinstance(specification, Mapping):
+        return facts
+    spec = specification.get("spec")
+    train = spec.get("train") if isinstance(spec, Mapping) else None
+    if not isinstance(spec, Mapping) or not isinstance(train, Mapping):
+        return facts
+    params = {**dict(train.get("params") or {}), "sweep_point": dict(parameters)}
+    return replace(
+        facts,
+        specification={
+            **dict(specification),
+            "spec": {**dict(spec), "train": {**dict(train), "params": params}},
+        },
+    )
+
+
+def _evaluate_sweep(
+    context: Context, facts: RunFacts, sweep: Sweep, *, adapter: Path, workdir: Path
+) -> Outcome:
+    """Merge and re-gate every point, then record the sweep. Nothing is chosen here."""
+    import math
+
+    from draupnir.brisingamen import sweep as sweeps
+    from draupnir.core.domain.evidence import Evidence
+
+    suite = raun_suites.default_registry().resolve("merged")[0]
+    files: dict[str, str] = {}
+    artefacts: list[dict[str, Any]] = []
+
+    for index, point in enumerate(sweep.points, start=1):
+        pointdir = workdir / f"sweep-{index}"
+        pointdir.mkdir(parents=True, exist_ok=True)
+        try:
+            plan = _plan_for(
+                context,
+                _with_point(facts, point.parameters),
+                group="draupnir.merge",
+                output=pointdir / ARTEFACTS["merged"],
+                inputs=[adapter],
+                workdir=pointdir,
+                partition=str(Partition.EXPORT),
+            )
+        except NoPlanError as refusal:
+            return Outcome(
+                facts.run_id, Result.DEFERRED, f"no merge plan for {point.label}: {refusal}"
+            )
+        try:
+            completed = execution.dispatch(
+                context.scheduler, plan, timeout=context.timeout, leak_check=context.secrets
+            )
+        except execution.DispatchError as refusal:
+            return Outcome(
+                facts.run_id, Result.DEFERRED, f"merge {point.label} not placed: {refusal}"
+            )
+        if not completed.succeeded:
+            return Outcome(
+                facts.run_id,
+                Result.DEFERRED,
+                f"the merge at {point.label} exited {completed.exit_code}",
+            )
+        merged = _expected(plan, pointdir, ARTEFACTS["merged"])
+        if not merged.is_file():
+            # A job that exits zero and writes nothing wrote somewhere else.
+            return Outcome(
+                facts.run_id,
+                Result.DEFERRED,
+                f"the merge at {point.label} exited zero and wrote no {merged.name}",
+            )
+        try:
+            staged = _stage(context, "merged", facts.run_id, merged, name=f"sweep-{index}")
+        except NotStagedError as refusal:
+            return Outcome(facts.run_id, Result.DEFERRED, str(refusal))
+        try:
+            result = _judged(
+                context,
+                facts,
+                artefact_kind="merged",
+                digest=staged.sha256,
+                workdir=pointdir,
+                suite=suite,
+            )
+        except NoJudgementError as refusal:
+            return Outcome(
+                facts.run_id,
+                Result.DEFERRED,
+                f"the merge at {point.label} was not re-gated: {refusal}",
+            )
+
+        sweep = sweep.with_result(
+            point.parameters,
+            artefact_sha256=staged.sha256,
+            evidence=Evidence(
+                artefact_sha256=staged.sha256,
+                artefact_kind="merged",
+                outcomes=tuple(result.outcomes),
+                passed=result.passed,
+                suite=suite.name,
+                suite_version=result.suite_version,
+                evaluated_at=datetime.now(UTC),
+                measurements={
+                    outcome.gate: outcome.value
+                    for outcome in result.outcomes
+                    if math.isfinite(outcome.value)
+                },
+            ),
+        )
+        files[staged.sha256] = merged.relative_to(workdir).as_posix()
+        artefacts.append(staged.as_record())
+
+    context.orchestrator.record(
+        subject_type=sweeps.SWEEP_SUBJECT,
+        subject_id=str(facts.run_id),
+        transition=sweeps.EVALUATED,
+        payload={**sweeps.record(sweep), "files": files, "artefacts": artefacts},
+    )
+    return Outcome(
+        facts.run_id,
+        Result.IDLE,
+        (
+            f"sweep evaluated: {len(sweep.passing)} of {sweep.size} points clear every "
+            "blocking gate; awaiting an operator's selection (S15)"
+            if sweep.passing
+            else f"sweep evaluated: no point of {sweep.size} clears every blocking gate"
+        ),
+    )
+
+
+def _sweep_file(
+    context: Context, facts: RunFacts, digest: str
+) -> tuple[Path, dict[str, Any]] | None:
+    """Where the chosen point's bytes are in this worker's scratch, and their record."""
+    payload = _entry_payload(context, facts.run_id, "files")
+    if payload is None or not digest:
+        return None
+    relative = dict(payload.get("files") or {}).get(digest)
+    if not relative:
+        return None
+    located = context.workdir(facts.run_id) / str(relative)
+    if not located.is_file():
+        return None
+    record = next(
+        (
+            dict(item)
+            for item in payload.get("artefacts", ())
+            if isinstance(item, Mapping) and item.get("sha256") == digest
+        ),
+        {"uri": "", "sha256": digest},
+    )
+    return located, record

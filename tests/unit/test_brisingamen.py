@@ -311,3 +311,105 @@ def test_the_configuration_hash_changes_with_the_weight() -> None:
     config = merge.linear(base_sha256=BASE, adapter_sha256=ADAPTER, jurisdiction="GBR")
 
     assert config.config_hash() != config.at_weight({"weight": 0.6}).config_hash()
+
+
+# -- the record, RF-27 --------------------------------------------------------
+#
+# The sweep was built, hashed and thrown away, and S15 served five points
+# invented from one run's gate values. These are the record that replaces that:
+# the evaluated sweep as the chain holds it, and the choice made from it.
+
+import json  # noqa: E402
+import math  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+
+def _entry(transition: str, payload: dict[str, object]) -> SimpleNamespace:
+    return SimpleNamespace(subject_type=sweep.SWEEP_SUBJECT, transition=transition, payload=payload)
+
+
+def test_an_evaluated_sweep_survives_the_chain(evaluated: sweep.Sweep) -> None:
+    """Through JSON, as the ledger stores it. The same matrix comes back."""
+    rebuilt = sweep.from_record(json.loads(json.dumps(sweep.record(evaluated))))
+
+    assert rebuilt.matrix() == evaluated.matrix()
+    assert [point.passed for point in rebuilt.points] == [p.passed for p in evaluated.points]
+
+
+def test_a_gate_nobody_measured_is_recorded_without_a_nan(five: sweep.Sweep) -> None:
+    """PostgreSQL's jsonb refuses NaN, and an unmeasured gate has no value to record."""
+    unmeasured = Evidence(
+        artefact_sha256=merged_sha(1),
+        artefact_kind="merged",
+        outcomes=(
+            GateOutcome(gate="E2", suite_version="2026.01", value=float("nan"), passed=False),
+        ),
+        passed=False,
+        suite="general-core",
+        suite_version="2026.01",
+        evaluated_at=AT,
+    )
+    current = five.with_result(
+        five.points[0].parameters, artefact_sha256=merged_sha(1), evidence=unmeasured
+    )
+
+    recorded = json.dumps(sweep.record(current), allow_nan=False)
+    rebuilt = sweep.from_record(json.loads(recorded))
+
+    first = rebuilt.points[0].evidence
+    assert first is not None
+    assert math.isnan(first.outcomes[0].value)
+    assert not first.passed
+
+
+def test_the_fold_applies_a_recorded_selection(evaluated: sweep.Sweep) -> None:
+    chosen = evaluated.passing[1]
+
+    folded = sweep.fold(
+        [
+            _entry(sweep.EVALUATED, sweep.record(evaluated)),
+            _entry(sweep.SELECTED, {"parameters": dict(chosen.parameters), "criterion": "E2"}),
+        ]
+    )
+
+    assert folded is not None
+    assert folded.selected_point is not None
+    assert folded.selected_point.label == chosen.label
+    assert folded.selection_criterion == "E2"
+
+
+def test_a_recorded_selection_of_a_failing_point_is_not_applied(five: sweep.Sweep) -> None:
+    """RAUN decides whether a merge is acceptable, and a record cannot overrule it."""
+    current = five
+    for index, point in enumerate(five.points, start=1):
+        current = current.with_result(
+            point.parameters,
+            artefact_sha256=merged_sha(index),
+            evidence=evidence_for(index, score=0.7, passed=index != 1),
+        )
+    failing = current.points[0]
+
+    folded = sweep.fold(
+        [
+            _entry(sweep.EVALUATED, sweep.record(current)),
+            _entry(sweep.SELECTED, {"parameters": dict(failing.parameters)}),
+        ]
+    )
+
+    assert folded is not None
+    assert folded.selected is None
+
+
+def test_no_evaluation_means_no_sweep() -> None:
+    """Rather than five points derived from something else."""
+    assert sweep.fold([]) is None
+    assert sweep.fold([_entry(sweep.SELECTED, {"parameters": {"weight": 0.4}})]) is None
+
+
+def test_the_version_changes_when_a_point_is_chosen(evaluated: sweep.Sweep) -> None:
+    """A selection is conditional on it, so it must move when the choice does."""
+    before = sweep.version(evaluated)
+    after = sweep.version(evaluated.select(evaluated.passing[0].parameters))
+
+    assert before != after
+    assert sweep.version(None) == {"evaluated": False}

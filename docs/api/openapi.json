@@ -2625,6 +2625,18 @@
         "additionalProperties": false,
         "description": "A reweighting sweep, as a trade rather than a table.",
         "properties": {
+          "etag": {
+            "default": "",
+            "description": "The entity tag a selection is conditional on (SAD 11E.2).",
+            "title": "Etag",
+            "type": "string"
+          },
+          "evaluated": {
+            "default": false,
+            "description": "Whether the sweep has been merged and re-gated point by point. False means there are no results to compare, and the points are empty rather than estimated (RF-27).",
+            "title": "Evaluated",
+            "type": "boolean"
+          },
           "floors": {
             "additionalProperties": {
               "type": "number"
@@ -2671,6 +2683,21 @@
             ],
             "description": "The label of the chosen point.",
             "title": "Selected"
+          },
+          "selectedParameters": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The chosen point's merge configuration, where one was chosen.",
+            "title": "Selectedparameters"
           },
           "trade": {
             "description": "The trade in words, generated from the data. A matrix of twenty numbers does not by itself tell an operator that the higher scoring points fail a different gate (UX 9.6).",
@@ -2743,6 +2770,38 @@
           "passed"
         ],
         "title": "SweepPointOut",
+        "type": "object"
+      },
+      "SweepSelectionIn": {
+        "additionalProperties": false,
+        "description": "The merge point an operator chooses. S15, RF-27.",
+        "properties": {
+          "criterion": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which gate the choice was ranked on, so the choice is explicable.",
+            "title": "Criterion"
+          },
+          "parameters": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "The chosen point's merge configuration, exactly as the sweep lists it.",
+            "title": "Parameters",
+            "type": "object"
+          }
+        },
+        "required": [
+          "parameters"
+        ],
+        "title": "SweepSelectionIn",
         "type": "object"
       }
     }
@@ -8063,7 +8122,7 @@
     },
     "/v1/sweeps/{run_id}": {
       "get": {
-        "description": "Merge points against gate results, with the trade stated in words. S15.\n\n    \"The reweighting decision is a trade, and the screen presents it as one.\"\n    The sentence is generated from the data rather than written, because a\n    hard-coded sentence stops being true the first time the numbers move --\n    and the whole point of it is that a matrix of twenty numbers does not by\n    itself tell an operator that the higher scoring points fail a different\n    gate.\n    \n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
+        "description": "Merge points against gate results, with the trade stated in words. S15.\n\n    \"The reweighting decision is a trade, and the screen presents it as one.\"\n    The sentence is generated from the data rather than written, because a\n    hard-coded sentence stops being true the first time the numbers move --\n    and the whole point of it is that a matrix of twenty numbers does not by\n    itself tell an operator that the higher scoring points fail a different\n    gate.\n\n    The numbers are the sweep's own (RF-27). This used to invent five points by\n    scaling one run's gate values and call the first that passed \"selected\", so\n    the screen compared numbers nobody measured and reported a choice nobody\n    made. A run whose sweep has not been evaluated has no points, and says so.\n    \n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
         "operationId": "getSweep",
         "parameters": [
           {
@@ -8177,6 +8236,173 @@
           }
         },
         "summary": "A reweighting sweep, as merge points against gates",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/v1/sweeps/{run_id}/select": {
+      "post": {
+        "description": "Choose one evaluated point. S15's primary action, RF-27; AC-F8.\n\n    BRISINGAMEN ran the sweep and RAUN decided which points are acceptable, so\n    a point that failed a blocking gate, or was never evaluated, is refused\n    here by `Sweep.select` rather than by a rule written again. The choice is\n    recorded against the run and the worker quantises that point's bytes; the\n    whole comparison it was chosen from goes on the model card.\n\n    Conditional on the sweep's version, so an operator who chose from the\n    matrix before somebody else chose, or before a re-evaluation, is refused\n    with 412 rather than choosing from numbers that are no longer the record.\n    \n\nRequires: `operator`.",
+        "operationId": "selectMergePoint",
+        "parameters": [
+          {
+            "description": "The merge run.",
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "description": "The merge run.",
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Entity tag the write is conditional on.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entity tag the write is conditional on.",
+              "title": "If-Match"
+            }
+          },
+          {
+            "description": "Replaying a request with the same key returns the original result.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replaying a request with the same key returns the original result.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SweepSelectionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SweepOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Choose the merge point a run is quantised from",
         "tags": [
           "models"
         ]

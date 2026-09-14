@@ -87,6 +87,36 @@ def _curate(connection: Connection, workdir: Path) -> Procedure:
     return procedure
 
 
+def _select_when_waiting(engine: Engine, site: str, run_id: Any) -> None:
+    """Choose a merge point when the worker is waiting for one, as an operator would.
+
+    The worker merges and re-gates every point of the sweep and then waits at
+    MERGED (RF-27): choosing among the points RAUN passed is S15's primary
+    action, and not the worker's. A test that drives a run to approval has to
+    make that choice, the way an operator does, or the run waits for ever.
+    """
+    from draupnir.brisingamen import sweep as sweeps
+
+    with engine.begin() as connection:
+        operator = for_connection(connection, SiteScope(site), actor="operator@veldris.internal")
+        recorded = sweeps.fold(operator.history(run_id))
+        if recorded is None or recorded.selected is not None or not recorded.passing:
+            return
+        chosen = recorded.passing[0]
+        operator.record(
+            subject_type=sweeps.SWEEP_SUBJECT,
+            subject_id=str(run_id),
+            transition=sweeps.SELECTED,
+            payload={
+                "parameters": dict(chosen.parameters),
+                "label": chosen.label,
+                "configHash": chosen.config_hash(),
+                "artefactSha256": chosen.artefact_sha256,
+                "criterion": None,
+            },
+        )
+
+
 def test_the_worker_drives_a_queued_run_to_approval(
     engine: Engine, site: str, tmp_path: Path
 ) -> None:
@@ -121,6 +151,7 @@ def test_the_worker_drives_a_queued_run_to_approval(
     reached: RunState | None = None
     for _ in range(TICKS):
         worker.run_once()
+        _select_when_waiting(engine, site, procedure.run_id)
         with engine.connect() as connection:
             transaction = connection.begin()
             reached = for_connection(
@@ -150,6 +181,33 @@ def test_the_worker_drives_a_queued_run_to_approval(
     ):
         assert expected in transitions
 
+    # AC-F8 through the worker (RF-27). Every point merged and re-gated, one
+    # chosen, and the run quantised from exactly that point -- where it used to
+    # merge once and record how many points the sweep had.
+    from draupnir.brisingamen import sweep as sweeps
+
+    assert sweeps.EVALUATED in transitions
+    assert sweeps.SELECTED in transitions
+    with engine.connect() as connection:
+        transaction = connection.begin()
+        history = for_connection(
+            connection, SiteScope(site), actor="auditor@veldris.internal"
+        ).history(procedure.run_id)
+        transaction.rollback()
+
+    recorded = sweeps.fold(history)
+    assert recorded is not None
+    assert recorded.complete, "a point of the sweep was never merged and re-gated"
+    assert recorded.selected_point is not None
+    quantised = next(
+        entry
+        for entry in history
+        if entry.transition == f"{RunState.MERGED}->{RunState.QUANTISED}"
+    )
+    assert isinstance(quantised.payload, dict)
+    assert quantised.payload["merge_config_hash"] == recorded.selected_point.config_hash()
+    assert quantised.payload["merged_sha256"] == recorded.selected_point.artefact_sha256
+
 
 def test_a_second_tick_over_an_awaiting_run_changes_nothing(
     engine: Engine, site: str, tmp_path: Path
@@ -173,6 +231,7 @@ def test_a_second_tick_over_an_awaiting_run_changes_nothing(
     )
     for _ in range(TICKS):
         report = worker.run_once()
+        _select_when_waiting(engine, site, procedure.run_id)
         states = {outcome.state for outcome in report.moved}
         if RunState.AWAITING_APPROVAL in states:
             break

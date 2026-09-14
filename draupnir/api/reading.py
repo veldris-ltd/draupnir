@@ -170,6 +170,10 @@ class ReadModel(Protocol):
         """The array this site has submitted, or `None` if it has submitted none."""
         ...
 
+    async def sweep(self, site_id: str, run_id: UUID) -> Any:
+        """A run's evaluated merge sweep, folded with its selection, or `None`."""
+        ...
+
     async def retention(self, site_id: str) -> RetentionPage:
         """Retention actions, soonest first."""
         ...
@@ -239,6 +243,11 @@ class EmptyReadModel:
     async def array(self, site_id: str) -> ArrayOut | None:
         """No array. RF-13: `None` rather than a size derived from nothing."""
         del site_id
+        return None
+
+    async def sweep(self, site_id: str, run_id: UUID) -> Any:
+        """No sweep. RF-27: nothing, rather than points estimated from something else."""
+        del site_id, run_id
         return None
 
     async def corpora(self, site_id: str) -> CorpusPage:
@@ -733,6 +742,33 @@ class DatabaseReadModel:
                         )
                     )
         return SearchPage(items=hits[:limit], query=query, limit=limit)
+
+    # -- the merge sweep ----------------------------------------------------
+
+    async def sweep(self, site_id: str, run_id: UUID) -> Any:
+        """A run's merge sweep, folded from the entries the worker recorded. RF-27.
+
+        `getSweep` used to invent five points by scaling one run's gate values,
+        so S15 compared numbers nobody measured. This reads the sweep the
+        worker merged and re-gated point by point, or `None` where it has not.
+        """
+        from draupnir.brisingamen import sweep as sweeps
+
+        sql = (
+            "SELECT seq, subject_type, transition, payload FROM ledger_entry "
+            "WHERE site_id = :site_id AND subject_type = :subject AND subject_id = :run "
+            "ORDER BY seq"
+        )
+        async with self._scoped(site_id) as session:
+            rows = list(
+                (
+                    await session.execute(
+                        text(sql),
+                        {"site_id": site_id, "subject": sweeps.SWEEP_SUBJECT, "run": str(run_id)},
+                    )
+                ).mappings()
+            )
+        return sweeps.fold(SimpleNamespace(**row) for row in rows)
 
     # -- curation and retention --------------------------------------------
 

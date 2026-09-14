@@ -157,6 +157,20 @@ def entries_of(subject_type: str) -> Question:
     return ask
 
 
+def history_of(run_id: UUID) -> Question:
+    """Every entry about one run, any subject type, oldest first. RF-27.
+
+    A run's merge sweep is recorded under its own subject type with the run as
+    the subject, so the projector does not fold it; this is how a write reads
+    it back from the chain it will append to.
+    """
+
+    def ask(orchestrator: Orchestrator) -> tuple[LedgerEntry, ...]:
+        return orchestrator.history(run_id)
+
+    return ask
+
+
 class NoWriter:
     """Records nothing. The default, and what a contract test runs against.
 

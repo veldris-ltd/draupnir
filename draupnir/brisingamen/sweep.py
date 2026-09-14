@@ -25,11 +25,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from typing import Any
 
 from draupnir.core.domain.evidence import Evidence
+from draupnir.interfaces.types import GateOutcome
 
 #: AC-F8's floor. A sweep with fewer points has not demonstrated that the
 #: weight was chosen rather than assumed.
@@ -327,3 +330,170 @@ def linear(
         adapter_sha256=adapter_sha256,
         parameters=[{parameter: round(start + step * index, 6)} for index in range(points)],
     )
+
+
+# ---------------------------------------------------------------------------
+# The record. RF-27.
+# ---------------------------------------------------------------------------
+#
+# A sweep was built, hashed and thrown away. The worker merged once, recorded
+# how many points the sweep *had*, and `getSweep` served five points invented
+# by scaling one run's gate values -- so the comparison S15 exists for was a
+# comparison of fiction, and there was nothing real to select from. These put
+# the evaluated sweep, and the choice made from it, in the chain.
+
+#: The subject sweep entries are recorded against, with the run's identifier
+#: as the subject id so a run's history holds its sweep. Not `run`: the
+#: projector folds run entries and refuses a transition it does not know.
+SWEEP_SUBJECT = "sweep"
+#: Every point merged and re-gated.
+EVALUATED = "sweep.evaluated"
+#: An operator chose a point.
+SELECTED = "sweep.selected"
+
+
+def _finite(value: float | None) -> float | None:
+    """A number the chain can hold. A gate nobody measured has no value, not NaN."""
+    return value if value is not None and math.isfinite(value) else None
+
+
+def _evidence_record(evidence: Evidence) -> dict[str, Any]:
+    return {
+        "artefactSha256": evidence.artefact_sha256,
+        "artefactKind": evidence.artefact_kind,
+        "suite": evidence.suite,
+        "suiteVersion": evidence.suite_version,
+        "evaluatedAt": evidence.evaluated_at.isoformat(),
+        "baselineSha256": evidence.baseline_sha256,
+        "passed": evidence.passed,
+        "outcomes": [
+            {
+                "gate": outcome.gate,
+                "suiteVersion": outcome.suite_version,
+                "value": _finite(outcome.value),
+                "baseline": _finite(outcome.baseline_value),
+                "margin": _finite(outcome.margin),
+                "passed": outcome.passed,
+            }
+            for outcome in evidence.outcomes
+        ],
+        "measurements": {
+            gate: value for gate, value in evidence.measurements.items() if math.isfinite(value)
+        },
+    }
+
+
+def _optional(value: Any) -> float | None:
+    return None if value is None else float(value)
+
+
+def _evidence_from(payload: Mapping[str, Any]) -> Evidence:
+    version = str(payload["suiteVersion"])
+    return Evidence(
+        artefact_sha256=str(payload["artefactSha256"]),
+        artefact_kind=str(payload["artefactKind"]),
+        outcomes=tuple(
+            GateOutcome(
+                gate=str(item["gate"]),
+                suite_version=str(item.get("suiteVersion") or version),
+                value=float("nan") if item.get("value") is None else float(item["value"]),
+                baseline_value=_optional(item.get("baseline")),
+                margin=_optional(item.get("margin")),
+                passed=bool(item.get("passed")),
+            )
+            for item in payload.get("outcomes", ())
+        ),
+        passed=bool(payload["passed"]),
+        suite=str(payload["suite"]),
+        suite_version=version,
+        evaluated_at=datetime.fromisoformat(str(payload["evaluatedAt"])),
+        baseline_sha256=payload.get("baselineSha256"),
+        measurements={
+            str(gate): float(value)
+            for gate, value in dict(payload.get("measurements") or {}).items()
+        },
+    )
+
+
+def record(sweep: Sweep) -> dict[str, Any]:
+    """The evaluated sweep, complete enough to rebuild. What `sweep.evaluated` carries."""
+    return {
+        "method": sweep.method,
+        "baseSha256": sweep.base_sha256,
+        "adapterSha256": sweep.adapter_sha256,
+        "notes": list(sweep.notes),
+        "points": [
+            {
+                "parameters": dict(sorted(point.parameters.items())),
+                "artefactSha256": point.artefact_sha256,
+                "evidence": _evidence_record(point.evidence) if point.evidence else None,
+            }
+            for point in sweep.points
+        ],
+    }
+
+
+def from_record(payload: Mapping[str, Any]) -> Sweep:
+    """Rebuild the sweep a `sweep.evaluated` entry recorded."""
+    return Sweep(
+        method=str(payload["method"]),
+        base_sha256=str(payload["baseSha256"]),
+        adapter_sha256=str(payload["adapterSha256"]),
+        points=tuple(
+            MergePoint(
+                parameters={
+                    str(name): float(value) for name, value in dict(item["parameters"]).items()
+                },
+                artefact_sha256=item.get("artefactSha256"),
+                evidence=_evidence_from(item["evidence"]) if item.get("evidence") else None,
+            )
+            for item in payload.get("points", ())
+        ),
+        notes=tuple(str(note) for note in payload.get("notes", ())),
+    )
+
+
+def fold(entries: Iterable[Any]) -> Sweep | None:
+    """The sweep a run's entries record, with its selection applied.
+
+    The latest evaluation wins, and a selection applies to the evaluation
+    before it. A recorded selection the sweep refuses -- a point that failed,
+    or one it does not hold -- is not applied: the fold reports the record, and
+    an unselectable choice is not a choice.
+    """
+    found: Sweep | None = None
+    for entry in entries:
+        if getattr(entry, "subject_type", SWEEP_SUBJECT) != SWEEP_SUBJECT:
+            continue
+        payload = entry.payload if isinstance(entry.payload, Mapping) else {}
+        if entry.transition == EVALUATED:
+            found = from_record(payload)
+        elif entry.transition == SELECTED and found is not None:
+            parameters = payload.get("parameters")
+            if not isinstance(parameters, Mapping):
+                continue
+            try:
+                found = found.select(
+                    {str(name): float(value) for name, value in parameters.items()},
+                    criterion=str(payload.get("criterion") or ""),
+                )
+            except SweepError:
+                continue
+    return found
+
+
+def version(sweep: Sweep | None) -> dict[str, Any]:
+    """What a selection is conditional on: which points were measured, and the choice.
+
+    A precondition over something that changes. A second evaluation, or somebody
+    else's selection, moves it; an operator who chose from the matrix before
+    either happened is refused rather than choosing from numbers they did not see.
+    """
+    if sweep is None:
+        return {"evaluated": False}
+    digest = hashlib.sha256(json.dumps(record(sweep), sort_keys=True).encode()).hexdigest()
+    return {
+        "evaluated": True,
+        "points": digest,
+        "selected": dict(sorted(sweep.selected.items())) if sweep.selected else None,
+    }

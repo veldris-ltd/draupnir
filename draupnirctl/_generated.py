@@ -403,4 +403,13 @@ OPERATIONS: tuple[Operation, ...] = (
         path_params=("run_id",),
         has_body=False,
     ),
+    Operation(
+        operation_id="selectMergePoint",
+        command="select-merge-point",
+        method="POST",
+        path="/v1/sweeps/{run_id}/select",
+        summary="Choose the merge point a run is quantised from",
+        path_params=("run_id",),
+        has_body=True,
+    ),
 )

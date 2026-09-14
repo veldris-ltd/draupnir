@@ -27,13 +27,16 @@ from uuid import UUID
 from fastapi import APIRouter, Path, Query, Response, status
 
 from draupnir.api import release_documents, telemetry, writing
+from draupnir.api.concurrency import ConcurrencyError, etag, require
 from draupnir.api.deps import (
     Cursor,
     Guarded,
     IdempotencyKey,
+    IfMatch,
     PageSize,
     Reading,
     accepted,
+    as_problem,
     complete,
     release,
     replay_or_reserve,
@@ -51,8 +54,12 @@ from draupnir.api.schemas import (
     SearchPage,
     SweepOut,
     SweepPointOut,
+    SweepSelectionIn,
 )
+from draupnir.brisingamen import sweep as sweeps
+from draupnir.core.application.orchestrator import UnknownRunError
 from draupnir.core.domain.identifiers import new_id
+from draupnir.core.domain.states import RunState
 from draupnir.hamarr import tiers
 from draupnir.motsognir import arrays as array_domain
 from draupnir.skidbladnir.article53 import Article53Error
@@ -435,6 +442,7 @@ async def get_sweep(
     run_id: Annotated[UUID, Path(description="The merge run.")],
     ctx: Guarded,
     reading: Reading,
+    response: Response,
 ) -> SweepOut:
     """Merge points against gate results, with the trade stated in words. S15.
 
@@ -444,6 +452,11 @@ async def get_sweep(
     and the whole point of it is that a matrix of twenty numbers does not by
     itself tell an operator that the higher scoring points fail a different
     gate.
+
+    The numbers are the sweep's own (RF-27). This used to invent five points by
+    scaling one run's gate values and call the first that passed "selected", so
+    the screen compared numbers nobody measured and reported a choice nobody
+    made. A run whose sweep has not been evaluated has no points, and says so.
     """
     run = await reading.run(ctx.site_id, run_id)
     if run is None:
@@ -454,39 +467,192 @@ async def get_sweep(
             detail=f"no run {run_id} exists at this site.",
         )
 
-    model = await reading.model(ctx.site_id, run.spec_hash)
-    gates = model.gates if model is not None else []
-    gate_names = [gate.gate for gate in gates]
-    floors = {gate.gate: gate.baseline_value or 0.0 for gate in gates}
+    out = _sweep_out(run_id, run.name, await reading.sweep(ctx.site_id, run_id))
+    response.headers["ETag"] = out.etag
+    telemetry.log("sweep.read", runId=str(run_id), points=len(out.points))
+    return out
 
-    # One point per weight, scored by scaling the run's measured gates. The
-    # sweep itself is BRISINGAMEN's and is not persisted yet; what is real
-    # here is the gate evidence, and the points are the weights it was
-    # measured at.
+
+def _sweep_out(run_id: UUID, model: str, recorded: sweeps.Sweep | None) -> SweepOut:
+    """A folded sweep, as S15 shows it. Shared by the read and by the selection."""
+    tag = etag(sweeps.version(recorded))
+    if recorded is None:
+        return SweepOut(
+            run_id=run_id,
+            model=model,
+            gates=[],
+            floors={},
+            points=[],
+            evaluated=False,
+            etag=tag,
+            trade=(
+                "No sweep has been evaluated for this run. The worker merges and re-gates "
+                "every point once the run reaches MERGED; until then there are no results to "
+                "compare, and none are estimated."
+            ),
+        )
+
+    gates = list(recorded.gates())
+    floors: dict[str, float] = {}
+    for point in recorded.points:
+        for outcome in point.evidence.outcomes if point.evidence else ():
+            if outcome.baseline_value is not None:
+                floors.setdefault(outcome.gate, outcome.baseline_value)
     points = [
         SweepPointOut(
-            label=f"weight={weight:g}",
-            parameters={"weight": weight},
-            artefact_sha256=None,
-            evaluated=bool(gates),
-            passed=all(
-                gate.value * (0.9 + weight / 5) >= (gate.baseline_value or 0.0) for gate in gates
-            ),
-            scores={gate.gate: round(gate.value * (0.9 + weight / 5), 4) for gate in gates},
+            label=point.label,
+            parameters=dict(point.parameters),
+            artefact_sha256=point.artefact_sha256,
+            evaluated=point.evaluated,
+            passed=point.passed,
+            scores={gate: score for gate in gates if (score := point.score(gate)) is not None},
         )
-        for weight in (0.2, 0.4, 0.6, 0.8, 1.0)
+        for point in recorded.points
     ]
-
-    telemetry.log("sweep.read", runId=str(run_id), points=len(points))
+    chosen = recorded.selected_point
     return SweepOut(
         run_id=run_id,
-        model=run.name,
-        gates=gate_names,
+        model=model,
+        gates=gates,
         floors=floors,
         points=points,
-        selected=next((point.label for point in points if point.passed), None),
+        selected=chosen.label if chosen else None,
+        selected_parameters=dict(chosen.parameters) if chosen else None,
+        evaluated=True,
+        etag=tag,
         trade=_trade(points, floors),
     )
+
+
+@router.post(
+    "/sweeps/{run_id}/select",
+    summary="Choose the merge point a run is quantised from",
+    operation_id="selectMergePoint",
+    response_model=SweepOut,
+)
+@needs(Permission.SELECT_MERGE_POINT)
+async def select_merge_point(
+    run_id: Annotated[UUID, Path(description="The merge run.")],
+    body: SweepSelectionIn,
+    ctx: Guarded,
+    response: Response,
+    if_match: IfMatch = None,
+    idempotency_key: IdempotencyKey = None,
+) -> SweepOut:
+    """Choose one evaluated point. S15's primary action, RF-27; AC-F8.
+
+    BRISINGAMEN ran the sweep and RAUN decided which points are acceptable, so
+    a point that failed a blocking gate, or was never evaluated, is refused
+    here by `Sweep.select` rather than by a rule written again. The choice is
+    recorded against the run and the worker quantises that point's bytes; the
+    whole comparison it was chosen from goes on the model card.
+
+    Conditional on the sweep's version, so an operator who chose from the
+    matrix before somebody else chose, or before a re-evaluation, is refused
+    with 412 rather than choosing from numbers that are no longer the record.
+    """
+    key = require_idempotency_key(idempotency_key)
+    replayed = replay_or_reserve(
+        key, ctx, {"runId": str(run_id), "action": "select", **body.model_dump(mode="json")}
+    )
+    if replayed is not None and replayed.body:
+        return SweepOut.model_validate(replayed.body)
+
+    recorder = writing.writer()
+    try:
+        facts = await recorder.read(
+            site_id=ctx.site_id, actor=ctx.actor, question=writing.facts_of(run_id)
+        )
+    except UnknownRunError as unknown:
+        release(key, ctx)
+        raise ProblemError(
+            status=404,
+            code="run-not-found",
+            title="No such run",
+            detail=f"no run {run_id} exists at this site.",
+        ) from unknown
+    history = await recorder.read(
+        site_id=ctx.site_id, actor=ctx.actor, question=writing.history_of(run_id)
+    )
+    recorded = sweeps.fold(history or ())
+
+    if recorded is None:
+        release(key, ctx)
+        raise ProblemError(
+            status=409,
+            code="sweep-not-evaluated",
+            title="This run's sweep has not been evaluated",
+            detail=(
+                f"run {run_id} has no evaluated merge sweep, so there is no point to choose. "
+                "The worker merges and re-gates every point once the run reaches MERGED."
+            ),
+        )
+
+    try:
+        require(f"the sweep of run {run_id}", sweeps.version(recorded), if_match)
+    except ConcurrencyError as error:
+        release(key, ctx)
+        raise as_problem(error) from error
+
+    if facts is not None and facts.state is not RunState.MERGED:
+        release(key, ctx)
+        raise ProblemError(
+            status=409,
+            code="run-not-awaiting-selection",
+            title="This run is not waiting for a merge point",
+            detail=(
+                f"run {run_id} is {facts.state}. A merge point is chosen while the run is "
+                f"{RunState.MERGED}, before it is quantised from that point."
+            ),
+        )
+    if recorded.selected is not None:
+        release(key, ctx)
+        raise ProblemError(
+            status=409,
+            code="merge-point-already-selected",
+            title="A merge point has already been chosen",
+            detail=(
+                f"run {run_id} already has a chosen merge point. "
+                "The choice is recorded once, because what was quantised has to be one point."
+            ),
+        )
+
+    try:
+        chosen_sweep = recorded.select(body.parameters, criterion=body.criterion or "")
+    except sweeps.SweepError as refusal:
+        release(key, ctx)
+        raise ProblemError(
+            status=409,
+            code="merge-point-not-selectable",
+            title="This merge point cannot be chosen",
+            detail=str(refusal),
+        ) from refusal
+
+    # The point `select` just validated, by the parameters it was chosen with.
+    chosen = chosen_sweep.point_for(body.parameters)
+    with telemetry.span("sweeps.select", telemetry.EDGE, runId=str(run_id)):
+        entry = await recorder.record(
+            site_id=ctx.site_id,
+            actor=ctx.actor,
+            subject_type=sweeps.SWEEP_SUBJECT,
+            subject_id=str(run_id),
+            transition=sweeps.SELECTED,
+            payload={
+                "parameters": dict(chosen.parameters),
+                "label": chosen.label,
+                "configHash": chosen.config_hash(),
+                "artefactSha256": chosen.artefact_sha256,
+                "criterion": body.criterion,
+            },
+        )
+        telemetry.log(
+            "sweep.selected", runId=str(run_id), point=chosen.label, recorded=entry is not None
+        )
+
+    out = _sweep_out(run_id, facts.name if facts is not None else str(run_id), chosen_sweep)
+    response.headers["ETag"] = out.etag
+    complete(key, ctx, status=status.HTTP_200_OK, body=out.model_dump(mode="json", by_alias=True))
+    return out
 
 
 def _trade(points: list[SweepPointOut], floors: dict[str, float]) -> str:

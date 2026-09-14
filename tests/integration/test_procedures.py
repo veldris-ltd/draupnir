@@ -123,7 +123,18 @@ def test_every_step_records_its_own_audit_entries(
     assert silent == ["M9"], silent
 
     ledger = LedgerRepository(owner, scope)
-    entries = [entry for entry in ledger.stream(1) if entry.subject_id == str(procedure.run_id)]
+    about_the_run = [
+        entry for entry in ledger.stream(1) if entry.subject_id == str(procedure.run_id)
+    ]
+    # The run's own transitions, in order. M7 also records the merge sweep and
+    # the choice made from it (RF-27), against a `sweep` subject keyed by the
+    # run, because the projector folds `run` entries and would refuse them.
+    entries = [entry for entry in about_the_run if entry.subject_type == "run"]
+    from draupnir.brisingamen import sweep as sweeps
+
+    assert [
+        entry.transition for entry in about_the_run if entry.subject_type == sweeps.SWEEP_SUBJECT
+    ] == [sweeps.EVALUATED, sweeps.SELECTED]
     assert entries[0].transition == "->DRAFT"
     assert [entry.transition for entry in entries[1:]] == [
         f"{source}->{target}"

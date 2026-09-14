@@ -7,18 +7,22 @@
 
 ## How it is demonstrated
 
-A five point sweep is built, judged and compared as one object; fewer than five points is refused.
+The worker merges and re-gates every point of a five point sweep and records it; the console compares the recorded points side by side, and an operator chooses among those that passed before the run is quantised (RF-27).
 
 
 ```bash
-make test-unit
+make test-integration
 ```
 
 ## Evidence
 
+- `draupnir/api/routers/models.py`
 - `draupnir/brisingamen/sweep.py`
+- `draupnir/procedures/sindri.py`
 - `draupnir/worker/stages.py`
+- `tests/integration/test_worker_loop.py`
 - `tests/unit/test_brisingamen.py`
+- `web/packages/api-client/src/generated/schema.d.ts`
 
 ---
 

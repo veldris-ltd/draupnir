@@ -54,6 +54,11 @@ class Permission(StrEnum):
     #: `approver`. Granted there, and proposed as an amendment to 9.4 in
     #: `docs/fixes/proposed-sad-amendments.md`.
     APPROVE_RETENTION = "approve_retention"
+    #: Choose which evaluated point of a merge sweep a run is quantised from
+    #: (RF-27). BRISINGAMEN runs the sweep and RAUN decides which points are
+    #: acceptable; choosing among those is the operator's, as UX S15 gives it.
+    #: SAD 9.4 names no role for it; proposed as an amendment with the one above.
+    SELECT_MERGE_POINT = "select_merge_point"
     #: Deliberately granted to nobody. Present so that an attempt to delete a
     #: ledger entry has a name and is refused by the same machinery as anything
     #: else, rather than being unreachable by accident.
@@ -65,7 +70,14 @@ class Permission(StrEnum):
 GRANTS: Final[dict[Role, frozenset[Permission]]] = {
     Role.VIEWER: frozenset({Permission.READ}),
     Role.CURATOR: frozenset({Permission.READ, Permission.REGISTER_SOURCE, Permission.CURATE}),
-    Role.OPERATOR: frozenset({Permission.READ, Permission.SUBMIT_RUN, Permission.CANCEL_RUN}),
+    Role.OPERATOR: frozenset(
+        {
+            Permission.READ,
+            Permission.SUBMIT_RUN,
+            Permission.CANCEL_RUN,
+            Permission.SELECT_MERGE_POINT,
+        }
+    ),
     Role.APPROVER: frozenset(
         {
             Permission.READ,

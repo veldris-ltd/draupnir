@@ -643,6 +643,19 @@ class SweepPointOut(Wire):
     )
 
 
+class SweepSelectionIn(Wire):
+    """The merge point an operator chooses. S15, RF-27."""
+
+    parameters: dict[str, float] = Field(
+        description="The chosen point's merge configuration, exactly as the sweep lists it."
+    )
+    criterion: str | None = Field(
+        default=None,
+        max_length=64,
+        description="Which gate the choice was ranked on, so the choice is explicable.",
+    )
+
+
 class SweepOut(Wire):
     """A reweighting sweep, as a trade rather than a table."""
 
@@ -654,6 +667,19 @@ class SweepOut(Wire):
     )
     points: list[SweepPointOut] = Field(description="Every merge point.")
     selected: str | None = Field(default=None, description="The label of the chosen point.")
+    selected_parameters: dict[str, float] | None = Field(
+        default=None, description="The chosen point's merge configuration, where one was chosen."
+    )
+    evaluated: bool = Field(
+        default=False,
+        description=(
+            "Whether the sweep has been merged and re-gated point by point. False means there "
+            "are no results to compare, and the points are empty rather than estimated (RF-27)."
+        ),
+    )
+    etag: str = Field(
+        default="", description="The entity tag a selection is conditional on (SAD 11E.2)."
+    )
     trade: str = Field(
         description=(
             "The trade in words, generated from the data. A matrix of twenty numbers does "

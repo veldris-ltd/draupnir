@@ -44,6 +44,8 @@ from uuid import UUID
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection
 
+from draupnir.brisingamen import sweep as sweeps
+from draupnir.core.domain.evidence import Evidence
 from draupnir.core.domain.identifiers import id_at
 from draupnir.core.domain.ledger import GENESIS_HASH, compute_entry_hash
 from draupnir.core.domain.projector import REGISTRATION
@@ -53,6 +55,7 @@ from draupnir.core.infrastructure.config import get_settings
 from draupnir.core.infrastructure.repositories import RunProjection
 from draupnir.hamarr import tiers
 from draupnir.hodd import retention as retention_record
+from draupnir.interfaces.types import GateOutcome
 from draupnir.motsognir import arrays
 from draupnir.worker.accepted import ANSWERS
 
@@ -230,6 +233,9 @@ PLUGINS = (
 
 #: The seeded adapter array: its name, scheduler job, and the appliances its
 #: elements run on, one each (SAD 5.2).
+#: The floor both of the seeded sweep's gates are judged against.
+SWEEP_FLOOR = 0.74
+
 ARRAY_NAME = "cim-56-adapters"
 ARRAY_JOB = "4821"
 ARRAY_APPLIANCES = ("dvalin", "durin", "dain")
@@ -718,6 +724,59 @@ def build() -> dict[str, Any]:
             "artefact": f"hodd://{retention_site}/corpora/GBR/raw",
         },
         entry_id=ids.next(clock[retention_site]),
+    )
+
+    # -- the merged run's sweep, evaluated and not yet chosen ----------------
+    # S15's primary action chooses a merge point (RF-27), from the sweep the
+    # worker merged and re-gated point by point. Written as the worker writes
+    # it, against the run as a `sweep` subject. Five points on two gates: the
+    # lightest blend misses E1's floor, the heaviest misses E2's, and the three
+    # between pass both -- the trade the screen exists to present.
+    merged_run = next(run for run in runs if run["name"] == "cim-gbr-v0.2")
+    sweep_site = str(merged_run["site_id"])
+    seeded_sweep = sweeps.linear(
+        method="slerp",
+        base_sha256=fake_sha256(rng, "base:MIDGARD-CORE"),
+        adapter_sha256=fake_sha256(rng, "adapter:cim-gbr-v0.2"),
+    )
+    evaluated_at = tick(sweep_site, 10, 60)
+    for index, point in enumerate(seeded_sweep.points):
+        digest = fake_sha256(rng, f"merged:cim-gbr-v0.2:{index}")
+        weight = float(point.parameters["weight"])
+        scores = {"E1": round(0.70 + 0.12 * weight, 4), "E2": round(0.86 - 0.14 * weight, 4)}
+        outcomes = tuple(
+            GateOutcome(
+                gate=gate,
+                suite_version="general-core/2026.01",
+                value=value,
+                baseline_value=SWEEP_FLOOR,
+                margin=round(value - SWEEP_FLOOR, 4),
+                passed=value >= SWEEP_FLOOR,
+            )
+            for gate, value in scores.items()
+        )
+        seeded_sweep = seeded_sweep.with_result(
+            point.parameters,
+            artefact_sha256=digest,
+            evidence=Evidence(
+                artefact_sha256=digest,
+                artefact_kind="merged",
+                outcomes=outcomes,
+                passed=all(outcome.passed for outcome in outcomes),
+                suite="general-core",
+                suite_version="general-core/2026.01",
+                evaluated_at=evaluated_at,
+                measurements=scores,
+            ),
+        )
+    chains[sweep_site].append(
+        ts=evaluated_at,
+        actor="system:worker",
+        subject_type=sweeps.SWEEP_SUBJECT,
+        subject_id=str(merged_run["id"]),
+        transition=sweeps.EVALUATED,
+        payload=sweeps.record(seeded_sweep),
+        entry_id=ids.next(clock[sweep_site]),
     )
 
     # -- pad the chains to exactly 400 entries ------------------------------

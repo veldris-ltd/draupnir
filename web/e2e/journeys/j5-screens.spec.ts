@@ -110,6 +110,55 @@ test.describe('S12 — the array monitor', () => {
   });
 });
 
+test.describe('S15 — the sweep comparison', () => {
+  test('chooses a merge point that clears every gate, and no other', async ({ page }) => {
+    // RF-27. The screen compared five points invented from one run's gate
+    // values and reported one of them as selected. It shows the sweep the
+    // worker merged and re-gated, and the choice among passing points is an
+    // operator's.
+    const runId = await evaluatedSweep(page);
+    await page.goto(`/runs/${runId}/sweep`);
+    await expect(page.getByTestId('sweep-trade')).toBeVisible({ timeout: 15_000 });
+
+    const choices = page.getByTestId('sweep-choices');
+    if ((await choices.count()) === 0) {
+      // The seeded sweep is chosen by the first run against a stack, and the
+      // database outlives the run locally. What must then be true is that the
+      // choice is on the record, not that it can be made twice.
+      await expect(page.getByTestId('sweep-selected')).toBeVisible();
+      return;
+    }
+
+    // A point that fails a blocking gate is offered no choice. RAUN decides.
+    await expect(choices.getByRole('button', { disabled: true })).not.toHaveCount(0);
+
+    await choices.getByRole('button', { disabled: false }).first().click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('quantised from this point');
+
+    const chosen = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname.endsWith('/select'),
+    );
+    await dialog.getByRole('button', { name: 'Choose this point' }).click();
+
+    expect((await chosen).status()).toBe(200);
+    await expect(page.getByTestId('sweep-result')).toContainText('chosen');
+  });
+});
+
+async function evaluatedSweep(page: Page): Promise<string> {
+  const response = await page.request.get('/v1/runs?state=MERGED&limit=50');
+  const body = (await response.json()) as { items: { id: string }[] };
+  for (const run of body.items) {
+    const sweep = await page.request.get(`/v1/sweeps/${run.id}`);
+    const read = (await sweep.json()) as { evaluated?: boolean };
+    if (read.evaluated === true) return run.id;
+  }
+  throw new Error('the seeded stack has no merged run with an evaluated sweep');
+}
+
 test.describe('S14, S17, S28 — model, release and attestation', () => {
   test('a model shows every artefact its run produced', async ({ page }) => {
     const artefact = await firstModel(page);

@@ -237,9 +237,49 @@ export function ArrayMonitor(): JSX.Element {
  * numbers do not by themselves tell an operator that the higher scoring points
  * fail a different gate.
  */
+interface SweepPoint {
+  label: string;
+  parameters: Record<string, number>;
+  evaluated: boolean;
+  passed: boolean;
+  scores?: Record<string, number>;
+}
+
 export function SweepComparison({ runId }: { runId: string }): JSX.Element {
   const sweep = useResource('getSweep', { params: { run_id: runId } });
   const data = sweep.data;
+  const points = (data?.points ?? []) as SweepPoint[];
+  const [choosing, setChoosing] = useState<SweepPoint | null>(null);
+  const [outcome, setOutcome] = useState<{ state: ComponentState; message: string } | null>(null);
+
+  // RF-27. The screen used to compare five points invented from one run's
+  // gate values and report one as selected. It shows the sweep the worker
+  // merged and re-gated, and choosing among the points that pass is the
+  // operator's -- conditional on the sweep they read.
+  async function choose(point: SweepPoint): Promise<void> {
+    setChoosing(null);
+    setOutcome({ state: 'loading', message: `Recording ${point.label} as the chosen point.` });
+    try {
+      await call('selectMergePoint', {
+        params: { run_id: runId },
+        body: { parameters: point.parameters, criterion: null },
+        ifMatch: data?.etag ?? '',
+        idempotencyKey: idempotencyKey(),
+      });
+      setOutcome({
+        state: 'ready',
+        message:
+          `${point.label} chosen. The worker quantises the run from this point; the other ` +
+          'points stay in the record and on the model card.',
+      });
+      sweep.refresh();
+    } catch (cause) {
+      setOutcome({
+        state: cause instanceof ApiError ? stateForError(cause) : 'error',
+        message: cause instanceof ApiError ? cause.problem.title : 'The choice was not recorded.',
+      });
+    }
+  }
 
   const metrics = (data?.gates ?? []).map((gate: string) => ({
     key: gate,
@@ -282,6 +322,48 @@ export function SweepComparison({ runId }: { runId: string }): JSX.Element {
               </p>
             )}
 
+            {data.evaluated && data.selected == null ? (
+              <section aria-labelledby="cn-choose-heading">
+                <h2 id="cn-choose-heading">Choose a merge point</h2>
+                <p className="cn-note">
+                  Only a point that clears every blocking gate can be chosen. RAUN decides which
+                  points are acceptable; the choice among those is yours.
+                </p>
+                <ul className="cn-choices" data-testid="sweep-choices">
+                  {points.map((point) => (
+                    <li key={point.label}>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        state={point.passed ? 'ready' : 'readOnly'}
+                        stateMessage={
+                          point.passed
+                            ? undefined
+                            : 'This point fails a blocking gate and cannot be chosen.'
+                        }
+                        onClick={() => {
+                          setChoosing(point);
+                        }}
+                      >
+                        {`Choose ${point.label}`}
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
+            {outcome === null ? null : (
+              <p
+                className="cn-action-result"
+                role="status"
+                data-testid="sweep-result"
+                data-jg-state={outcome.state}
+              >
+                {outcome.message}
+              </p>
+            )}
+
             <section aria-labelledby="cn-floors-heading">
               <h2 id="cn-floors-heading">Floors</h2>
               <p className="cn-note">
@@ -299,6 +381,30 @@ export function SweepComparison({ runId }: { runId: string }): JSX.Element {
           </>
         )}
       </StateSurface>
+
+      {choosing === null ? null : (
+        <Dialog
+          title={`Choose ${choosing.label}?`}
+          consequence={
+            'The run is quantised from this point, and released from it if approved. The ' +
+            'other points stay in the record and on the model card. The choice is recorded ' +
+            'once.'
+          }
+          confirmLabel="Choose this point"
+          onConfirm={() => {
+            void choose(choosing);
+          }}
+          onDismiss={() => {
+            setChoosing(null);
+          }}
+        >
+          <p>
+            {Object.entries(choosing.scores ?? {})
+              .map(([gate, score]) => `${gate} ${String(score)}`)
+              .join(', ') || 'No scores were recorded for this point.'}
+          </p>
+        </Dialog>
+      )}
     </>
   );
 }

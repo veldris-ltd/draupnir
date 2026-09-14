@@ -1080,12 +1080,50 @@ export interface paths {
          *         itself tell an operator that the higher scoring points fail a different
          *         gate.
          *
+         *         The numbers are the sweep's own (RF-27). This used to invent five points by
+         *         scaling one run's gate values and call the first that passed "selected", so
+         *         the screen compared numbers nobody measured and reported a choice nobody
+         *         made. A run whose sweep has not been evaluated has no points, and says so.
+         *
          *
          *     Requires: `admin`, `approver`, `curator`, `operator`, `viewer`.
          */
         get: operations["getSweep"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sweeps/{run_id}/select": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Choose the merge point a run is quantised from
+         * @description Choose one evaluated point. S15's primary action, RF-27; AC-F8.
+         *
+         *         BRISINGAMEN ran the sweep and RAUN decided which points are acceptable, so
+         *         a point that failed a blocking gate, or was never evaluated, is refused
+         *         here by `Sweep.select` rather than by a rule written again. The choice is
+         *         recorded against the run and the worker quantises that point's bytes; the
+         *         whole comparison it was chosen from goes on the model card.
+         *
+         *         Conditional on the sweep's version, so an operator who chose from the
+         *         matrix before somebody else chose, or before a re-evaluation, is refused
+         *         with 412 rather than choosing from numbers that are no longer the record.
+         *
+         *
+         *     Requires: `operator`.
+         */
+        post: operations["selectMergePoint"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2833,6 +2871,18 @@ export interface components {
          */
         SweepOut: {
             /**
+             * Etag
+             * @description The entity tag a selection is conditional on (SAD 11E.2).
+             * @default
+             */
+            etag: string;
+            /**
+             * Evaluated
+             * @description Whether the sweep has been merged and re-gated point by point. False means there are no results to compare, and the points are empty rather than estimated (RF-27).
+             * @default false
+             */
+            evaluated: boolean;
+            /**
              * Floors
              * @description The floor each gate must clear.
              */
@@ -2865,6 +2915,13 @@ export interface components {
              * @description The label of the chosen point.
              */
             selected?: string | null;
+            /**
+             * Selectedparameters
+             * @description The chosen point's merge configuration, where one was chosen.
+             */
+            selectedParameters?: {
+                [key: string]: number;
+            } | null;
             /**
              * Trade
              * @description The trade in words, generated from the data. A matrix of twenty numbers does not by itself tell an operator that the higher scoring points fail a different gate (UX 9.6).
@@ -2908,6 +2965,24 @@ export interface components {
              * @description Gate identifier to measurement.
              */
             scores?: {
+                [key: string]: number;
+            };
+        };
+        /**
+         * SweepSelectionIn
+         * @description The merge point an operator chooses. S15, RF-27.
+         */
+        SweepSelectionIn: {
+            /**
+             * Criterion
+             * @description Which gate the choice was ranked on, so the choice is explicable.
+             */
+            criterion?: string | null;
+            /**
+             * Parameters
+             * @description The chosen point's merge configuration, exactly as the sweep lists it.
+             */
+            parameters: {
                 [key: string]: number;
             };
         };
@@ -5660,6 +5735,80 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SweepOut"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    selectMergePoint: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Entity tag the write is conditional on. */
+                "If-Match"?: string | null;
+                /** @description Replaying a request with the same key returns the original result. */
+                "Idempotency-Key"?: string | null;
+                "X-Correlation-Id"?: string | null;
+            };
+            path: {
+                /** @description The merge run. */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SweepSelectionIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

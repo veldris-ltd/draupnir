@@ -7,7 +7,7 @@
 
 ## How it is demonstrated
 
-A retention action that would break a chain is refused, naming the release it would orphan.
+A retention deletion that would leave no curated manifest is refused by the worker, and the refusal is recorded naming the releases built from the corpus (RF-27).
 
 
 ```bash

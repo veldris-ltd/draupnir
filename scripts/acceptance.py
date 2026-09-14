@@ -193,9 +193,10 @@ REGISTER: dict[str, Entry] = {
     ),
     "AC-F8": Entry(
         IMPLEMENTED,
-        "A five point sweep is built, judged and compared as one object; fewer than "
-        "five points is refused.",
-        "make test-unit",
+        "The worker merges and re-gates every point of a five point sweep and records "
+        "it; the console compares the recorded points side by side, and an operator "
+        "chooses among those that passed before the run is quantised (RF-27).",
+        "make test-integration",
     ),
     "AC-F9": Entry(
         DEVIATED,
@@ -266,14 +267,17 @@ REGISTER: dict[str, Entry] = {
     ),
     "AC-F19": Entry(
         IMPLEMENTED,
-        "A retention action deletes the raw corpus and keeps the curated manifests and "
-        "licence entries; the lineage stays complete.",
+        "An approved retention action is carried out by the worker's retention duty: the "
+        "raw corpus is deleted, the curated manifests and licence entries are kept, and "
+        "the outcome is recorded. Approval is conditional and needs a hardware factor "
+        "(RF-27).",
         "make test-unit",
     ),
     "AC-F20": Entry(
         IMPLEMENTED,
-        "A retention action that would break a chain is refused, naming the release it "
-        "would orphan.",
+        "A retention deletion that would leave no curated manifest is refused by the "
+        "worker, and the refusal is recorded naming the releases built from the corpus "
+        "(RF-27).",
         "make test-unit",
     ),
     # -- 12.2 Security ------------------------------------------------------

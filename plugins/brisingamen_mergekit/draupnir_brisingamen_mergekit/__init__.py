@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -125,6 +126,19 @@ class MergekitDriver:
                 )
             )
 
+        point = params.get("sweep_point")
+        if point is not None and not _is_point(point):
+            problems.append(
+                ValidationError(
+                    field="spec.train.params.sweep_point",
+                    message=(
+                        "a sweep point names one merge parameter and its value between 0 "
+                        f'and 1, as {{"weight": 0.4}}; {point!r} is not one'
+                    ),
+                    code="invalid_sweep_point",
+                )
+            )
+
         return problems
 
     # -- render ------------------------------------------------------------
@@ -170,6 +184,19 @@ class MergekitDriver:
             configuration["parameters"] = {
                 "density": params.get("density", 0.5),
                 "normalize": params.get("normalize", True),
+            }
+
+        # One point of BRISINGAMEN's sweep (RF-27). The sweep's weights reached
+        # nothing: this rendered the same configuration whatever point it was
+        # asked for, so five merges would have been one merge, five times. SLERP
+        # interpolates by `t`; the linear family and TIES weight the blend.
+        point = params.get("sweep_point")
+        if isinstance(point, Mapping) and _is_point(point):
+            (value,) = point.values()
+            existing = configuration.get("parameters")
+            configuration["parameters"] = {
+                **(dict(existing) if isinstance(existing, dict) else {}),
+                "t" if method == "slerp" else "weight": float(value),
             }
         return configuration
 
@@ -234,3 +261,15 @@ def _digest(path: Path) -> str:
 driver = MergekitDriver()
 
 __all__ = ["CAPABILITIES", "NAME", "MergekitDriver", "driver"]
+
+
+def _is_point(point: object) -> bool:
+    """Whether `point` is one merge parameter with a value in [0, 1]. RF-27."""
+    if not isinstance(point, Mapping) or len(point) != 1:
+        return False
+    (value,) = point.values()
+    return (
+        isinstance(value, int | float)
+        and not isinstance(value, bool)
+        and 0.0 <= float(value) <= 1.0
+    )

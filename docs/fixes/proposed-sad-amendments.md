@@ -341,6 +341,140 @@ record it.
 
 ---
 
+## Amendment 6 — §9.4: two actions the role table gives to nobody
+
+**Raised by RF-27. Implemented; recorded because §9.4 is the whole of what each
+role may do, and it now says less than the code enforces.**
+
+### What was wrong
+
+Two primary actions of VLD-UX-DRAUPNIR-001 §8 had no operation, and when they
+were built each needed a permission §9.4 does not name. SAD 7.3 makes a raw
+corpus deletion "an approved and ledgered retention action" and no row of §9.4
+says who approves one. S15 makes choosing a merge point an operator's action and
+§9.4's operator row reads "Submit, cancel, retry runs".
+
+### What the code now does
+
+`svalinn.roles` grants `APPROVE_RETENTION` to `approver` and adds it to the
+actions that require a hardware authenticator (AC-S15), because it is the one
+decision in the system that cannot be undone: a release can be withdrawn, and a
+deleted corpus cannot be re-read. It grants `SELECT_MERGE_POINT` to `operator`,
+because BRISINGAMEN runs the sweep, RAUN decides which points are acceptable,
+and choosing among those is not a release decision.
+
+Decision S6 is unaffected. No role both submits a run and approves its release,
+and neither grant brings one closer.
+
+### Proposed text for §9.4
+
+| Role | Permissions |
+|---|---|
+| `operator` | Submit, cancel, retry runs; choose a merge point among those that passed. Cannot approve or publish |
+| `approver` | Decide gates, publish releases and approve retention deletions. Cannot alter run specifications |
+
+### And one sentence under the table
+
+> Approving a retention deletion requires hardware-backed multi-factor
+> authentication, as publishing and deciding a gate do.
+
+---
+
+## Amendment 7 — §7.1 and §7.3: retention is recorded in the chain, not in `retention_action`
+
+**Raised by RF-27. Implemented as a deviation, recorded so the table and the
+code stop disagreeing silently.**
+
+### What was wrong
+
+§7.1 lists `retention_action` as the entity a deletion is recorded in. Nothing
+wrote it. The daily duty recorded its proposals as ledger entries, S06 read the
+empty table, and `hodd.retention.execute` was called by unit tests alone. The
+table also cannot hold what it is for: it has no site, and it keys the subject by
+UUID where a corpus is identified by its digest.
+
+### What the code now does
+
+A retention action is folded from its entries against the corpus subject —
+`retention.due`, `retention.approved`, `retention.executed`,
+`retention.refused` — by `hodd.retention.fold`, the way RF-13 folds the array.
+The duty proposes; an approver approves (Amendment 6); the duty carries the
+approval out, asking the store whether the curated manifest is held, and
+refuses a deletion that would leave none, naming the releases (AC-F20).
+`retention_action` is unwritten.
+
+### Proposed text for §7.1
+
+> `retention_action` — superseded. A retention action is the fold of its ledger
+> entries against the corpus: proposed, approved, executed or refused. A table
+> beside the chain would be a second record of a deletion, and the two would
+> disagree the first time either was rebuilt.
+
+And §7.3's last sentence gains a clause:
+
+> A retention action that would break a lineage chain is refused, **and the
+> refusal is recorded, naming the releases it would have orphaned.**
+
+---
+
+## Amendment 8 — §8.1: the table lists thirteen groups, and the console calls more
+
+**Raised by RF-27.**
+
+§8.1 is not closed and the SAD never says it is, but it is the table a reader
+checks against, and the operations RF-13 and RF-27 added are absent from it:
+
+| Method and path | Purpose | Role |
+|---|---|---|
+| `POST /v1/arrays/{name}/elements/{index}/requeue` | Requeue one array element that stopped without completing | operator |
+| `POST /v1/retention/{action_id}/approve` | Approve a retention deletion, conditional on its state | approver |
+| `POST /v1/sweeps/{run_id}/select` | Choose the merge point a run is quantised from | operator |
+| `GET /v1/releases/{artefact}/documents/{document}` | Download one document of a release package | viewer |
+
+The reads the console already used and the table never listed — retention,
+sites, policy, roles, sweeps, the array — belong beside them.
+
+### And a conflict worth resolving rather than listing
+
+§7.2 places RBAC in PostgreSQL; §11A.1 makes MEGINGJORD "the OIDC issuer and
+the RBAC source of truth"; §9.4 gives `admin` "Manage users, plug-ins and
+policy". The code follows §11A.1: roles arrive in the token, `MANAGE_USERS`,
+`MANAGE_PLUGINS` and `MANAGE_POLICY` are granted to admin and required by no
+route, and the UX proposal states S22 to S25 read only at the forge. §7.2 and
+§9.4 should say where each of those is managed, and it is not the forge.
+
+---
+
+## Amendment 9 — §6.1: MERGED waits for a choice of merge point
+
+**Raised by RF-27. Implemented.**
+
+### What was wrong
+
+Prompt 5 asks for "the selected point recorded in the model card", and AC-F8 for
+a sweep of at least five points "comparable side by side in the console". The
+worker built a five point sweep, merged once, and recorded how many points the
+sweep had; `getSweep` served five points invented by scaling one run's gate
+values and called the first that passed selected.
+
+### What the code now does
+
+In MERGED the worker merges and re-gates every point, recording the evaluated
+sweep against a `sweep` subject whose identifier is the run — not a `run`
+entry, which the projector would refuse. The run then waits. An operator
+chooses a point that cleared every blocking gate (Amendment 6); the worker
+quantises that point's verified bytes and records, on MERGED → QUANTISED, the
+chosen point's configuration hash and the whole comparison it was chosen from.
+Procedure M7 stands in for the operator, and records that it did.
+
+### Proposed note under §6.1's MERGED → QUANTISED row
+
+> The run rests in MERGED from the moment its sweep is evaluated until an
+> operator chooses a merge point. The choice is recorded in the chain, and the
+> merge configuration hash is the chosen point's.
+
+---
+
 ## Pending — raised and not yet drafted
 
 These are identified in the estate register and need SAD amendments when the
@@ -352,3 +486,5 @@ rather than several.
 | RF-E21 | §11A assumes a three-appliance ring. The ring is now declared by membership rather than counted, so §7.4's two-node recovery configuration can be represented; §11A should say the ring is a forge property rather than a constant. |
 | RF-30 | §9.5's "TLS 1.3 only, mTLS between control plane components" is NOT BUILT, and the reconciliation marks §9.1–9.5 IMPLEMENTED. |
 | RF-E15 | §11.3's thermal and throttle rows name the DCGM exporter as source and Grafana as surface. The control plane now reads them too, and CON-B renders them; the surface column should say both. The wire is built — this is a one-line correction, not a design change. |
+| RF-27 | The release record (`release`) is written by the seed and by nothing in the publication path, so on an estate a published artefact has no release package to read or download. §9A.2 and §10.2 describe the package; neither says what writes it. |
+| RF-27 | A release does not record the licence policy version its sources were judged under, so its copyright policy can only be rendered under the version in force now. §10.2 asks for the version in force at the release date, which needs the release to record it. |
