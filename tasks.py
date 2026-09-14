@@ -20,7 +20,9 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from subprocess import Popen
 
@@ -723,6 +725,167 @@ def secrets() -> int:
     raise Failure(f"failed ({completed.returncode}): gitleaks found something, or could not run")
 
 
+#: The lowest severity that fails the build. Moderate rather than high (RF-26):
+#: at `--audit-level high` two moderate advisories sat in every report, below
+#: the line, and nobody had decided anything about them. An advisory below a
+#: threshold is invisible; one on `AUDIT_EXCEPTIONS` is a decision.
+AUDIT_LEVEL = "moderate"
+
+#: pnpm's severities, least severe first.
+SEVERITIES = ("info", "low", "moderate", "high", "critical")
+
+#: The furthest from today an exception may expire. Long enough to wait for a
+#: parent package to release the fix; short enough that an exception is
+#: revisited by somebody rather than inherited by everybody.
+AUDIT_EXCEPTION_HORIZON = timedelta(days=90)
+
+
+@dataclass(frozen=True)
+class AuditException:
+    """One frontend advisory the build accepts, for a stated reason, until a date.
+
+    Matched on the advisory *and* the package, so a mistyped identifier excuses
+    nothing rather than something else.
+    """
+
+    advisory: str
+    package: str
+    reason: str
+    expires: date
+
+
+#: Advisories accepted rather than fixed. Empty: the three open when RF-26 was
+#: worked were all fixable through `pnpm.overrides`. An entry needs the GHSA
+#: identifier, the package, why the advisory does not reach anything DRAUPNIR
+#: ships, and an expiry no further away than `AUDIT_EXCEPTION_HORIZON`.
+AUDIT_EXCEPTIONS: tuple[AuditException, ...] = ()
+
+
+def _describe(advisory: Mapping[str, object]) -> str:
+    """One line naming an advisory well enough to act on it."""
+    findings = advisory.get("findings")
+    versions = sorted(
+        {
+            str(finding.get("version"))
+            for finding in (findings if isinstance(findings, list) else [])
+            if isinstance(finding, Mapping)
+        }
+    )
+    return (
+        f"{advisory.get('github_advisory_id')} {advisory.get('module_name')}"
+        f"@{','.join(versions) or '?'} ({advisory.get('severity')}): {advisory.get('title')}"
+        f" -- fixed in {advisory.get('patched_versions')}"
+    )
+
+
+def audit_verdict(
+    report: Mapping[str, object],
+    *,
+    exceptions: Sequence[AuditException],
+    today: date,
+    level: str = AUDIT_LEVEL,
+) -> tuple[list[str], list[str]]:
+    """Judge a `pnpm audit --json` report into what fails the build and what is noted.
+
+    Every advisory lands in one list or the other. None goes unmentioned
+    because it fell below the line, which is how RF-26's two came to sit in the
+    report without anybody deciding anything about them.
+    """
+    found = report.get("advisories")
+    if not isinstance(found, Mapping):
+        return (["pnpm audit produced no advisories section, so nothing was audited"], [])
+
+    blocking: list[str] = []
+    noted: list[str] = []
+
+    for exception in exceptions:
+        named = f"the exception for {exception.advisory} ({exception.package})"
+        if exception.expires < today:
+            blocking.append(
+                f"{named} expired on {exception.expires.isoformat()}. Fix the advisory, "
+                "or renew the exception with a reason that is still true."
+            )
+        elif exception.expires - today > AUDIT_EXCEPTION_HORIZON:
+            blocking.append(
+                f"{named} runs to {exception.expires.isoformat()}, further than "
+                f"{AUDIT_EXCEPTION_HORIZON.days} days away. An exception that never "
+                "comes up again is a threshold by another name."
+            )
+        if not exception.reason.strip():
+            blocking.append(f"{named} gives no reason")
+
+    excused: set[AuditException] = set()
+    for advisory in found.values():
+        if not isinstance(advisory, Mapping):
+            blocking.append(f"pnpm audit reported an advisory this task cannot read: {advisory!r}")
+            continue
+        described = _describe(advisory)
+        severity = str(advisory.get("severity"))
+        accepted = next(
+            (
+                candidate
+                for candidate in exceptions
+                if candidate.advisory == advisory.get("github_advisory_id")
+                and candidate.package == advisory.get("module_name")
+            ),
+            None,
+        )
+        if accepted is not None:
+            excused.add(accepted)
+            noted.append(
+                f"accepted until {accepted.expires.isoformat()}: {described}\n"
+                f"      because {accepted.reason}"
+            )
+        elif severity not in SEVERITIES:
+            blocking.append(f"unrecognised severity, so treated as failing: {described}")
+        elif SEVERITIES.index(severity) >= SEVERITIES.index(level):
+            blocking.append(described)
+        else:
+            noted.append(f"below the {level} threshold: {described}")
+
+    for exception in exceptions:
+        if exception not in excused:
+            blocking.append(
+                f"the exception for {exception.advisory} ({exception.package}) excuses "
+                "an advisory the audit no longer reports. Remove it."
+            )
+
+    return blocking, noted
+
+
+def pnpm_audit_report() -> dict[str, object]:
+    """Run `pnpm audit --json` and return the report it prints.
+
+    Read as JSON rather than judged by exit code: the exit code knows only the
+    `--audit-level` line, and the exceptions need each advisory by name. A run
+    that produces no report -- the registry unreachable, say -- is a failure,
+    because an audit that did not happen has not found anything.
+    """
+    command = [*pnpm_command(), "audit", "--json"]
+    print(f"    $ {' '.join(command)}", flush=True)
+    completed = subprocess.run(  # noqa: S603
+        command,
+        cwd=WEB,
+        env={**os.environ, "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0"},
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    try:
+        report = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        report = None
+    if not isinstance(report, dict):
+        print(f"{completed.stdout}{completed.stderr}", end="", flush=True)
+        raise Failure(
+            f"pnpm audit did not produce a report (exit {completed.returncode}), "
+            "so nothing was audited"
+        )
+    return report
+
+
 @task("audit", "Dependency audit for both toolchains")
 def audit() -> int:
     say("pip-audit")
@@ -770,8 +933,16 @@ def audit() -> int:
         "-r",
         str(requirements),
     )
-    say("pnpm audit")
-    pnpm("audit", "--audit-level", "high")
+    say(f"pnpm audit (fails at {AUDIT_LEVEL} and above)")
+    blocking, noted = audit_verdict(
+        pnpm_audit_report(), exceptions=AUDIT_EXCEPTIONS, today=datetime.now(UTC).date()
+    )
+    for line in noted:
+        print(f"    {line}", flush=True)
+    if blocking:
+        raise Failure("the frontend dependency audit failed:\n  " + "\n  ".join(blocking))
+    if not noted:
+        print("    no advisories", flush=True)
     return 0
 
 

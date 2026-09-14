@@ -1013,23 +1013,35 @@ request; it is the same set of commands the runner executes.
 ### Visual regression baselines
 
 Screenshots are platform specific, so a baseline recorded on a developer's
-machine is not the one the runner will diff against. The visual spec records a
-missing baseline rather than failing on it, and annotates the file to commit;
-every run after that is a real diff gate. Commit the baselines the runner
-records on its first green build.
+machine is not the one the runner will diff against. On CI a missing baseline
+is a failure, not a recording (RF-22). To record the runner's own, dispatch the
+`visual-baselines` workflow, download its artefact into
+`web/e2e/visual/storybook.spec.ts-snapshots/`, and commit it. Locally, a
+missing baseline is recorded so a new story can be baselined on your platform.
 
 To check the gate still bites, change a component and run `make test-visual`.
 
 ### Dependency audit
 
 `make audit` runs `pip-audit` against the exported lockfile, not the
-environment, and `pnpm audit` at `--audit-level high`.
+environment, and `pnpm audit`, which fails at **moderate** and above. Anything
+below that is still printed by name: an advisory under a threshold should be
+visible, not absent.
 
 `web/package.json` carries a `pnpm.overrides` block. Those are security fixes
 pulled into transitive dependencies that their parents have not yet picked up,
 not convenience pins. Each one exists because the audit failed without it;
 remove one only when the parent has moved on, and re-run `make audit` to prove
-it.
+it. Scope an override to its parent (`"parent>child"`) when it crosses a major
+version, so it reaches nothing that did not need it.
+
+When an advisory cannot be fixed yet — the parent pins a range the fix is
+outside of, and no override will hold — add it to `AUDIT_EXCEPTIONS` in
+`tasks.py` rather than raising the threshold. An entry names the GHSA
+identifier and the package, says why the advisory does not reach anything
+DRAUPNIR ships, and expires no more than 90 days out. The build fails on an
+expired entry, and on one whose advisory the audit no longer reports; renewing
+means writing the reason again, which is the point.
 
 The CycloneDX SBOM for the frontend is produced by `cdxgen`, run through `npx`
 at a pinned version rather than installed as a devDependency. Two reasons: it

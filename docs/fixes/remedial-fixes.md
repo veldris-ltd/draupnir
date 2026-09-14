@@ -3116,6 +3116,59 @@ should be a recorded acceptance rather than an invisible one.
 - A test asserts an expired allow-list entry fails the build.
 - Gated in stage 1.5a.
 
+> **Status: done.**
+>
+> **There were three, and the third had already turned the stage red.** By the
+> time this was worked, `pnpm audit` also reported GHSA-2883-xcg3-v3hh against
+> `js-yaml` 4.3.1 — severity *high*, reached through `openapi-typescript` →
+> `@redocly/openapi-core`, fixed in 4.3.2. So stage 1.5a was failing at the
+> `high` threshold it had, not merely quiet below it. The existing `js-yaml`
+> override (`^4.1.1`) was a fix for an earlier advisory, and was satisfied by
+> the vulnerable version.
+>
+> **All three are fixed, none accepted.** Through `pnpm.overrides`:
+> `js-yaml` to `^4.3.2`; `yaml` to `^2.8.3`; and `uuid` to `^11.1.1` scoped to
+> `@storybook/addon-actions>uuid`, because that one crosses a major version
+> (the parent asks for `^9.0.0`) and should reach nobody who did not need it.
+> addon-actions calls only `v4`, through the named export and through
+> `require('uuid').v4`, both of which uuid 11 keeps; the Storybook build and the
+> 995 frontend tests pass on it. `pnpm audit` now reports nothing at any
+> severity, low included.
+>
+> One of those did not do what it says. `yaml` was never a real dependency
+> here: it was vite's *optional* peer, installed automatically, which vite
+> loads only to read a YAML-format PostCSS config. Under the override pnpm no
+> longer installs it at all, rather than installing 2.8.3. Nothing in the
+> workspace imports `yaml` and there is no PostCSS config of any format, so
+> nothing is lost; and should somebody add one, vite will ask for `yaml` and the
+> override will hold it above the vulnerable range.
+>
+> **The threshold is now moderate, and nothing below it goes unmentioned.**
+> The task reads `pnpm audit --json` instead of trusting its exit code, which
+> only knows the `--audit-level` line. Every advisory is either a failure or a
+> printed line — `below the moderate threshold: …` or `accepted until …
+> because …` — so a low-severity advisory is visible in the log rather than
+> absent from it.
+>
+> **The allow-list exists, is empty, and bites.** `AUDIT_EXCEPTIONS` in
+> `tasks.py` takes the GHSA identifier, the package, the reason and an expiry.
+> The build fails on an expired entry (the criterion, tested); on an expiry
+> more than 90 days out, because an exception written to expire in 2099
+> satisfies an expiry rule and defeats it; on an entry with no reason; and on an
+> entry whose advisory the audit no longer reports, because exceptions that
+> outlive their advisories accumulate into a list nobody reads. Entries match on
+> advisory *and* package, so a slip excuses nothing rather than something else.
+> Empty, because nothing needed accepting — the mechanism is for the next
+> advisory whose fix a parent package has not yet shipped, so that it has
+> somewhere to go other than the threshold.
+>
+> **An audit that produced no report fails** — the registry unreachable, say.
+> It has not found anything.
+>
+> The Python half needed nothing: `pip-audit --strict` has no severity
+> threshold and fails on any known vulnerability, so there was no invisible
+> band on that side. Stage 1.5a still calls `python tasks.py audit`, unchanged.
+
 ---
 
 ### RF-27 — P6 — Nine screens have a primary action with no API operation behind it
@@ -3384,7 +3437,7 @@ diff of.
 | RF-23 | P5 | `clients-check` fails on any CRLF checkout — **done**; it could not run at all since RF-01, and both clients had drifted by three operations |
 | RF-24 | P5 | `tasks.py ci` is not the pipeline — **done**; the pipeline never generated the cryptographic inventory it uploads |
 | RF-25 | P5 | The secret scan cannot run on the documented Windows path — **done**; it diagnoses the mount failure and never passes without scanning |
-| RF-26 | P5 | Two frontend advisories sit below the audit threshold |
+| RF-26 | P5 | Two frontend advisories sit below the audit threshold — **done**; there were three, the third high, and all are fixed rather than accepted |
 | RF-27 | P6 | Nine screens have a primary action with no operation behind it |
 | RF-28 | P6 | CON-B reports neither thermal nor fabric bandwidth |
 | RF-29 | P6 | The open keyboard finding K-1 is still open |
