@@ -118,6 +118,9 @@ class Queries:
     gpu_temperature: str = "DCGM_FI_DEV_GPU_TEMP"
     throttle_reasons: str = "DCGM_FI_DEV_CLOCK_THROTTLE_REASONS"
     fabric_bandwidth: str = "draupnir_fabric_bus_bandwidth_gbps"
+    #: The commissioned baseline the probe alarms against (RF-28). Also
+    #: DRAUPNIR's own, exposed beside the reading by the same scrape.
+    fabric_baseline: str = "draupnir_fabric_baseline_gbps"
 
     #: The label carrying the machine. DCGM reports `instance` as `host:port`,
     #: so the port is trimmed before it is matched against an appliance name.
@@ -198,6 +201,29 @@ class Telemetry:
             )
         return Reading("fabric_bandwidth", "baugr", "GB/s", value=next(iter(samples.values())))
 
+    def fabric_baseline(self) -> Reading:
+        """The commissioned bus bandwidth the probe is judged against, in GB/s. RF-28.
+
+        Read beside the bandwidth, because SAD 11.3 surfaces the reading against
+        the baseline, and a number with nothing to compare it to cannot say
+        whether the fabric is healthy.
+        """
+        samples, failure = self._query(self.queries.fabric_baseline)
+        if failure:
+            return Reading("fabric_baseline", "baugr", "GB/s", reason=failure)
+        if not samples:
+            return Reading(
+                "fabric_baseline",
+                "baugr",
+                "GB/s",
+                reason=(
+                    "Prometheus holds no commissioned baseline for the fabric probe. The "
+                    "worker reports the one configured as DRAUPNIR_FABRIC_BASELINE_GBPS, "
+                    "and with none the 80 per cent alarm of SAD 11.3 cannot be judged."
+                ),
+            )
+        return Reading("fabric_baseline", "baugr", "GB/s", value=next(iter(samples.values())))
+
     def read(self, appliances: Sequence[str], *, now: datetime) -> EstateTelemetry:
         """Every reading for `appliances`, plus the fabric, in one answer."""
         return EstateTelemetry(
@@ -205,6 +231,7 @@ class Telemetry:
                 *self.appliance_temperatures(appliances),
                 *self.appliance_throttles(appliances),
                 self.fabric_bandwidth(),
+                self.fabric_baseline(),
             ),
             read_at=now,
             source=self.base_url,
@@ -275,9 +302,12 @@ class Telemetry:
             if not isinstance(series, Mapping):
                 continue
             instance = str((series.get("metric") or {}).get(self.queries.instance_label, ""))
+            # An estate-wide gauge -- the fabric probe and its baseline -- can
+            # arrive with no instance, from a recording rule or a federated
+            # scrape. It is kept under the empty name, which no appliance has.
             machine = instance.split(":", 1)[0]
             value = _value_of(series.get("value"))
-            if machine and value is not None:
+            if value is not None:
                 # The maximum across a machine's GPUs. A Spark has one, but a
                 # panel reporting the mean of a hot GPU and a cold one would
                 # under-report exactly the case the alarm exists for.

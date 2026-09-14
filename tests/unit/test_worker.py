@@ -421,7 +421,7 @@ def test_the_worker_reads_its_settings_from_the_environment() -> None:
         {
             "DRAUPNIR_SITE_ID": "eitri",
             "DRAUPNIR_WORKER_INTERVAL": "0.5",
-            "DRAUPNIR_WORKER_FABRIC_BASELINE_GBPS": "235.6",
+            "DRAUPNIR_FABRIC_BASELINE_GBPS": "235.6",
             "DRAUPNIR_WORKER_DUTIES": "0",
         }
     )
@@ -429,6 +429,22 @@ def test_the_worker_reads_its_settings_from_the_environment() -> None:
     assert settings.interval == pytest.approx(0.5)
     assert settings.fabric_baseline_gbps == pytest.approx(235.6)
     assert settings.perform_duties is False
+
+
+def test_the_worker_reads_the_baseline_the_installer_writes() -> None:
+    """RF-28. install.sh writes DRAUPNIR_FABRIC_BASELINE_GBPS; the worker read another name.
+
+    Asserted against the installer's own text, so the two cannot drift apart
+    again without this failing.
+    """
+    installer = (Path(__file__).parents[2] / "deploy" / "install.sh").read_text(encoding="utf-8")
+    assert "DRAUPNIR_FABRIC_BASELINE_GBPS=${FABRIC_BASELINE_GBPS}" in installer
+
+    installed = WorkerSettings.from_environment({"DRAUPNIR_FABRIC_BASELINE_GBPS": "235.6"})
+    by_hand = WorkerSettings.from_environment({"DRAUPNIR_WORKER_FABRIC_BASELINE_GBPS": "190.0"})
+
+    assert installed.fabric_baseline_gbps == pytest.approx(235.6)
+    assert by_hand.fabric_baseline_gbps == pytest.approx(190.0)
 
 
 def test_the_genesis_hash_is_what_a_fresh_chain_starts_from() -> None:

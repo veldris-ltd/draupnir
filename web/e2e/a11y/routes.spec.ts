@@ -91,3 +91,56 @@ for (const screen of DETAIL) {
     ).toEqual([]);
   });
 }
+
+/**
+ * CON-B's two measured dashboards, populated (RF-28).
+ *
+ * `/kiosk` above is scanned in the state the seeded stack gives it, which has
+ * no collector: every tile says unmeasured. A tile with a temperature, a
+ * throttle badge, a bandwidth and a percentage of baseline has more ways to be
+ * inaccessible than one saying it does not know, so both are scanned with
+ * readings in them. The readings are intercepted because the collector is
+ * Prometheus on REGIN, which no CI runner has.
+ */
+const POPULATED = {
+  readAt: '2026-09-08T12:00:00+00:00',
+  source: 'http://regin.sindri.veldris.internal:9090',
+  readings: [
+    { metric: 'gpu_temperature', subject: 'dvalin', unit: 'C', value: 63.5, reason: null },
+    { metric: 'throttle_reasons', subject: 'dvalin', unit: 'bitmask', value: 4, reason: null },
+    { metric: 'fabric_bandwidth', subject: 'baugr', unit: 'GB/s', value: 172.1, reason: null },
+    { metric: 'fabric_baseline', subject: 'baugr', unit: 'GB/s', value: 235.6, reason: null },
+  ],
+};
+
+for (const dashboard of ['thermal', 'fabric'] as const) {
+  test(`axe: kiosk ${dashboard} dashboard, populated, has no serious or critical violation`, async ({
+    page,
+  }) => {
+    await page.route('**/v1/estate/telemetry', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(POPULATED),
+      });
+    });
+    await page.goto(`/kiosk?dashboard=${dashboard}`);
+    const tile =
+      dashboard === 'thermal'
+        ? page.getByTestId('thermal-dvalin')
+        : page.getByTestId('kiosk-fraction');
+    await expect(tile).toBeVisible({ timeout: 15_000 });
+
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+    const blocking = results.violations.filter(
+      (violation) => violation.impact === 'serious' || violation.impact === 'critical',
+    );
+
+    expect(
+      blocking,
+      blocking.map((v) => `${v.id}: ${v.help} (${String(v.nodes.length)} elements)`).join('\n'),
+    ).toEqual([]);
+  });
+}

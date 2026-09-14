@@ -362,6 +362,7 @@ def estate_telemetry() -> Telemetry:
         gpu_temperature=settings.metric_gpu_temperature,
         throttle_reasons=settings.metric_throttle_reasons,
         fabric_bandwidth=settings.metric_fabric_bandwidth,
+        fabric_baseline=settings.metric_fabric_baseline,
     )
     if not settings.prometheus_url:
         return Telemetry(queries=queries, client=None)

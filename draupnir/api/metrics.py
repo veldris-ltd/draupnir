@@ -90,6 +90,8 @@ SIGNALS: Mapping[str, str] = {
     "draupnir_chain_verified": "Ledger chain integrity",
     "draupnir_anchor_age_seconds": "Anchor freshness",
     "draupnir_duty_alarm": "Ledger chain integrity",
+    "draupnir_fabric_bus_bandwidth_gbps": "Fabric bandwidth probe",
+    "draupnir_fabric_baseline_gbps": "Fabric bandwidth probe",
     # SAD 11.3 has no row for this one. See `docs/fixes/proposed-sad-amendments.md`:
     # the table gives eight signals a source and a surface and omits the
     # control plane's own request path, so an operator asking "is the API
@@ -169,6 +171,12 @@ class SiteFacts:
     anchor_age_seconds: float | None = None
     #: Which duties are currently alarming, by name.
     duty_alarms: Mapping[str, bool] = field(default_factory=dict)
+    #: The fabric probe's last bus bandwidth, in GB/s (RF-28). `None` where the
+    #: probe has not produced one, which is not a dead fabric.
+    fabric_bandwidth_gbps: float | None = None
+    #: The commissioned baseline the probe compares against. `None` where none
+    #: is configured, so a panel can say the alarm cannot be judged.
+    fabric_baseline_gbps: float | None = None
 
 
 class SiteCollector(Collector):
@@ -288,6 +296,25 @@ class SiteCollector(Collector):
                 value=facts.anchor_age_seconds,
             )
 
+        # The fabric probe's reading and the baseline it is judged against
+        # (RF-28). The collector reading CON-B's panel back out of Prometheus
+        # queried these names and nothing exposed them, so the fabric tile could
+        # only ever say unmeasured.
+        if facts.fabric_bandwidth_gbps is not None:
+            yield GaugeMetricFamily(
+                "draupnir_fabric_bus_bandwidth_gbps",
+                "The fabric probe's last average bus bandwidth across BAUGR, in GB/s. "
+                "Absent until the probe has run. Site-wide; aggregate with max by.",
+                value=facts.fabric_bandwidth_gbps,
+            )
+        if facts.fabric_baseline_gbps is not None:
+            yield GaugeMetricFamily(
+                "draupnir_fabric_baseline_gbps",
+                "The commissioned bus bandwidth the probe alarms below 80 per cent of, "
+                "in GB/s. Absent where none is configured. Site-wide; aggregate with max by.",
+                value=facts.fabric_baseline_gbps,
+            )
+
         alarms = GaugeMetricFamily(
             "draupnir_duty_alarm",
             "1 where a periodic duty's last reading crossed its threshold. The "
@@ -374,6 +401,12 @@ def read_facts(engine: Any, site_id: str) -> SiteFacts:
         chain_verified=_verified(measurements.get(CHAIN_DUTY)),
         anchor_age_seconds=age_of(anchored),
         duty_alarms={duty: alarm for duty, (alarm, _found) in measurements.items()},
+        fabric_bandwidth_gbps=_gbps(
+            measurements.get(FABRIC_DUTY, (False, {}))[1], "busBandwidthGbps"
+        ),
+        fabric_baseline_gbps=_gbps(
+            measurements.get(FABRIC_DUTY, (False, {}))[1], "baselineGbps", positive=True
+        ),
     )
 
 
@@ -385,6 +418,25 @@ def read_facts(engine: Any, site_id: str) -> SiteFacts:
 #: that keeps them in step.
 VAULT_DUTY = "vault-capacity"
 CHAIN_DUTY = "ledger-chain-integrity"
+FABRIC_DUTY = "fabric-bandwidth-probe"
+
+
+def _gbps(measurements: Mapping[str, Any], key: str, *, positive: bool = False) -> float | None:
+    """A bandwidth the fabric probe recorded, in GB/s, or `None`.
+
+    A measured bandwidth of zero is a reading -- a dead fabric -- and is kept.
+    A baseline must be positive: the worker records zero when none is
+    configured, and a baseline of zero would make every reading look healthy.
+    """
+    import math
+
+    value = measurements.get(key)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    number = float(value)
+    if not math.isfinite(number) or number < 0 or (positive and number == 0):
+        return None
+    return number
 
 
 def _ratio(measurements: Mapping[str, Any]) -> float | None:

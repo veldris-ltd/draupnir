@@ -56,6 +56,8 @@ FULL = metrics.SiteFacts(
     chain_verified=True,
     anchor_age_seconds=900.0,
     duty_alarms={"vault-capacity": False, "anchor-freshness": True},
+    fabric_bandwidth_gbps=188.4,
+    fabric_baseline_gbps=235.6,
 )
 
 
@@ -74,6 +76,8 @@ FULL = metrics.SiteFacts(
         "draupnir_chain_verified",
         "draupnir_anchor_age_seconds",
         "draupnir_duty_alarm",
+        "draupnir_fabric_bus_bandwidth_gbps",
+        "draupnir_fabric_baseline_gbps",
     ],
 )
 def test_each_site_signal_is_exposed(name: str) -> None:
@@ -112,6 +116,8 @@ def test_a_signal_the_worker_has_not_measured_is_absent_rather_than_zero() -> No
     assert "draupnir_vault_used_ratio" not in body
     assert "draupnir_chain_verified" not in body
     assert "draupnir_anchor_age_seconds" not in body
+    assert "draupnir_fabric_bus_bandwidth_gbps" not in body
+    assert "draupnir_fabric_baseline_gbps" not in body
 
 
 def test_a_database_that_cannot_be_read_yields_no_series_rather_than_zeroes() -> None:
@@ -274,6 +280,29 @@ def test_the_duty_names_are_the_workers_own() -> None:
     """
     assert Duty.VAULT.value == metrics.VAULT_DUTY
     assert Duty.CHAIN.value == metrics.CHAIN_DUTY
+    assert Duty.FABRIC.value == metrics.FABRIC_DUTY
+
+
+@pytest.mark.parametrize(
+    ("measured", "key", "positive", "expected"),
+    [
+        ({"busBandwidthGbps": 188.4}, "busBandwidthGbps", False, 188.4),
+        # A dead fabric reads zero, and zero is a reading.
+        ({"busBandwidthGbps": 0.0}, "busBandwidthGbps", False, 0.0),
+        # A probe that did not run recorded no bandwidth, which is not zero.
+        ({"exitCode": 1}, "busBandwidthGbps", False, None),
+        ({"baselineGbps": 235.6}, "baselineGbps", True, 235.6),
+        # The worker records zero for "no baseline configured".
+        ({"baselineGbps": 0.0}, "baselineGbps", True, None),
+        ({"baselineGbps": True}, "baselineGbps", True, None),
+        ({"busBandwidthGbps": float("nan")}, "busBandwidthGbps", False, None),
+    ],
+)
+def test_the_fabric_reading_is_read_from_what_the_probe_recorded(
+    measured: dict[str, Any], key: str, positive: bool, expected: float | None
+) -> None:
+    """RF-28. The collector queried names nothing exposed, so the panel said unmeasured."""
+    assert metrics._gbps(measured, key, positive=positive) == expected
 
 
 # ---------------------------------------------------------------------------

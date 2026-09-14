@@ -3358,6 +3358,60 @@ populated state is not what the dashboard is named for. The reconciliation marks
 - The reconciliation states the thermal deviation.
 - Gated in stages 2.7 and 2.8.
 
+> **Status: done. The thermal half was already delivered by RF-E15; the fabric
+> half could not have shown a number on any estate, for two reasons.**
+>
+> **Thermal.** RF-E15 added `GET /v1/estate/telemetry`, read from the DCGM
+> exporter through Prometheus behind the egress allow-list, and dashboard 1
+> renders a temperature and a throttle state, or *unmeasured* and the reason.
+> Its journeys meet the first criterion as they stand, and are left alone.
+>
+> **Fabric: the reading had no source.** The estate read asked Prometheus for
+> the probe's bandwidth, and nothing exported it: the worker recorded the probe
+> on the chain, and `/metrics` did not carry it. `/metrics` now exposes
+> `draupnir_fabric_bus_bandwidth_gbps` and `draupnir_fabric_baseline_gbps` from
+> the probe's last recorded measurement. Each is omitted rather than zero when
+> there is nothing to report, and a baseline of zero, which is the installer's
+> "not commissioned", counts as none. The estate read carries the baseline
+> beside the bandwidth.
+>
+> **Fabric: the baseline never reached the worker.** `install.sh` writes
+> `DRAUPNIR_FABRIC_BASELINE_GBPS`, beside the other probe settings. The worker
+> read `DRAUPNIR_WORKER_FABRIC_BASELINE_GBPS`, as did the runbook, so an
+> installed site's baseline was always zero and the 80 per cent alarm could
+> never be judged. The worker reads the installer's name and still honours the
+> old one; a unit test reads the installer's text so the two cannot drift again.
+>
+> **Also fixed on the way:** the collector dropped any sample without an
+> `instance` label. That is right for a per-appliance reading, but wrong for an
+> estate-wide gauge arriving through a recording rule or a federated scrape.
+>
+> **Dashboard 2** shows the bandwidth, the commissioned baseline, and the
+> reading as a share of it. Below the floor it says "below the 80 per cent
+> floor" in words as well as tone. With a reading but no baseline, it says the
+> alarm cannot be judged and why. `/kiosk?dashboard=fabric` holds one dashboard
+> instead of rotating, so an operator can link to it and a scan or journey need
+> not wait out the rotation.
+>
+> **Criteria.**
+>
+> - Dashboard 2 has four new journeys:
+>   - against baseline;
+>   - below the floor;
+>   - with no baseline;
+>   - a linked dashboard holding through six rotation periods.
+> - Both populated dashboards have an axe scan.
+> - The reconciliation's §11.3 row states both deviations, thermal and fabric.
+>
+> **What stays deviated**, and says so on the panel: the probe runs only where
+> `all_reduce_perf` is configured, and the reading reaches Prometheus only once
+> ALVISS is a scrape target (RF-E15's fabric half). Until then dashboard 2 reads
+> unmeasured, with the reason.
+>
+> Python: 2,100 unit, property and contract tests, and 221
+> integration tests, pass. CON-B's journeys and scans: 12 of 12. The web
+> typecheck, lint and formatting are clean.
+
 ---
 
 ### RF-29 — P6 — The open keyboard finding K-1 is still open
@@ -3692,7 +3746,7 @@ since RF-03.
 | RF-25 | P5 | The secret scan cannot run on the documented Windows path — **done**; it diagnoses the mount failure and never passes without scanning |
 | RF-26 | P5 | Two frontend advisories sit below the audit threshold — **done**; there were three, the third high, and all are fixed rather than accepted |
 | RF-27 | P6 | Nine screens have a primary action with no operation behind it — **done**; four built, five read only by proposal, and S06 and S15 were fabricating what they showed |
-| RF-28 | P6 | CON-B reports neither thermal nor fabric bandwidth |
+| RF-28 | P6 | CON-B reports neither thermal nor fabric bandwidth — **done**; thermal was RF-E15's, and the fabric reading had no export and its baseline was read under the wrong name |
 | RF-29 | P6 | The open keyboard finding K-1 is still open |
 | RF-30 | P6 | Three documents state counts and controls the code does not have |
 | RF-31 | P6 | Committed acceptance evidence is non-deterministic |

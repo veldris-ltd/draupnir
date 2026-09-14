@@ -401,6 +401,55 @@ test.describe('S31 — CON-B in kiosk mode', () => {
     expect(await tile.locator('[data-measured="true"]').count()).toBe(0);
   });
 
+  // RF-28. The fabric dashboard, reached by its link rather than by waiting
+  // for the rotation, shows the bandwidth against the commissioned baseline.
+
+  test('shows the fabric bandwidth as a share of its baseline', async ({ page }) => {
+    await fabricReadings(page, 212.0, 235.6);
+
+    await page.goto('/kiosk?dashboard=fabric');
+    const fraction = page.getByTestId('kiosk-fraction');
+    await expect(fraction).toBeVisible({ timeout: 15_000 });
+
+    await expect(page.getByTestId('kiosk-bandwidth')).toContainText('212');
+    await expect(page.getByTestId('kiosk-baseline')).toContainText('235.6');
+    await expect(fraction).toHaveText('90 per cent of baseline');
+  });
+
+  test('says when the fabric is below the 80 per cent floor', async ({ page }) => {
+    await fabricReadings(page, 172.1, 235.6);
+
+    await page.goto('/kiosk?dashboard=fabric');
+    const fraction = page.getByTestId('kiosk-fraction');
+    await expect(fraction).toBeVisible({ timeout: 15_000 });
+
+    // SAD 11.3's alarm, stated in words: a colour alone is not read from
+    // across a room, and is not read at all by anyone who cannot see it.
+    await expect(fraction).toHaveText('73 per cent of baseline, below the 80 per cent floor');
+  });
+
+  test('holds a linked dashboard rather than rotating away from it', async ({ page }) => {
+    await fabricReadings(page, 212.0, 235.6);
+    await page.clock.install();
+
+    await page.goto('/kiosk?dashboard=fabric');
+    await expect(page.getByTestId('kiosk-fraction')).toBeVisible({ timeout: 15_000 });
+
+    await page.clock.runFor(120_000);
+    await expect(page.getByTestId('kiosk-fraction')).toBeVisible();
+  });
+
+  test('says the alarm cannot be judged when no baseline is recorded', async ({ page }) => {
+    await fabricReadings(page, 212.0, null);
+
+    await page.goto('/kiosk?dashboard=fabric');
+    const note = page.getByTestId('kiosk-baseline-unmeasured');
+    await expect(note).toBeVisible({ timeout: 15_000 });
+
+    await expect(note).toContainText('DRAUPNIR_FABRIC_BASELINE_GBPS');
+    expect(await page.getByTestId('kiosk-fraction').count()).toBe(0);
+  });
+
   test('fits the 1280 by 720 panel without horizontal scrolling', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/kiosk');
@@ -412,6 +461,44 @@ test.describe('S31 — CON-B in kiosk mode', () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 });
+
+/** Answer the estate read with a fabric bandwidth and, if given, its baseline. */
+async function fabricReadings(
+  page: Page,
+  bandwidth: number,
+  baseline: number | null,
+): Promise<void> {
+  await page.route('**/v1/estate/telemetry', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        readAt: '2026-09-08T12:00:00+00:00',
+        source: 'http://regin.sindri.veldris.internal:9090',
+        readings: [
+          {
+            metric: 'fabric_bandwidth',
+            subject: 'baugr',
+            unit: 'GB/s',
+            value: bandwidth,
+            reason: null,
+          },
+          {
+            metric: 'fabric_baseline',
+            subject: 'baugr',
+            unit: 'GB/s',
+            value: baseline,
+            reason:
+              baseline === null
+                ? 'Prometheus holds no commissioned baseline for the fabric probe. The worker ' +
+                  'reports the one configured as DRAUPNIR_FABRIC_BASELINE_GBPS.'
+                : null,
+          },
+        ],
+      }),
+    });
+  });
+}
 
 async function firstModel(page: Page): Promise<string> {
   const response = await page.request.get('/v1/models?limit=1');

@@ -535,7 +535,7 @@ So:
 | Retention sweep | day | never. It proposes; it does not delete (SAD 7.3) |
 
 The fabric probe needs `all_reduce_perf` on the machine and a commissioned
-baseline in `DRAUPNIR_WORKER_FABRIC_BASELINE_GBPS`. Without the benchmark it
+baseline in `DRAUPNIR_FABRIC_BASELINE_GBPS`. Without the benchmark it
 reports the fabric as unmeasured; without the baseline it reports the reading
 and says the alarm cannot be raised against it. Neither invents a number.
 

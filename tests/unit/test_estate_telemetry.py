@@ -262,13 +262,33 @@ def test_the_fabric_reading_says_where_it_would_come_from() -> None:
     assert reading.unit == "GB/s"
 
 
+def test_the_fabric_baseline_says_where_it_would_come_from() -> None:
+    """RF-28. A bandwidth with nothing to compare it to cannot say the fabric is healthy."""
+    reading = tel.Telemetry(client=answering()).fabric_baseline()
+
+    assert reading.value is None
+    assert "DRAUPNIR_FABRIC_BASELINE_GBPS" in reading.reason
+    assert reading.unit == "GB/s"
+
+
+def test_a_recorded_baseline_comes_back_as_a_baseline() -> None:
+    client = answering({"metric": {}, "value": [1_757_332_800, "235.6"]})
+
+    reading = tel.Telemetry(client=client).fabric_baseline()
+
+    assert reading.value == 235.6
+    assert reading.reason == ""
+    assert client.calls is not None
+    assert client.calls[0][1]["query"] == "draupnir_fabric_baseline_gbps"
+
+
 def test_one_read_covers_every_panel() -> None:
     """Three calls would give one panel three freshnesses."""
     reader = tel.Telemetry(client=answering(series("dvalin:9400", 61.0)))
 
     result = reader.read(APPLIANCES, now=NOW)
 
-    assert len(result.readings) == len(APPLIANCES) * 2 + 1
+    assert len(result.readings) == len(APPLIANCES) * 2 + 2, "the fabric and its baseline"
     assert result.read_at == NOW
     assert result.source == tel.DEFAULT_PROMETHEUS
     assert len(result.measured) + len(result.unmeasured) == len(result.readings)

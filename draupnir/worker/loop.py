@@ -320,9 +320,16 @@ class WorkerSettings:
             fabric_probe_binary=source.get("DRAUPNIR_FABRIC_PROBE_BINARY", "").strip(),
             fabric_interface=source.get("DRAUPNIR_FABRIC_INTERFACE", "").strip(),
             fabric_hca=source.get("DRAUPNIR_FABRIC_HCA", "").strip(),
+            # DRAUPNIR_FABRIC_BASELINE_GBPS, like the other probe settings, is
+            # what install.sh writes. The worker read only the WORKER_ spelling,
+            # so an installed site's baseline was always zero (RF-28); that
+            # spelling is still honoured for a site configured by hand.
             fabric_baseline_gbps=float(
                 source.get(
-                    "DRAUPNIR_WORKER_FABRIC_BASELINE_GBPS", str(DEFAULT_FABRIC_BASELINE_GBPS)
+                    "DRAUPNIR_FABRIC_BASELINE_GBPS",
+                    source.get(
+                        "DRAUPNIR_WORKER_FABRIC_BASELINE_GBPS", str(DEFAULT_FABRIC_BASELINE_GBPS)
+                    ),
                 )
             ),
             accelerator=source.get("DRAUPNIR_ACCELERATOR", shared.accelerator).strip(),

@@ -181,6 +181,7 @@ class Settings(BaseSettings):
     metric_gpu_temperature: str = "DCGM_FI_DEV_GPU_TEMP"
     metric_throttle_reasons: str = "DCGM_FI_DEV_CLOCK_THROTTLE_REASONS"
     metric_fabric_bandwidth: str = "draupnir_fabric_bus_bandwidth_gbps"
+    metric_fabric_baseline: str = "draupnir_fabric_baseline_gbps"
 
     object_store_endpoint: str = "127.0.0.1:9000"
     object_store_access_key: str = "draupnir"

@@ -38,8 +38,25 @@ type Dashboard = (typeof DASHBOARDS)[number];
 /** How long each dashboard holds the panel. */
 const ROTATE_SECONDS = 20;
 
+/** SAD 11.3: the fabric alarms below 80 per cent of the commissioned baseline. */
+const FABRIC_FLOOR = 0.8;
+
+/**
+ * The dashboard a link asks for, if it names one (RF-28).
+ *
+ * The wall rotates, and nothing looking at it needs to choose. A link does: an
+ * operator sending "the fabric looks slow" wants to send the fabric, and a
+ * scan or a journey that had to wait out the rotation would be timing a wall
+ * clock. A named dashboard holds; an unnamed one rotates as it always has.
+ */
+function linkedDashboard(): Dashboard | null {
+  const asked = new URLSearchParams(window.location.search).get('dashboard');
+  return DASHBOARDS.find((name) => name === asked) ?? null;
+}
+
 export function KioskDashboard(): JSX.Element {
-  const [dashboard, setDashboard] = useState<Dashboard>('thermal');
+  const [linked] = useState<Dashboard | null>(linkedDashboard);
+  const [dashboard, setDashboard] = useState<Dashboard>(linked ?? 'thermal');
   const runs = useResource('listRuns', { query: { limit: 100 } });
   const sites = useResource('listSites', {});
   const health = useResource('getHealth', {});
@@ -51,6 +68,7 @@ export function KioskDashboard(): JSX.Element {
   const feed = useEvents(urlFor(OPERATIONS.streamSiteEvents));
 
   useEffect(() => {
+    if (linked !== null) return;
     const timer = window.setInterval(() => {
       setDashboard((current) => {
         const next = (DASHBOARDS.indexOf(current) + 1) % DASHBOARDS.length;
@@ -60,7 +78,7 @@ export function KioskDashboard(): JSX.Element {
     return () => {
       window.clearInterval(timer);
     };
-  }, []);
+  }, [linked]);
 
   const items = runs.data?.items ?? [];
   const here = sites.data?.items.find((site) => site.id === health.data?.siteId);
@@ -215,6 +233,14 @@ function Fabric({
 }): JSX.Element {
   const partitioned = anchorState === 'PARTITIONED';
   const bandwidth = readingFor(readings, 'fabric_bandwidth', 'baugr');
+  const baseline = readingFor(readings, 'fabric_baseline', 'baugr');
+  // The reading against the baseline, which is what SAD 11.3 surfaces (RF-28).
+  // A bandwidth alone cannot say whether the fabric is healthy: 190 GB/s is a
+  // good day on one estate and a failing cable on another.
+  const fraction =
+    bandwidth?.value != null && baseline?.value != null && baseline.value > 0
+      ? bandwidth.value / baseline.value
+      : null;
   return (
     <section aria-labelledby="cn-fabric-heading" className="cn-kiosk__panel">
       <h2 id="cn-fabric-heading">Fabric and federation</h2>
@@ -224,6 +250,22 @@ function Fabric({
         <Measured reading={bandwidth} unit=" GB/s" />
         {bandwidth != null && bandwidth.value == null && bandwidth.reason != null ? (
           <span className="cn-note">{bandwidth.reason}</span>
+        ) : null}
+        <span data-testid="kiosk-baseline">
+          commissioned baseline <Measured reading={baseline} unit=" GB/s" />
+        </span>
+        {fraction !== null ? (
+          <Badge tone={fraction < FABRIC_FLOOR ? 'warning' : 'info'}>
+            <span data-testid="kiosk-fraction">
+              {`${String(Math.round(fraction * 100))} per cent of baseline`}
+              {fraction < FABRIC_FLOOR ? ', below the 80 per cent floor' : ''}
+            </span>
+          </Badge>
+        ) : bandwidth?.value != null ? (
+          <span className="cn-note" data-testid="kiosk-baseline-unmeasured">
+            No commissioned baseline is recorded, so the 80 per cent alarm cannot be judged.
+            {baseline?.reason != null ? ` ${baseline.reason}` : ''}
+          </span>
         ) : null}
       </div>
 

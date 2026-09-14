@@ -191,4 +191,28 @@ def test_the_configured_metric_names_reach_the_reader(monkeypatch: pytest.Monkey
         gpu_temperature="RENAMED",
         throttle_reasons=settings.metric_throttle_reasons,
         fabric_bandwidth=settings.metric_fabric_bandwidth,
+        fabric_baseline=settings.metric_fabric_baseline,
     )
+
+
+def test_the_fabric_reading_and_its_baseline_reach_the_wire() -> None:
+    """RF-28. CON-B's second dashboard shows the bandwidth against its baseline."""
+    deps.set_estate(Telemetry(client=StubClient([{"metric": {}, "value": [1, "188.4"]}])))
+
+    readings = client().get("/v1/estate/telemetry").json()["readings"]
+    fabric = {item["metric"]: item for item in readings if item["subject"] == "baugr"}
+
+    assert set(fabric) == {"fabric_bandwidth", "fabric_baseline"}
+    assert fabric["fabric_bandwidth"]["value"] == 188.4
+    assert fabric["fabric_baseline"]["unit"] == "GB/s"
+
+
+def test_an_unrecorded_baseline_is_a_reason_rather_than_a_zero() -> None:
+    """A baseline of zero would make every reading look healthy."""
+    deps.set_estate(Telemetry(client=None))
+
+    readings = client().get("/v1/estate/telemetry").json()["readings"]
+    baseline = next(item for item in readings if item["metric"] == "fabric_baseline")
+
+    assert baseline["value"] is None
+    assert baseline["reason"]
