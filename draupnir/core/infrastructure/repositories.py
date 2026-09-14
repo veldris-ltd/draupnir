@@ -28,6 +28,8 @@ from uuid import UUID
 
 from sqlalchemy import Connection, text
 
+from draupnir.core.domain import releases
+from draupnir.core.domain.federation import ANCHOR_SUBMITTED
 from draupnir.core.domain.ledger import (
     GENESIS_HASH,
     ChainHead,
@@ -394,6 +396,225 @@ class ProjectionReport:
     rows_written: int
     last_seq: int
     rebuilt: bool
+
+
+def _concerns_releases(entry: LedgerEntry) -> bool:
+    """Whether an entry can change an artefact, approval or release row."""
+    payload = entry.payload if isinstance(entry.payload, Mapping) else {}
+    return (
+        isinstance(payload.get("artefacts"), list)
+        or entry.transition in releases.DECISIONS
+        or (
+            entry.subject_type == releases.RELEASE_SUBJECT
+            and entry.transition == releases.PUBLISHED
+        )
+        or entry.transition == ANCHOR_SUBMITTED
+    )
+
+
+class ReleaseProjection(ScopedRepository):
+    """Maintains `artefact`, `approval` and `release` from the chain. RF-33.
+
+    The seed wrote these three tables and nothing else did, so a publication on
+    an estate left no release to read, no approval on its lineage and no
+    document to download. They are projections now, exactly as `run` is: folded
+    by `releases.fold`, which never reads them, and advanced on every append.
+
+    `approval` and `release` carry no site of their own, so a rebuild clears
+    them through what they belong to -- the site's runs and the site's
+    artefacts -- rather than through a column they do not have.
+    """
+
+    NAME = "release"
+
+    def checkpoint(self) -> int:
+        """Return the last sequence number this projection consumed."""
+        value = self._connection.execute(
+            text(
+                "SELECT last_seq FROM projection_checkpoint "
+                "WHERE site_id = :site_id AND projection = :projection"
+            ),
+            {"site_id": self.site_id, "projection": self.NAME},
+        ).scalar_one_or_none()
+        return int(value or 0)
+
+    def _record_checkpoint(self, last_seq: int, *, rebuilt: bool) -> None:
+        self._connection.execute(
+            text(
+                "INSERT INTO projection_checkpoint (site_id, projection, last_seq, rebuilt_at) "
+                "VALUES (:site_id, :projection, :last_seq, :rebuilt_at) "
+                "ON CONFLICT (site_id, projection) DO UPDATE SET "
+                "last_seq = EXCLUDED.last_seq, "
+                "rebuilt_at = COALESCE(EXCLUDED.rebuilt_at, projection_checkpoint.rebuilt_at)"
+            ),
+            {
+                "site_id": self.site_id,
+                "projection": self.NAME,
+                "last_seq": last_seq,
+                "rebuilt_at": datetime.now(tz=UTC) if rebuilt else None,
+            },
+        )
+
+    def rebuild(self) -> ProjectionReport:
+        """Discard the three tables for this site and fold the chain from sequence 1."""
+        entries = list(self._ledger().stream(1))
+        self._connection.execute(
+            text(
+                "DELETE FROM release WHERE artefact_id IN "
+                "(SELECT id FROM artefact WHERE site_id = :site_id)"
+            ),
+            {"site_id": self.site_id},
+        )
+        self._connection.execute(
+            text(
+                "DELETE FROM approval WHERE subject_id IN "
+                "(SELECT id FROM run WHERE site_id = :site_id)"
+            ),
+            {"site_id": self.site_id},
+        )
+        self._connection.execute(
+            text("DELETE FROM artefact WHERE site_id = :site_id"), {"site_id": self.site_id}
+        )
+        written = self._write(releases.fold(entries))
+        last_seq = entries[-1].seq if entries else 0
+        self._record_checkpoint(last_seq, rebuilt=True)
+        return ProjectionReport(self.NAME, self.site_id, len(entries), written, last_seq, True)
+
+    def catch_up(self) -> ProjectionReport:
+        """Fold the chain again when an entry since the checkpoint could change a row.
+
+        The whole chain, as `RunProjection.catch_up` folds it, because a
+        publication binds to an approval and an artefact recorded long before it.
+        Most appends concern none of the three tables, and those only move the
+        checkpoint.
+        """
+        checkpoint = self.checkpoint()
+        pending = list(self._ledger().stream(checkpoint + 1))
+        if not pending:
+            return ProjectionReport(self.NAME, self.site_id, 0, 0, checkpoint, False)
+        last_seq = pending[-1].seq
+        written = 0
+        if any(_concerns_releases(entry) for entry in pending):
+            written = self._write(releases.fold(self._ledger().stream(1)))
+        self._record_checkpoint(last_seq, rebuilt=False)
+        return ProjectionReport(self.NAME, self.site_id, len(pending), written, last_seq, False)
+
+    def _ledger(self) -> LedgerRepository:
+        return LedgerRepository(self._connection, self._scope)
+
+    def _write(self, projected: releases.Projected) -> int:
+        """Upsert every folded row, artefacts first because releases reference them."""
+        stored: dict[str, UUID] = {}
+        for artefact in projected.artefacts:
+            stored[artefact.uri] = self._connection.execute(
+                text(
+                    "INSERT INTO artefact (id, site_id, locality, kind, uri, sha256_manifest, "
+                    " size, created_from_run, immutable_at) "
+                    "VALUES (:id, :site_id, :locality, CAST(:kind AS artefact_kind), :uri, "
+                    " :sha256, :size, (SELECT id FROM run WHERE id = :run), :immutable_at) "
+                    # An address is unique, and the identifier is derived from it,
+                    # so a second record of one artefact updates the same row.
+                    "ON CONFLICT (uri) DO UPDATE SET kind = EXCLUDED.kind, "
+                    "sha256_manifest = EXCLUDED.sha256_manifest, size = EXCLUDED.size, "
+                    "created_from_run = EXCLUDED.created_from_run, "
+                    "immutable_at = EXCLUDED.immutable_at "
+                    "RETURNING id"
+                ),
+                {
+                    "id": artefact.id,
+                    "site_id": artefact.site_id,
+                    "locality": [artefact.site_id],
+                    "kind": artefact.kind,
+                    "uri": artefact.uri,
+                    "sha256": artefact.sha256,
+                    "size": artefact.size,
+                    "run": artefact.created_from_run,
+                    "immutable_at": artefact.immutable_at,
+                },
+            ).scalar_one()
+
+        if projected.approvals:
+            self._connection.execute(
+                text(
+                    "INSERT INTO approval (id, subject_id, approver, decision, reason, signature, "
+                    " sole_approver_exception, decided_at) "
+                    "VALUES (:id, :subject_id, :approver, :decision, :reason, :signature, "
+                    " :sole_approver_exception, :decided_at) "
+                    "ON CONFLICT (id) DO UPDATE SET approver = EXCLUDED.approver, "
+                    "decision = EXCLUDED.decision, reason = EXCLUDED.reason, "
+                    "signature = EXCLUDED.signature, "
+                    "sole_approver_exception = EXCLUDED.sole_approver_exception, "
+                    "decided_at = EXCLUDED.decided_at"
+                ),
+                [
+                    {
+                        "id": approval.id,
+                        "subject_id": approval.subject_id,
+                        "approver": approval.approver,
+                        "decision": approval.decision,
+                        "reason": approval.reason,
+                        "signature": approval.signature,
+                        "sole_approver_exception": approval.sole_approver_exception,
+                        "decided_at": approval.decided_at,
+                    }
+                    for approval in projected.approvals
+                ],
+            )
+
+        bound = [release for release in projected.releases if release.artefact_uri in stored]
+        if bound:
+            self._connection.execute(
+                text(
+                    "INSERT INTO release (id, artefact_id, approval_id, model_card_uri, sbom_uri, "
+                    " lineage_uri, training_summary_uri, copyright_policy_uri, signature, "
+                    " anchored_at, published_at) "
+                    "VALUES (:id, :artefact_id, :approval_id, :model_card, :sbom, :lineage, "
+                    " :training_summary, :copyright_policy, :signature, :anchored_at, "
+                    " :published_at) "
+                    "ON CONFLICT (id) DO UPDATE SET artefact_id = EXCLUDED.artefact_id, "
+                    "approval_id = EXCLUDED.approval_id, signature = EXCLUDED.signature, "
+                    "anchored_at = EXCLUDED.anchored_at, published_at = EXCLUDED.published_at"
+                ),
+                [
+                    {
+                        "id": release.id,
+                        "artefact_id": stored[release.artefact_uri],
+                        "approval_id": release.approval_id,
+                        "model_card": release.documents["model-card"],
+                        "sbom": release.documents["sbom"],
+                        "lineage": release.documents["lineage"],
+                        "training_summary": release.documents["training-summary"],
+                        "copyright_policy": release.documents["copyright-policy"],
+                        "signature": release.signature,
+                        "anchored_at": release.anchored_at,
+                        "published_at": release.published_at,
+                    }
+                    for release in bound
+                ],
+            )
+        return len(stored) + len(projected.approvals) + len(bound)
+
+
+class ChainProjections:
+    """Every projection an append advances, behind the one port the orchestrator knows.
+
+    The orchestrator asks one projection to catch up and reads runs from it.
+    This keeps that shape while adding the release projection (RF-33): runs
+    first, because an artefact row names the run that produced it.
+    """
+
+    def __init__(self, runs: RunProjection, release_rows: ReleaseProjection) -> None:
+        """Hold the two projections, in the order they are advanced."""
+        self._runs = runs
+        self._releases = release_rows
+
+    def catch_up(self) -> tuple[ProjectionReport, ProjectionReport]:
+        """Advance the run registry, then the artefacts, approvals and releases."""
+        return self._runs.catch_up(), self._releases.catch_up()
+
+    def read(self) -> tuple[ProjectedRun, ...]:
+        """The projected runs, which is all the orchestrator reads."""
+        return self._runs.read()
 
 
 class RunProjection(ScopedRepository):

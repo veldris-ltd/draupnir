@@ -226,12 +226,17 @@ async def decide_gate(
                         "submitter": facts.submitter if facts else None,
                         "model": facts.name if facts else None,
                         "reason": body.reason,
+                        # The bytes approved. RF-33: without it the approval
+                        # cannot be found by the artefact a publication names,
+                        # and the release projection cannot bind to it.
+                        "artefact_sha256": facts.artefact_sha256 if facts else None,
                     }
                     if approved
                     else {
                         "rejection_reason": body.reason,
                         "approver": ctx.actor,
                         "decided_at": record.decided_at.isoformat(),
+                        "artefact_sha256": facts.artefact_sha256 if facts else None,
                     }
                 ),
             )

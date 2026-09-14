@@ -3916,6 +3916,76 @@ its lineage shows no approval.
 - The seed is no longer the only thing that makes a release readable.
 - Gated in stage 2.4.
 
+> **Status: done, by projecting the release from the chain — and two tables
+> beside it that were in the same state.**
+>
+> **Why not write the row at publication.** `release` has non-null foreign
+> keys to `artefact` and `approval`, and nothing in the application wrote
+> either. On an estate a release row written by `publishRelease` would have
+> nothing to point at. S17's download needed an artefact row too, through the
+> lineage and model reads it renders from. So `artefact`, `approval` and
+> `release` are projections now, as `run` has always been.
+>
+> **How.**
+> - **`core/domain/releases.py` folds the chain**, purely and never reading its
+>   own output:
+>   - artefacts from the `artefacts` lists entries record;
+>   - approvals from the decision that moved a run out of AWAITING_APPROVAL;
+>   - releases from `published` entries, bound to the approval they name by
+>     sequence number.
+>
+>   `anchored_at` is derived from a countersigned anchor that covers the
+>   publication. The document addresses are the paths
+>   `downloadReleaseDocument` serves.
+> - **`ReleaseProjection` writes the three tables from it.** It is advanced on
+>   every append beside the run projection through `ChainProjections`, which
+>   keeps the orchestrator's one projection port unchanged. It re-folds only
+>   when an entry since its checkpoint could change a row.
+> - **An artefact is projected only when its record carries an address, a
+>   digest, a kind and a size.** A row states that these bytes are at that
+>   address, so an incomplete record is skipped, not completed with a guess.
+>   The worker recorded only `{uri, sha256}`, so it now records kind and size
+>   for everything it stages, including the adapter at TRAINED, which it had
+>   not listed. The Sindri procedure hashes files it keeps in a work
+>   directory, so its chain names no stored artefact, and none is projected.
+>
+> **Found on the way, and fixed here because the criterion needs it.** A
+> decision through the API recorded no artefact. The publication path finds an
+> approval by the artefact digest the approval recorded, so on an estate the
+> worker would produce, the API would approve, and `publishRelease` would
+> refuse with `release-unapproved`. `RunFacts` now carries the artefact the run
+> awaits approval on, and both decisions record it.
+>
+> **The seed** writes the facts the worker and API record — stored artefacts,
+> the artefact awaiting approval, and decisions naming theirs — plus a
+> publication and an anchor covering it. It rebuilds the projection instead of
+> inserting rows. It now has 1 release, not 3. The three it inserted paired
+> artefacts with approvals by list position, including approvals of runs still
+> awaiting one, which no chain could produce. The stated counts are corrected
+> in the README, `CONTRIBUTING.md` (which also still said 12 runs), the task
+> description and the seed.
+>
+> **Tests.**
+> - `tests/unit/test_release_projection.py` pins the fold: what becomes a row,
+>   what is refused, binding, anchoring and document names.
+> - `test_release_publication.py` publishes through the API and then reads
+>   `getRelease`, downloads the model card and reads the lineage's approval.
+>   Nothing in it inserts a row.
+>
+> **Left for RF-41:** `gate_result` is still written only by the seed.
+>
+> **Results.**
+> - Python: 2,149 unit, property and contract tests, and 223 integration
+>   tests. On the first integration run, the new release test failed on its
+>   own assertion: it expected the publisher as the approver, where the package
+>   correctly reports who approved. Corrected, it passes.
+> - On a freshly reseeded stack, whose summary now reports 13 artefacts,
+>   2 approvals and 1 release, all projected:
+>   - journeys: 49 of 52, and the three that fail are RF-35's two and RF-36's,
+>     as before;
+>   - the a11y stage: 73 of 73, with the RF-31 check that no record changed
+>     the tree.
+
 ---
 
 ### RF-34 — P3 — A release does not record the licence policy it was judged under
@@ -4188,6 +4258,48 @@ dialog, because the approval cannot be confirmed.
 
 ---
 
+### RF-41 — P3 — Gate results are read from a table only the seed writes
+
+*Found while working RF-33.*
+
+`gate_result` is written by `scripts/seed.py` and by nothing in the
+application. Three things read it:
+- the approval queue, whose evidence table S13 puts above the decision
+  controls (AC-U13);
+- the model detail's gate list;
+- `/metrics`, for gate pass rates and margins.
+
+The worker records every gate outcome in the chain — the EVALUATING→MERGED
+`gate_results`, each sweep point's evidence, and QUANTISED→AWAITING_APPROVAL's
+`format_gate_results` — with the value, baseline, margin and suite version. So
+on a seeded stack an approver reads the evidence before deciding. On an estate
+the evidence table is empty, and the decision controls become available once
+that empty table has been on screen.
+
+RF-33 projected `artefact`, `approval` and `release` from the chain and left
+this table, by agreement, for its own finding.
+
+**Prompt**
+
+> Project `gate_result` from the gate outcomes the chain records, beside
+> RF-33's release projection. A projected row carries what the entry recorded
+> — value, baseline, margin, suite version, pass or fail — and an outcome
+> recording less than that is not a row. Have the seed record gate outcomes in
+> the worker's shape and stop inserting rows.
+>
+> On S13, an artefact awaiting approval with no recorded evidence says so, and
+> the decision is not offered on the strength of an empty table.
+
+**Acceptance criteria**
+
+- An integration test takes a run through evaluation with the worker's
+  payloads, then reads its gates from the approval queue, the model detail and
+  `/metrics`, with no row inserted.
+- S13 with no evidence states that there is none and offers no decision.
+- Gated in stages 2.4 and 2.7.
+
+---
+
 ## 5  Summary
 
 | ID | Severity | Finding |
@@ -4224,7 +4336,7 @@ dialog, because the approval cannot be confirmed.
 | RF-30 | P6 | Three documents state counts and controls the code does not have — **done**; figures and reachability are now derived and tested, and transport security is marked NOT BUILT (RF-37) |
 | RF-31 | P6 | Committed acceptance evidence is non-deterministic — **done**; run records are not committed, the pipeline writes and uploads both, and stage 2.8 fails if one shows up as a change |
 | RF-32 | P2 | A conditional write is conditional on nothing; the console's four conditional actions cannot succeed — **done**; each tag is over the state the write changes, the reads return it, and the console sends it |
-| RF-33 | P3 | The release package is read from a table only the seed writes |
+| RF-33 | P3 | The release package is read from a table only the seed writes — **done**; artefacts, approvals and releases are projected from the chain, and a decision records its artefact |
 | RF-34 | P3 | A release does not record the licence policy it was judged under |
 | RF-35 | P4 | The console's default specification is refused by its own API |
 | RF-36 | P5 | The journey stack does not route `/auth`, so sign-in cannot pass |
@@ -4232,6 +4344,7 @@ dialog, because the approval cannot be confirmed.
 | RF-38 | P5 | The Storybook axe sweep races Storybook's own axe run — **done**; the addon's automatic run is off on the sweep's pages, and the shard fails if it ever starts again |
 | RF-39 | P4 | `draupnirctl` cannot perform a conditional write: it never sends `If-Match` |
 | RF-40 | P3 | The console's approval can never be accepted: no `decidedAt`, and a placeholder signature |
+| RF-41 | P3 | Gate results are read from a table only the seed writes, so an estate's approval queue shows no evidence |
 
 ---
 
@@ -4274,7 +4387,9 @@ nothing serves. RF-38 surfaced during RF-31 and is done. RF-39 and RF-40
 surfaced while RF-32 made the console's conditional writes succeed. RF-39 belongs
 with the edge contracts: the CLI's four conditional commands still cannot
 succeed. RF-40 belongs with the second group: the approver's primary action in
-the console still cannot succeed.
+the console still cannot succeed. RF-41 surfaced while RF-33 projected the
+release tables, and belongs with the run pipeline beside RF-33: an approver on
+an estate is shown no gate evidence.
 
 **Throughout, the documentation.** RF-27 through RF-31 should be amended as each
 finding is closed, not batched at the end. The reconciliation in particular

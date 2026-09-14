@@ -140,6 +140,15 @@ Two things are stronger than the specification asked for, and one weaker:
   SAD 7.1 lists it as an entity; it is one, and it is derived. The table
   comment says so, because an operator with `psql` who assumes otherwise will
   eventually write to it.
+- So are `artefact`, `approval` and `release`, since RF-33. Until then only
+  the seed wrote them. A publication recorded a `published` entry and no row,
+  so on an estate a release had no package to read or download and its lineage
+  named no approval. They are folded from the chain on every append,
+  beside `run`.
+- **The weaker one: `gate_result` is still written only by the seed** (RF-41).
+  The worker records every gate outcome in the chain, and nothing projects
+  them, so the approval queue's evidence, a model's gates and `/metrics` read
+  a table an estate never fills.
 - The three constraints of SAD 11C are enforced by the **database**: an
   append-only trigger, a foreign key and NOT NULL on `release.approval_id`, and
   row level security with `FORCE` on every scoped table.

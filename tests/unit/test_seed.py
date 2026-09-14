@@ -15,6 +15,7 @@ from scripts.seed import (
     TARGET_RUNS,
     TARGET_SOURCES,
     build,
+    projected,
 )
 
 
@@ -23,7 +24,7 @@ def test_the_dataset_has_the_specified_shape() -> None:
     assert len(dataset["sites"]) == 2
     assert len(dataset["sources"]) == TARGET_SOURCES == 6
     assert len(dataset["runs"]) == TARGET_RUNS == 13
-    assert len(dataset["releases"]) == TARGET_RELEASES == 3
+    assert len(projected(dataset).releases) == TARGET_RELEASES == 1
     assert sum(chain.seq for chain in dataset["chains"].values()) == TARGET_LEDGER_ENTRIES == 400
 
 
@@ -34,8 +35,9 @@ def test_the_runs_cover_every_run_state() -> None:
 
 def test_the_dataset_is_reproducible() -> None:
     first, second = build(), build()
-    for key in ("sites", "sources", "runs", "artefacts", "releases", "approvals"):
+    for key in ("sites", "sources", "runs", "gate_results"):
         assert first[key] == second[key], f"{key} is not deterministic"
+    assert projected(first) == projected(second), "the projected releases are not deterministic"
     for site_id, chain in first["chains"].items():
         assert chain.rows == second["chains"][site_id].rows
 
@@ -65,15 +67,20 @@ def test_the_chains_are_split_across_both_sites() -> None:
 
 
 def test_every_release_names_an_approval_and_an_artefact() -> None:
-    dataset = build()
-    approvals = {approval["id"] for approval in dataset["approvals"]}
-    artefacts = {artefact["id"] for artefact in dataset["artefacts"]}
-    for release in dataset["releases"]:
-        assert release["approval_id"] in approvals
-        assert release["artefact_id"] in artefacts
+    """RF-33: folded from the chain, so a release binds to its own run's approval."""
+    folded = projected(build())
+    approvals = {approval.id: approval for approval in folded.approvals}
+    artefacts = {artefact.uri: artefact for artefact in folded.artefacts}
+    assert folded.releases, "the seed publishes nothing"
+    for release in folded.releases:
+        approval = approvals[release.approval_id]
+        assert approval.decision == "APPROVED"
+        assert approval.artefact_sha256 == release.artefact_sha256
+        assert artefacts[release.artefact_uri].sha256 == release.artefact_sha256
+        assert release.anchored_at is not None
         # SAD 9A: the two Article 53 artefacts are part of the release record.
-        assert release["training_summary_uri"]
-        assert release["copyright_policy_uri"]
+        assert release.documents["training-summary"]
+        assert release.documents["copyright-policy"]
 
 
 def test_a_source_carrying_personal_data_names_its_dpia() -> None:
@@ -86,8 +93,8 @@ def test_identifiers_are_uuid_v7() -> None:
     dataset = build()
     for run in dataset["runs"]:
         assert run["id"].version == 7
-    for release in dataset["releases"]:
-        assert release["id"].version == 7
+    for release in projected(dataset).releases:
+        assert release.id.version == 7
 
 
 def test_the_summary_names_every_entity() -> None:

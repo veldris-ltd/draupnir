@@ -99,8 +99,8 @@ one somebody has to deal with.
 
 ### The seeded dataset
 
-`make seed` writes a deterministic dataset: 2 sites, 6 sources, 12 runs
-covering every run state, 3 releases and 400 hash-chained ledger entries. It is
+`make seed` writes a deterministic dataset: 2 sites, 6 sources, 13 runs
+covering every run state, 1 release and 400 hash-chained ledger entries. It is
 reproducible, so two developers see identical identifiers and a screenshot in a
 bug report means something.
 

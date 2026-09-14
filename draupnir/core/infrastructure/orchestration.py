@@ -21,7 +21,9 @@ from sqlalchemy import Connection
 from draupnir.core.application.orchestrator import Orchestrator, _now
 from draupnir.core.domain.sites import SiteScope
 from draupnir.core.infrastructure.repositories import (
+    ChainProjections,
     LedgerRepository,
+    ReleaseProjection,
     RunProjection,
     set_site_scope,
 )
@@ -44,7 +46,10 @@ def for_connection(
     set_site_scope(connection, scope)
     return Orchestrator(
         LedgerRepository(connection, scope),
-        RunProjection(connection, scope),
+        # The run registry, then the artefacts, approvals and releases folded
+        # from the same chain (RF-33), in that order because an artefact names
+        # the run that produced it.
+        ChainProjections(RunProjection(connection, scope), ReleaseProjection(connection, scope)),
         site_id=scope.site_id,
         actor=actor,
         clock=clock,

@@ -1153,7 +1153,7 @@ RESET_SQL = (
 )
 
 
-@task("seed", "Seed the development dataset (2 sites, 6 sources, 13 runs, 3 releases, 400 entries)")
+@task("seed", "Seed the development dataset (2 sites, 6 sources, 13 runs, 1 release, 400 entries)")
 def seed() -> int:
     uv_run("python", "scripts/seed.py")
     return 0

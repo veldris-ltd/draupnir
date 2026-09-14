@@ -327,7 +327,9 @@ def _release(
                 # this the publication path refuses at the first control: the
                 # chain records no location, so AC-S8's re-hash has nothing to
                 # hash.
-                "artefacts": [{"uri": uri, "sha256": digest}],
+                "artefacts": [
+                    {"uri": uri, "sha256": digest, "kind": "quantised", "size": len(payload)}
+                ],
             },
         )
         orchestrator.transition(
@@ -455,6 +457,52 @@ def test_a_publication_from_a_tag_read_before_another_is_refused(
     assert first == 202, body
     assert stale == 412, refused
     assert refused["code"] == "precondition-failed"
+
+
+def _get(path: str) -> tuple[int, bytes]:
+    """GET as the development principal, returning the status and the body."""
+    request = urllib.request.Request(f"{BASE}{path}", method="GET")  # noqa: S310
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+            return response.status, response.read()
+    except urllib.error.HTTPError as error:
+        return error.status or 0, error.read()
+
+
+def test_a_published_release_can_be_read_downloaded_and_traced_to_its_approval(
+    api: str, owner_engine: Engine, site: str, store: PosixStoreDriver, tmp_path: Path
+) -> None:
+    """RF-33. Nothing here inserts a row: publication is what makes it readable.
+
+    `getRelease`, a document download and the lineage's approval all read the
+    `release`, `approval` and `artefact` tables, which only the seed wrote. On an
+    estate a published artefact had no package to read or download and its
+    lineage named no approval. The chain built here is the worker's and the
+    API's; the rows are projected from it.
+    """
+    del api, site
+    release = _release(owner_engine, store, tmp_path)
+
+    published, body = _publish(release.digest, owner_engine)
+    assert published == 202, body
+
+    status, package = _get(f"/v1/releases/{release.digest}")
+    assert status == 200, package
+    read = json.loads(package)
+    assert read["artefact"] == release.digest
+    # The approver `_release` recorded on the approval, not whoever published:
+    # the package reports who approved, from the approval it is bound to.
+    assert read["approver"] == "akuma@veldris.internal"
+    assert read["publishedAt"]
+    assert read["modelCardUri"] == f"/v1/releases/{release.digest}/documents/model-card"
+
+    status, card = _get(f"/v1/releases/{release.digest}/documents/model-card")
+    assert status == 200, card
+    assert card, "the model card downloaded empty"
+
+    status, lineage = _get(f"/v1/lineage/{release.digest}")
+    assert status == 200, lineage
+    assert json.loads(lineage)["approval"].get("approver") == "akuma@veldris.internal"
 
 
 # ---------------------------------------------------------------------------

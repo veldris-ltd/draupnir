@@ -510,10 +510,19 @@ class Staged:
     uri: str = ""
     #: Why there is no address. Empty when there is one.
     reason: str = ""
+    #: What it is -- `adapter`, `merged`, `quantised` -- as `artefact_kind` names it.
+    kind: str = ""
+    #: Its size in bytes, measured on disk at the stage.
+    size: int = 0
 
     def as_record(self) -> dict[str, Any]:
-        """The `{uri, sha256}` shape `Orchestrator._uri_for` matches on."""
-        return {"uri": self.uri, "sha256": self.sha256}
+        """The `{uri, sha256}` shape `Orchestrator._uri_for` matches on, with kind and size.
+
+        Kind and size are what the artefact projection needs to write a row
+        (RF-33). They were not recorded, so no artefact the worker stored could
+        be read back: `artefact` was written by the seed and nothing else.
+        """
+        return {"uri": self.uri, "sha256": self.sha256, "kind": self.kind, "size": self.size}
 
 
 def _stage(context: Context, kind: str, run_id: UUID, source: Path, *, name: str = "") -> Staged:
@@ -542,9 +551,12 @@ def _stage(context: Context, kind: str, run_id: UUID, source: Path, *, name: str
     one address, and the seal refusing it is the seal working.
     """
     digest = _digest(source)
+    size = source.stat().st_size
     if context.store is None:
         return Staged(
             sha256=digest,
+            kind=kind,
+            size=size,
             reason=(
                 "this worker has no artefact store configured (DRAUPNIR_VAULT_ROOT), so "
                 f"the {kind} stays in scratch and the run cannot be released"
@@ -561,9 +573,8 @@ def _stage(context: Context, kind: str, run_id: UUID, source: Path, *, name: str
         # Already ours, byte for byte. Seal again in case the last tick put and
         # then died: `seal` is idempotent and an unsealed artefact is the gap.
         context.store.seal(uri)
-        return Staged(sha256=digest, uri=uri)
+        return Staged(sha256=digest, uri=uri, kind=kind, size=size)
 
-    size = source.stat().st_size
     room = quota.room_for(size, context.store, what=f"{kind} for run {run_id}")
     if not room.fits:
         raise NotStagedError(
@@ -577,7 +588,7 @@ def _stage(context: Context, kind: str, run_id: UUID, source: Path, *, name: str
         context.store.seal(uri)
     except Exception as error:
         raise NotStagedError(f"{uri} was not stored: {error}") from error
-    return Staged(sha256=digest, uri=uri)
+    return Staged(sha256=digest, uri=uri, kind=kind, size=size)
 
 
 # ---------------------------------------------------------------------------
@@ -843,6 +854,9 @@ def observe(context: Context, facts: RunFacts) -> Outcome:
             "checkpoint_sha256": digest,
             "artefact_sha256": digest,
             "artefact_uri": staged.uri,
+            # As a list, in the shape QUANTISED and the sweep record theirs, so
+            # the artefact projection reads one shape (RF-33).
+            "artefacts": [staged.as_record()],
             "steps": 1,
             "final_loss": 0.0,
             "executor": _recorded(context, facts, "job_driver") or STAND_IN_EXECUTOR,

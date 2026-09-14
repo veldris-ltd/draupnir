@@ -2,7 +2,7 @@
 
 Produces, exactly as Prompt 0 specifies:
 
-    2 sites, 6 sources, 13 runs across every state, 3 releases,
+    2 sites, 6 sources, 13 runs across every state, 1 release,
     400 ledger entries
 
 The dataset is deterministic. Identifiers are UUIDv7 built from a fixed epoch
@@ -45,14 +45,16 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection
 
 from draupnir.brisingamen import sweep as sweeps
+from draupnir.core.domain import releases as release_record
 from draupnir.core.domain.evidence import Evidence
+from draupnir.core.domain.federation import ANCHOR_SUBMITTED
 from draupnir.core.domain.identifiers import id_at
-from draupnir.core.domain.ledger import GENESIS_HASH, compute_entry_hash
+from draupnir.core.domain.ledger import GENESIS_HASH, LedgerEntry, compute_entry_hash
 from draupnir.core.domain.projector import REGISTRATION
 from draupnir.core.domain.sites import SiteScope
 from draupnir.core.domain.states import RUN_PHASE_STATES, RunState, Transition, find
 from draupnir.core.infrastructure.config import get_settings
-from draupnir.core.infrastructure.repositories import RunProjection
+from draupnir.core.infrastructure.repositories import ReleaseProjection, RunProjection
 from draupnir.hamarr import tiers
 from draupnir.hodd import retention as retention_record
 from draupnir.interfaces.types import GateOutcome
@@ -65,7 +67,12 @@ EPOCH = datetime(2026, 3, 2, 9, 0, tzinfo=UTC)
 TARGET_LEDGER_ENTRIES = 400
 TARGET_RUNS = 13
 TARGET_SOURCES = 6
-TARGET_RELEASES = 3
+#: One, because one run is released. RF-33: artefacts, approvals and releases
+#: are projected from the chain, so a release is a publication of a released
+#: run's own approved artefact. The three this used to insert paired artefacts
+#: with approvals by list position, including approvals of runs still awaiting
+#: one -- rows no chain could produce.
+TARGET_RELEASES = 1
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +430,64 @@ def transition_payload(
     return built[transition.name]
 
 
+def stored_facts(
+    transition: Transition,
+    *,
+    site_id: str,
+    name: str,
+    rng: random.Random,
+    decided_at: datetime,
+    quantised: str | None,
+) -> dict[str, Any]:
+    """What the worker and the API record about stored artefacts and decisions. RF-33.
+
+    `transition_payload` carries what SAD 6.1 requires of a transition. This
+    carries what the release projection folds, in the shapes the worker and
+    `decideGate` record them:
+    - the artefacts a run stored, with address, digest, kind and size;
+    - the bytes it awaits approval on;
+    - who decided, and on what.
+
+    So the artefact, approval and release rows the seed used to insert beside
+    the chain are projected from it, like everything else.
+    """
+
+    def stored(kind: str, path: str) -> dict[str, Any]:
+        return {
+            "uri": f"hodd://{site_id}/{path}",
+            "sha256": fake_sha256(rng, path),
+            "kind": kind,
+            "size": rng.randint(2 * 10**8, 9 * 10**9),
+        }
+
+    if transition.name == "TRAINING->TRAINED":
+        adapter = stored("adapter", f"adapters/{name}")
+        return {
+            "artefact_sha256": adapter["sha256"],
+            "artefact_uri": adapter["uri"],
+            "artefacts": [adapter],
+        }
+    if transition.name == "MERGED->QUANTISED":
+        nvfp4 = stored("quantised", f"models/{name}/nvfp4")
+        return {"formats_built": {"nvfp4": nvfp4["sha256"]}, "artefacts": [nvfp4]}
+    if transition.name == "QUANTISED->AWAITING_APPROVAL":
+        return {"artefact_sha256": quantised, "formats": ["nvfp4"], "model": name}
+    if transition.name == "AWAITING_APPROVAL->RELEASED":
+        return {
+            "artefact_sha256": quantised,
+            "model": name,
+            "sole_approver_exception": False,
+            "signature_verified": True,
+        }
+    if transition.name == "AWAITING_APPROVAL->QUARANTINED":
+        return {
+            "artefact_sha256": quantised,
+            "approver": "approver@veldris.internal",
+            "decided_at": decided_at.isoformat(),
+        }
+    return {}
+
+
 # ---------------------------------------------------------------------------
 # Building
 # ---------------------------------------------------------------------------
@@ -498,8 +563,10 @@ def build() -> dict[str, Any]:
     # -- runs: a registration entry, then one entry per transition ----------
     runs: list[dict[str, Any]] = []
     gate_results: list[dict[str, Any]] = []
-    approvals: list[dict[str, Any]] = []
-    artefact_plans: list[dict[str, Any]] = []
+    #: Each run's quantised artefact, and where its approval sits in the chain:
+    #: what a publication names.
+    quantised_of: dict[UUID, str] = {}
+    approved_at: dict[UUID, int] = {}
 
     for index, (name, kind, state, site_id) in enumerate(RUN_PLAN):
         started = EPOCH + timedelta(days=2 + index, hours=rng.randint(0, 8))
@@ -522,15 +589,28 @@ def build() -> dict[str, Any]:
             if transition is None:  # pragma: no cover -- the spine is in the table
                 msg = f"{source_state}->{target_state} is not a transition in SAD 6.1"
                 raise RuntimeError(msg)
+            required = transition_payload(transition, name=name, rng=rng, decided_at=decided)
+            facts = stored_facts(
+                transition,
+                site_id=site_id,
+                name=name,
+                rng=rng,
+                decided_at=decided,
+                quantised=quantised_of.get(run_id),
+            )
             chains[site_id].append(
                 ts=tick(site_id, 20, 300),
                 actor=ACTOR_BY_TARGET[target_state],
                 subject_type="run",
                 subject_id=str(run_id),
                 transition=transition.name,
-                payload=transition_payload(transition, name=name, rng=rng, decided_at=decided),
+                payload={**required, **facts},
                 entry_id=ids.next(clock[site_id]),
             )
+            if transition.name == "MERGED->QUANTISED":
+                quantised_of[run_id] = str(facts["formats_built"]["nvfp4"])
+            if transition.name == "AWAITING_APPROVAL->RELEASED":
+                approved_at[run_id] = chains[site_id].seq
 
         runs.append({"id": run_id, "site_id": site_id, "name": name, "state": str(state)})
 
@@ -558,68 +638,40 @@ def build() -> dict[str, Any]:
                     }
                 )
 
-        if state in (RunState.TRAINED, RunState.EVALUATING, RunState.MERGED):
-            artefact_plans.append(
-                _artefact(ids, rng, site_id, run_id, "adapter", f"adapters/{name}", started)
-            )
-        if state in (RunState.QUANTISED, RunState.AWAITING_APPROVAL, RunState.RELEASED):
-            artefact_plans.append(
-                _artefact(ids, rng, site_id, run_id, "quantised", f"models/{name}/nvfp4", started)
-            )
-
-        if state in (RunState.AWAITING_APPROVAL, RunState.RELEASED, RunState.QUARANTINED):
-            approvals.append(
-                {
-                    "id": ids.next(decided),
-                    "subject_id": run_id,
-                    "approver": "approver@veldris.internal",
-                    "decision": "REJECTED" if state is RunState.QUARANTINED else "APPROVED",
-                    "reason": "Licence policy refusal on a constituent source"
-                    if state is RunState.QUARANTINED
-                    else None,
-                    "signature": fake_sha256(rng, f"sig:{name}"),
-                    "sole_approver_exception": False,
-                    "decided_at": decided,
-                }
-            )
-
-    # -- releases: three, each bound to an approval and a quantised artefact -
-    releases: list[dict[str, Any]] = []
-    quantised = [item for item in artefact_plans if item["kind"] == "quantised"]
-    approved = [item for item in approvals if item["decision"] == "APPROVED"]
-    for index in range(TARGET_RELEASES):
-        artefact = quantised[index % len(quantised)]
-        approval = approved[index % len(approved)]
-        published = EPOCH + timedelta(days=20 + index * 3)
-        release_id = ids.next(published)
-        base = f"hodd://{artefact['site_id']}/releases/{release_id}"
-        releases.append(
-            {
-                "id": release_id,
-                "artefact_id": artefact["id"],
-                "approval_id": approval["id"],
-                "model_card_uri": f"{base}/model-card.md",
-                "sbom_uri": f"{base}/sbom.cdx.json",
-                "lineage_uri": f"{base}/lineage.json",
-                "training_summary_uri": f"{base}/article-53-training-summary.md",
-                "copyright_policy_uri": f"{base}/article-53-copyright-policy.md",
-                "signature": fake_sha256(rng, f"release:{release_id}"),
-                "anchored_at": published + timedelta(minutes=11),
-                "published_at": published,
-            }
-        )
-        site_id = str(artefact["site_id"])
+    # -- releases: each released run's approved artefact, published ---------
+    # As `publishRelease` records one (RF-33): against the artefact, naming the
+    # approval it rests on, and then countersigned by an anchor covering it.
+    # The release, its approval and its artefact are projected from these
+    # entries rather than inserted beside them.
+    for run in runs:
+        if run["state"] != str(RunState.RELEASED):
+            continue
+        site_id = str(run["site_id"])
+        digest = quantised_of[run["id"]]
         chains[site_id].append(
             ts=tick(site_id, 10, 60),
             actor="approver@veldris.internal",
-            subject_type="release",
-            subject_id=str(release_id),
-            transition="AWAITING_APPROVAL->RELEASED",
+            subject_type=release_record.RELEASE_SUBJECT,
+            subject_id=digest,
+            transition=release_record.PUBLISHED,
             payload={
-                "artefact_id": str(artefact["id"]),
-                "approval_id": str(approval["id"]),
-                "formats": ["nvfp4", "gguf-q4km", "mlx4"],
-                "anchored": True,
+                "artefact_sha256": digest,
+                "run_id": str(run["id"]),
+                "approved_at_seq": approved_at[run["id"]],
+                "approver": "approver@veldris.internal",
+            },
+            entry_id=ids.next(clock[site_id]),
+        )
+        anchored_at = tick(site_id, 5, 20)
+        chains[site_id].append(
+            ts=anchored_at,
+            actor="system:gullinbursti",
+            subject_type="site",
+            subject_id=site_id,
+            transition=ANCHOR_SUBMITTED,
+            payload={
+                "anchored_through": chains[site_id].seq,
+                "anchored_at": anchored_at.isoformat(),
             },
             entry_id=ids.next(clock[site_id]),
         )
@@ -821,34 +873,9 @@ def build() -> dict[str, Any]:
         "sites": sites,
         "sources": sources,
         "runs": runs,
-        "artefacts": artefact_plans,
         "gate_results": gate_results,
-        "approvals": approvals,
-        "releases": releases,
         "plugins": plugins,
         "chains": chains,
-    }
-
-
-def _artefact(
-    ids: Ids,
-    rng: random.Random,
-    site_id: str,
-    run_id: UUID,
-    kind: str,
-    path: str,
-    moment: datetime,
-) -> dict[str, Any]:
-    return {
-        "id": ids.next(moment),
-        "site_id": site_id,
-        "locality": [site_id],
-        "kind": kind,
-        "uri": f"hodd://{site_id}/{path}",
-        "sha256_manifest": fake_sha256(rng, path),
-        "size": rng.randint(2 * 10**8, 9 * 10**9),
-        "created_from_run": run_id,
-        "immutable_at": moment + timedelta(hours=8),
     }
 
 
@@ -881,9 +908,9 @@ def _insert(connection: Connection, table: str, rows: list[dict[str, Any]]) -> N
 def write(dataset: dict[str, Any], url: str) -> None:
     """Write the dataset, respecting the row level security site scope.
 
-    Order matters. The ledger goes in first and the projector builds `run`
-    from it, because `run` is derived; artefacts reference runs, so they
-    follow the projection rather than preceding it.
+    Order matters. The ledger goes in first and the projectors build `run`,
+    then the artefacts, approvals and releases, from it, because all four are
+    derived (RF-33); gate results reference runs, so they follow.
     """
     engine = create_engine(url, future=True)
     chains: dict[str, Chain] = dataset["chains"]
@@ -901,39 +928,66 @@ def write(dataset: dict[str, Any], url: str) -> None:
             _set_site(connection, site_id)
             _insert(connection, "ledger_entry", chain.rows or [])
             RunProjection(connection, SiteScope(site_id)).rebuild()
-
-    for site in dataset["sites"]:
-        site_id = str(site["id"])
-        with engine.begin() as connection:
-            _set_site(connection, site_id)
-            _insert(
-                connection,
-                "artefact",
-                [row for row in dataset["artefacts"] if row["site_id"] == site_id],
-            )
+            # Artefacts, approvals and releases, folded from the chain just
+            # written, exactly as an append projects them (RF-33).
+            ReleaseProjection(connection, SiteScope(site_id)).rebuild()
 
     with engine.begin() as connection:
         _insert(connection, "gate_result", dataset["gate_results"])
-        _insert(connection, "approval", dataset["approvals"])
-        _insert(connection, "release", dataset["releases"])
 
     engine.dispose()
+
+
+def projected(dataset: dict[str, Any]) -> release_record.Projected:
+    """The artefacts, approvals and releases the seeded chains project to. RF-33.
+
+    The rows the seed no longer writes, folded per site by the same function
+    `ReleaseProjection` uses, so the summary and the tests describe what the
+    database will hold rather than a list kept beside it.
+    """
+    artefacts: list[release_record.ProjectedArtefact] = []
+    approvals: list[release_record.ProjectedApproval] = []
+    published: list[release_record.ProjectedRelease] = []
+    for chain in dataset["chains"].values():
+        folded = release_record.fold(
+            LedgerEntry(
+                id=row["id"],
+                site_id=row["site_id"],
+                seq=row["seq"],
+                prev_hash=row["prev_hash"],
+                entry_hash=row["entry_hash"],
+                ts=row["ts"],
+                actor=row["actor"],
+                subject_type=row["subject_type"],
+                subject_id=row["subject_id"],
+                transition=row["transition"],
+                payload=json.loads(row["payload"]),
+            )
+            for row in chain.rows or []
+        )
+        artefacts.extend(folded.artefacts)
+        approvals.extend(folded.approvals)
+        published.extend(folded.releases)
+    return release_record.Projected(
+        artefacts=tuple(artefacts), approvals=tuple(approvals), releases=tuple(published)
+    )
 
 
 def summarise(dataset: dict[str, Any]) -> str:
     """Return the one-line-per-entity summary printed after a seed."""
     chains: dict[str, Chain] = dataset["chains"]
     states = {row["state"] for row in dataset["runs"]}
+    folded = projected(dataset)
     missing = {str(state) for state in RUN_PHASE_STATES} - states
     lines = [
         f"  sites          {len(dataset['sites']):>4}",
         f"  sources        {len(dataset['sources']):>4}",
         f"  runs           {len(dataset['runs']):>4}  resting in {len(states)} of "
         f"{len(RUN_PHASE_STATES)} run states",
-        f"  artefacts      {len(dataset['artefacts']):>4}",
+        f"  artefacts      {len(folded.artefacts):>4}",
         f"  gate results   {len(dataset['gate_results']):>4}",
-        f"  approvals      {len(dataset['approvals']):>4}",
-        f"  releases       {len(dataset['releases']):>4}",
+        f"  approvals      {len(folded.approvals):>4}",
+        f"  releases       {len(folded.releases):>4}",
         f"  plugins        {len(dataset['plugins']):>4}",
         f"  ledger entries {sum(chain.seq for chain in chains.values()):>4}"
         f"  ({', '.join(f'{name} {chain.seq}' for name, chain in chains.items())})",

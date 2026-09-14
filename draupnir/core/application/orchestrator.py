@@ -198,6 +198,11 @@ class RunFacts:
     #: says so and defers; a caller that guessed would be dispatching work
     #: nobody specified.
     specification: Mapping[str, Any] | None = None
+    #: The artefact the run's latest entry naming one recorded -- at
+    #: AWAITING_APPROVAL, the bytes a decision is about. RF-33: a decision
+    #: through the API recorded no artefact, so the approval it created could
+    #: not be found by the artefact a publication names.
+    artefact_sha256: str | None = None
 
     @property
     def budget_remaining(self) -> int:
@@ -409,12 +414,18 @@ class Orchestrator:
         budget = 0
         failing: tuple[str, ...] = ()
         specification: Mapping[str, Any] | None = None
+        artefact: str | None = None
 
         for entry in history:
             payload = entry.payload if isinstance(entry.payload, dict) else {}
             if entry.transition == REGISTRATION:
                 submitter = entry.actor
                 budget = int(payload.get("retry_budget", 0) or 0)
+
+            # Latest wins, as for the specification below.
+            recorded_artefact = payload.get("artefact_sha256")
+            if recorded_artefact:
+                artefact = str(recorded_artefact)
 
             # From whichever entry carried it, latest wins. A submission
             # through the API records it at registration; a run curated by the
@@ -448,6 +459,7 @@ class Orchestrator:
             retry_budget=budget,
             failing_gates=failing,
             specification=specification,
+            artefact_sha256=artefact,
         )
 
     def history(self, run_id: UUID) -> tuple[LedgerEntry, ...]:

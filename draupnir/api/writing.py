@@ -39,6 +39,7 @@ from sqlalchemy import Connection, Engine
 
 from draupnir.api.concurrency import release_version
 from draupnir.core.application.orchestrator import Applied, Orchestrator, RunFacts
+from draupnir.core.domain import releases as domain_releases
 from draupnir.core.domain.ledger import LedgerEntry
 from draupnir.core.domain.sites import SiteScope
 from draupnir.core.domain.states import RunState
@@ -144,11 +145,12 @@ def publication_facts_for(artefact_sha256: str) -> Question:
     return ask
 
 
-#: A release is about the artefact, not the run (SAD 7.1).
-RELEASE_SUBJECT = "release"
+#: A release is about the artefact, not the run (SAD 7.1). Defined by the fold
+#: that projects releases from the chain (RF-33), and named here for the edge.
+RELEASE_SUBJECT = domain_releases.RELEASE_SUBJECT
 
 #: The transition a publication records against its release.
-PUBLISHED = "published"
+PUBLISHED = domain_releases.PUBLISHED
 
 
 def publication_version_of(artefact_sha256: str) -> Question:
