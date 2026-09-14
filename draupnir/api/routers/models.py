@@ -233,6 +233,16 @@ async def download_release_document(
             title="This release has not been published",
             detail=str(unissued),
         ) from unissued
+    except release_documents.UnrecordedPolicyError as unrecorded:
+        # RF-34. Refused rather than rendered under the policy in force now: SAD
+        # 10.2 keeps a release on the version in force at its release date, and
+        # a document naming today's would restate the release's compliance.
+        raise ProblemError(
+            status=409,
+            code="licence-policy-unrecorded",
+            title="This release does not record the licence policy it was cleared under",
+            detail=str(unrecorded),
+        ) from unrecorded
     except Article53Error as empty:
         raise ProblemError(
             status=409,

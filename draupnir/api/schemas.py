@@ -769,6 +769,15 @@ class ReleasePackageOut(Wire):
         description="EU AI Act Article 53 training data summary (SAD 9A)."
     )
     copyright_policy_uri: str = Field(description="Article 53 copyright policy (SAD 9A).")
+    licence_policy_version: str | None = Field(
+        default=None,
+        description=(
+            "The GLEIPNIR licence policy version the corpus was cleared under, as the "
+            "publication recorded it (RF-34). SAD 10.2 keeps a release on the version in "
+            "force at its release date; null means none was recorded, and the copyright "
+            "policy is then refused rather than rendered under today's."
+        ),
+    )
     signature: str = Field(description="The release signature.")
     published_at: datetime | None = Field(default=None, description="When it was published.")
     anchored_at: datetime | None = Field(

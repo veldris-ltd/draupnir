@@ -232,6 +232,17 @@ def test_a_release_is_anchored_when_a_countersigned_anchor_covers_it() -> None:
     assert release.anchored_at == AT + timedelta(hours=2)
 
 
+def test_a_release_carries_the_licence_policy_its_publication_recorded() -> None:
+    """RF-34. And none, rather than a guess, where the publication recorded none."""
+    recorded = releases.fold(
+        [quantised(), approved(), published(licence_policy_version="gleipnir-licence/2025.11")]
+    ).releases[0]
+    unrecorded = releases.fold([quantised(), approved(), published()]).releases[0]
+
+    assert recorded.licence_policy_version == "gleipnir-licence/2025.11"
+    assert unrecorded.licence_policy_version is None
+
+
 def test_an_unanchored_release_says_so() -> None:
     (release,) = releases.fold([quantised(), approved(), published()]).releases
 

@@ -500,6 +500,13 @@ def test_a_published_release_can_be_read_downloaded_and_traced_to_its_approval(
     assert status == 200, card
     assert card, "the model card downloaded empty"
 
+    # RF-34. The licence policy the corpus was cleared under, recorded at
+    # LICENCE_CLEARED, carried by the publication, and rendered in the policy.
+    assert read["licencePolicyVersion"] == "gleipnir-licence/2026.01"
+    status, copyright_document = _get(f"/v1/releases/{release.digest}/documents/copyright-policy")
+    assert status == 200, copyright_document
+    assert json.loads(copyright_document)["licencePolicy"]["version"] == "gleipnir-licence/2026.01"
+
     status, lineage = _get(f"/v1/lineage/{release.digest}")
     assert status == 200, lineage
     assert json.loads(lineage)["approval"].get("approver") == "akuma@veldris.internal"

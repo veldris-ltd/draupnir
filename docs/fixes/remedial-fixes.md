@@ -4016,6 +4016,60 @@ is honest, and it is not what 10.2 asks for.
 - A release that records none is refused, not rendered under the current policy.
 - Gated in stage 2.3.
 
+> **Status: done, with the version recorded where the licence decision is
+> actually taken, which is not the source registration.**
+>
+> **Where the decision is.** `registerSource` records facts and decides
+> nothing. Its handler says so: whether a licence permits anything is
+> GLEIPNIR's question, asked later. The decision is taken when a run's corpus
+> moves CORPUS_REGISTERED → LICENCE_CLEARED, and SAD 6.1 already requires that
+> entry to record `policy_version`. Recording a version on a registration would
+> state a decision that has not been taken. So the version travels from the
+> decision to the release. Each source's decision in that entry now names its
+> `policyVersion` too, as `PolicyDecision` already carried it.
+>
+> **Carried to the release.**
+> - `PublicationFacts` reads the version from the run's LICENCE_CLEARED entry.
+> - `publishRelease` records it on the `published` entry.
+> - RF-33's projection writes it to `release.licence_policy_version`, added by
+>   migration 0006, nullable because releases published before recorded none.
+> - `getRelease` returns it.
+>
+> **Rendered with it, or refused.**
+> - The copyright policy document is rendered under the recorded version.
+> - A release that records none, or one recording a version this build does
+>   not hold, is refused with 409 `licence-policy-unrecorded` rather than
+>   rendered under today's policy.
+> - The model card and training summary state the version as not recorded
+>   instead of refusing, since the module's rule is that an absence is stated.
+>
+> **The seed** recorded `gleipnir-policy/2026.01` at LICENCE_CLEARED, a version
+> the policy registry does not hold, so its release could not have rendered
+> the policy it was cleared under. It now records the real version, on the
+> decision and on the publication.
+>
+> **Tests.**
+> - The document contract test's release records the *previous* policy
+>   version, so a document rendered under today's policy fails.
+> - New tests refuse a release recording none, and one recording an unheld
+>   version.
+> - A further test shows the card and summary still download without claiming
+>   a version.
+> - The publication integration test reads the version back from `getRelease`
+>   and from the downloaded policy, carried from the chain's decision.
+>
+> **Found on the way, and recorded, not fixed:**
+> - RF-42: `source` is written only by the seed.
+> - RF-43: nothing outside the demonstration procedure takes the licence
+>   decision at all.
+>
+> **Results.**
+> - Python: 2,154 unit, property and contract tests, and 223 integration.
+> - On a freshly reseeded stack, migrated through 0006 (1 release, recording
+>   `gleipnir-licence/2026.01`):
+>   - journeys: 49 of 52, the three failures being RF-35's two and RF-36's;
+>   - a11y: 73 of 73.
+
 ---
 
 ### RF-35 — P4 — The console's default specification is refused by its own API
@@ -4300,6 +4354,88 @@ this table, by agreement, for its own finding.
 
 ---
 
+### RF-42 — P3 — The licence register is read from a table only the seed writes
+
+*Found while working RF-34.*
+
+`registerSource` records a `source` entry in the chain and writes no `source`
+row. Nothing else in the application writes that table; `scripts/seed.py` does.
+Three things read it:
+- `listSources`, S04's licence register;
+- the lineage, which walks back to the sources of a jurisdiction;
+- through the lineage, the training content summary and SBOM of every release
+  package.
+
+On a seeded stack a registered source appears in the register and a release's
+lineage reaches its licensed roots. On an estate a source registered through
+the console appears nowhere. A release's lineage reports no source, and its
+training content summary is refused because the lineage holds none.
+
+It is the state RF-33 found `artefact`, `approval` and `release` in, and RF-41
+found `gate_result` in.
+
+**Prompt**
+
+> Project `source` from the entries `registerSource` records, beside RF-33's
+> projections, so a registered source is read back from the chain. A source's
+> state follows the licence decision taken on its corpus, where one has been
+> recorded. Have the seed register its sources as the API does and stop
+> inserting rows.
+
+**Acceptance criteria**
+
+- An integration test registers a source through the API and reads it from
+  `listSources` and from a lineage, with no row inserted.
+- Gated in stage 2.4.
+
+---
+
+### RF-43 — P1 — Nothing but the demonstration procedure takes a run's licence decision
+
+*Found while working RF-34.*
+
+SAD 6.1 moves a run DRAFT → CORPUS_REGISTERED → LICENCE_CLEARED before
+curation. The LICENCE_CLEARED entry is where GLEIPNIR's licence policy is
+applied and its version recorded. In the application:
+- `submitRun` registers a run at DRAFT;
+- the worker's stages begin at QUEUED;
+- its curation duty waits for LICENCE_CLEARED → CURATED.
+
+Neither the worker nor the API evaluates the licence policy: no stage, duty or
+route calls a policy driver or `licence.by_version`.
+
+Only `procedures/sindri.py` M1 and M2 do: they register sources, run the
+policy over them, and move the run through the corpus states. So on an estate
+a run submitted through the console or `draupnirctl` stays at DRAFT. The
+journeys and the seed never meet this, because the seed writes chains that
+have already been through those transitions, and the procedure walks its own
+run.
+
+RF-34 records the version where the decision is taken. This is that nothing
+takes it outside a demonstration.
+
+**Prompt**
+
+> Give the worker the corpus half of SAD 6.1. A DRAFT run whose corpus sources
+> are registered moves to CORPUS_REGISTERED. A CORPUS_REGISTERED run has
+> GLEIPNIR's licence policy applied, through the `draupnir.policy` driver the
+> deployment installs, to every source and to the base model. It moves to
+> LICENCE_CLEARED recording the policy version and each decision, or to
+> QUARANTINED naming the refusing rule (AC-S2).
+>
+> Take the logic from the procedure's M1 and M2 rather than writing it twice,
+> and have the procedure call it.
+
+**Acceptance criteria**
+
+- An integration test submits a run through the API with registered sources
+  and observes the worker take it to LICENCE_CLEARED, with the policy version
+  recorded, and a run with a refused licence to QUARANTINED.
+- The procedure and the worker share one implementation.
+- Gated in stage 2.4.
+
+---
+
 ## 5  Summary
 
 | ID | Severity | Finding |
@@ -4337,7 +4473,7 @@ this table, by agreement, for its own finding.
 | RF-31 | P6 | Committed acceptance evidence is non-deterministic — **done**; run records are not committed, the pipeline writes and uploads both, and stage 2.8 fails if one shows up as a change |
 | RF-32 | P2 | A conditional write is conditional on nothing; the console's four conditional actions cannot succeed — **done**; each tag is over the state the write changes, the reads return it, and the console sends it |
 | RF-33 | P3 | The release package is read from a table only the seed writes — **done**; artefacts, approvals and releases are projected from the chain, and a decision records its artefact |
-| RF-34 | P3 | A release does not record the licence policy it was judged under |
+| RF-34 | P3 | A release does not record the licence policy it was judged under — **done**; the decision's version is carried to the release, and the copyright policy is rendered under it or refused |
 | RF-35 | P4 | The console's default specification is refused by its own API |
 | RF-36 | P5 | The journey stack does not route `/auth`, so sign-in cannot pass |
 | RF-37 | P2 | SAD 9.5's transport security is not built: nothing terminates TLS and nothing uses mTLS |
@@ -4345,6 +4481,8 @@ this table, by agreement, for its own finding.
 | RF-39 | P4 | `draupnirctl` cannot perform a conditional write: it never sends `If-Match` |
 | RF-40 | P3 | The console's approval can never be accepted: no `decidedAt`, and a placeholder signature |
 | RF-41 | P3 | Gate results are read from a table only the seed writes, so an estate's approval queue shows no evidence |
+| RF-42 | P3 | The licence register is read from a table only the seed writes, so a registered source appears nowhere |
+| RF-43 | P1 | Nothing but the demonstration procedure takes a run's licence decision, so a submitted run stays at DRAFT |
 
 ---
 
@@ -4389,7 +4527,11 @@ with the edge contracts: the CLI's four conditional commands still cannot
 succeed. RF-40 belongs with the second group: the approver's primary action in
 the console still cannot succeed. RF-41 surfaced while RF-33 projected the
 release tables, and belongs with the run pipeline beside RF-33: an approver on
-an estate is shown no gate evidence.
+an estate is shown no gate evidence. RF-42 and RF-43 surfaced while RF-34
+carried the licence decision to the release. RF-42 belongs with RF-41, one more
+table only the seed writes. RF-43 belongs with the first group: until it lands,
+a run submitted through the console never reaches the pipeline the rest of this
+register repairs.
 
 **Throughout, the documentation.** RF-27 through RF-31 should be amended as each
 finding is closed, not batched at the end. The reconciliation in particular

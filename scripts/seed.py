@@ -55,6 +55,7 @@ from draupnir.core.domain.sites import SiteScope
 from draupnir.core.domain.states import RUN_PHASE_STATES, RunState, Transition, find
 from draupnir.core.infrastructure.config import get_settings
 from draupnir.core.infrastructure.repositories import ReleaseProjection, RunProjection
+from draupnir.gleipnir import licence as licence_policy
 from draupnir.hamarr import tiers
 from draupnir.hodd import retention as retention_record
 from draupnir.interfaces.types import GateOutcome
@@ -371,7 +372,10 @@ def transition_payload(
             "curator": "curator@veldris.internal",
         },
         "CORPUS_REGISTERED->LICENCE_CLEARED": {
-            "policy_version": "gleipnir-policy/2026.01",
+            # A version the policy registry holds (RF-34). This named one it did
+            # not, so the seeded release could not have rendered its copyright
+            # policy under the version it was cleared under.
+            "policy_version": licence_policy.CURRENT.version,
             "evaluation_result": "PASS",
         },
         "LICENCE_CLEARED->CURATED": {
@@ -659,6 +663,7 @@ def build() -> dict[str, Any]:
                 "run_id": str(run["id"]),
                 "approved_at_seq": approved_at[run["id"]],
                 "approver": "approver@veldris.internal",
+                "licence_policy_version": licence_policy.CURRENT.version,
             },
             entry_id=ids.next(clock[site_id]),
         )

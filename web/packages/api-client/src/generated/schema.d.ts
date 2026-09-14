@@ -2349,6 +2349,11 @@ export interface components {
              */
             copyrightPolicyUri: string;
             /**
+             * Licencepolicyversion
+             * @description The GLEIPNIR licence policy version the corpus was cleared under, as the publication recorded it (RF-34). SAD 10.2 keeps a release on the version in force at its release date; null means none was recorded, and the copyright policy is then refused rather than rendered under today's.
+             */
+            licencePolicyVersion?: string | null;
+            /**
              * Lineageuri
              * @description The lineage attestation.
              */

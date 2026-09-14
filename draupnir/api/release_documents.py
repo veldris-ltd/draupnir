@@ -23,11 +23,14 @@ as not recorded, with its reason. The card already does that; the lineage
 nodes now carry the register's own attribution and personal data answers, so
 the training content summary neither invents them nor reports them missing.
 
-One limit, stated rather than hidden: a release does not record which licence
-policy version it was judged under, so the copyright policy is rendered under
-the version in force now, and says which version that is. SAD 10.2 asks for
-the version in force at the release date, and that needs the release to record
-it.
+**A release keeps the policy it was released under.** SAD 10.2: existing
+releases keep the version in force at their release date. The copyright policy
+is rendered under the licence policy version the publication recorded (RF-34).
+It used to be rendered under whichever version was in force at download, and
+said so, which was honest and not what 10.2 asks. A release that records no
+version, or one this build no longer holds, has its copyright policy refused
+rather than rendered under today's. The model card and the training summary
+state the version as not recorded instead, because an absence is stated.
 """
 
 from __future__ import annotations
@@ -44,7 +47,6 @@ from draupnir import __version__
 from draupnir.api.schemas import AttestationOut, LineageOut, ModelDetailOut, ReleasePackageOut
 from draupnir.core.domain.ledger import canonical
 from draupnir.gleipnir import copyright as copyright_policy
-from draupnir.gleipnir.licence import CURRENT
 from draupnir.hamarr import tiers
 from draupnir.skidbladnir import article53, modelcard, sbom
 
@@ -92,6 +94,30 @@ class UnissuedReleaseError(Exception):
         )
 
 
+class UnrecordedPolicyError(Exception):
+    """Raised where a release's licence policy version cannot be rendered. RF-34.
+
+    Either the release records none, or it records one this build does not hold.
+    Rendering the policy in force instead would restate the release's compliance
+    position under a policy it was not released under (SAD 10.2).
+    """
+
+    def __init__(self, artefact: str, version: str | None) -> None:
+        """Name the release and what it recorded."""
+        self.artefact = artefact
+        self.version = version
+        recorded = (
+            "records no licence policy version"
+            if version is None
+            else f"records licence policy version {version!r}, which this build does not hold"
+        )
+        super().__init__(
+            f"the release of {artefact[:12]} {recorded}, so its copyright policy cannot be "
+            "rendered under the version in force at its release date (SAD 10.2). It is refused "
+            "rather than rendered under the version in force now."
+        )
+
+
 def attestation(found: LineageOut, *, site_id: str, issued_at: datetime) -> AttestationOut:
     """The lineage attestation. Shared with `exportAttestation`, S28.
 
@@ -135,9 +161,26 @@ def _sources(lineage: LineageOut) -> tuple[Mapping[str, Any], ...]:
     return tuple(node for node in lineage.nodes if node.get("kind") == "source")
 
 
-def policy(at: datetime) -> copyright_policy.CopyrightPolicy:
-    """The copyright policy, under the licence policy in force. See the module note."""
-    return copyright_policy.for_release(CURRENT.version, at)
+def policy(release: ReleasePackageOut) -> copyright_policy.CopyrightPolicy:
+    """The copyright policy, under the licence policy the release recorded. RF-34.
+
+    Raises `UnrecordedPolicyError` rather than substituting the version in force.
+    """
+    version = release.licence_policy_version
+    if version is None:
+        raise UnrecordedPolicyError(release.artefact, None)
+    try:
+        return copyright_policy.for_release(version, issued_at(release))
+    except KeyError as unknown:
+        raise UnrecordedPolicyError(release.artefact, version) from unknown
+
+
+def _governing(release: ReleasePackageOut) -> copyright_policy.CopyrightPolicy | None:
+    """The copyright policy where the release records one, for documents that cite it."""
+    try:
+        return policy(release)
+    except UnrecordedPolicyError:
+        return None
 
 
 def summary(release: ReleasePackageOut, lineage: LineageOut) -> article53.TrainingContentSummary:
@@ -147,7 +190,7 @@ def summary(release: ReleasePackageOut, lineage: LineageOut) -> article53.Traini
     nothing would assert the model was trained on nothing.
     """
     at = issued_at(release)
-    governing = policy(at)
+    governing = _governing(release)
     return article53.summarise(
         model=release.model,
         licence_facts=[
@@ -160,11 +203,16 @@ def summary(release: ReleasePackageOut, lineage: LineageOut) -> article53.Traini
             for node in _sources(lineage)
         ],
         generated_at=at,
-        copyright_policy={
-            "uri": release.copyright_policy_uri,
-            "version": governing.version,
-            "sha256": governing.digest(),
-        },
+        # An unrecorded policy is cited as nothing rather than as today's (RF-34).
+        copyright_policy=(
+            {
+                "uri": release.copyright_policy_uri,
+                "version": governing.version,
+                "sha256": governing.digest(),
+            }
+            if governing is not None
+            else {}
+        ),
     )
 
 
@@ -213,8 +261,11 @@ def card(
     compliance: dict[str, Any] = {
         "trainingContentSummary": release.training_summary_uri,
         "copyrightPolicy": release.copyright_policy_uri,
-        "copyrightPolicyVersion": policy(at).version,
     }
+    # Left out when unrecorded, so the card renders it as not recorded (RF-34).
+    governing = _governing(release)
+    if governing is not None:
+        compliance["copyrightPolicyVersion"] = governing.version
     sources = _sources(lineage)
     if sources:
         compliance["personalDataPresent"] = any(bool(node.get("personalData")) for node in sources)
@@ -284,7 +335,7 @@ def render(
     elif name == "training-summary":
         text = summary(release, lineage).to_json()
     elif name == "copyright-policy":
-        text = policy(issued_at(release)).to_json()
+        text = policy(release).to_json()
     else:
         msg = f"{name!r} is not a document of a release package; they are {', '.join(DOCUMENTS)}"
         raise KeyError(msg)

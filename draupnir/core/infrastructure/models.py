@@ -217,6 +217,9 @@ class Release(Base):
     signature: Mapped[str] = mapped_column(Text, nullable=False)
     anchored_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     published_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    # The GLEIPNIR licence policy the corpus was cleared under (RF-34, SAD 10.2).
+    # Null for a release that recorded none, which renders no copyright policy.
+    licence_policy_version: Mapped[str | None] = mapped_column(Text)
 
 
 class RetentionAction(Base):

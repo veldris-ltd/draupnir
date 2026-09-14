@@ -362,8 +362,15 @@ def m2_clear_licences(procedure: Procedure, scheduler: Any) -> Mapping[str, Any]
         payload={
             "policy_version": POLICY_VERSION,
             "evaluation_result": "PASS",
+            # Each source's decision names the policy version that took it
+            # (RF-34): the version is a fact about the decision, and a release
+            # of this corpus renders its copyright policy under it.
             "decisions": [
-                {"licence": facts.get("licenceSpdx"), "rule": decision.rule}
+                {
+                    "licence": facts.get("licenceSpdx"),
+                    "rule": decision.rule,
+                    "policyVersion": decision.policy_version,
+                }
                 for facts, decision in decisions
             ],
         },

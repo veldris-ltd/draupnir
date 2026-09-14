@@ -1019,7 +1019,7 @@ class DatabaseReadModel:
             "SELECT rel.model_card_uri, rel.sbom_uri, rel.lineage_uri, "
             "rel.training_summary_uri, rel.copyright_policy_uri, rel.signature, "
             "rel.published_at, rel.anchored_at, ap.approver, ap.sole_approver_exception, "
-            "r.name AS run_name, a.uri "
+            "rel.licence_policy_version, r.name AS run_name, a.uri "
             "FROM release rel "
             "JOIN artefact a ON a.id = rel.artefact_id "
             "JOIN approval ap ON ap.id = rel.approval_id "
@@ -1047,6 +1047,7 @@ class DatabaseReadModel:
             anchored_at=row["anchored_at"],
             approver=row["approver"],
             sole_approver_exception=row["sole_approver_exception"],
+            licence_policy_version=row["licence_policy_version"],
         )
 
     # -- ledger entry detail -------------------------------------------------

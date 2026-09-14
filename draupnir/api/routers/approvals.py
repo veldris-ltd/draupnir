@@ -393,6 +393,9 @@ async def publish(
                 "run_id": approval.subject_id,
                 "approved_at_seq": approval.seq,
                 "approver": recorded.get("approver"),
+                # The licence policy the corpus was cleared under (RF-34, SAD
+                # 10.2), so the release keeps it whatever policy is in force later.
+                "licence_policy_version": facts.licence_policy_version,
             },
         )
         telemetry.log(

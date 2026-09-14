@@ -246,6 +246,10 @@ class PublicationFacts:
     #: countersigned. AC-S13 compares the two.
     release_seq: int
     anchored_through: int
+    #: The GLEIPNIR licence policy version the run's corpus was cleared under, as
+    #: its LICENCE_CLEARED entry recorded it. RF-34: carried to the release, so
+    #: its copyright policy renders under the version in force at release.
+    licence_policy_version: str | None = None
 
 
 def _evidence_from(results: Mapping[str, Any]) -> tuple[Evidence, ...]:
@@ -529,10 +533,17 @@ class Orchestrator:
         evidence: list[Evidence] = []
         built: list[str] = []
         uri = ""
-        uri = ""
+        licence_version: str | None = None
 
         for entry in history:
             payload = entry.payload if isinstance(entry.payload, dict) else {}
+
+            # The licence decision, from the entry that took it. Latest wins: a
+            # corpus re-cleared under a newer policy is released under that one.
+            if entry.transition == f"{RunState.CORPUS_REGISTERED}->{RunState.LICENCE_CLEARED}":
+                recorded_policy = payload.get("policy_version")
+                if recorded_policy:
+                    licence_version = str(recorded_policy)
 
             # What was *built*, from the entry that built it. AC-F9 is driven by
             # this rather than by the evidence, because iterating the evidence
@@ -560,6 +571,7 @@ class Orchestrator:
             artefact_uri=uri,
             release_seq=approval.seq,
             anchored_through=self._anchored_through(),
+            licence_policy_version=licence_version,
         )
 
     def _anchor_entries(self) -> tuple[LedgerEntry, ...]:

@@ -32,7 +32,7 @@ from draupnir.api.schemas import (
     ModelDetailOut,
     ReleasePackageOut,
 )
-from draupnir.gleipnir.licence import CURRENT
+from draupnir.gleipnir.licence import CURRENT, PREVIOUS
 
 pytestmark = pytest.mark.contract
 
@@ -75,9 +75,19 @@ def client(claims: dict[str, Any] | object | None = _DEFAULT) -> TestClient:
 class Published(EmptyReadModel):
     """One published release, its lineage over two sources, and its model."""
 
-    def __init__(self, *, published_at: datetime | None = PUBLISHED, sources: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        published_at: datetime | None = PUBLISHED,
+        sources: bool = True,
+        licence_policy_version: str | None = PREVIOUS.version,
+    ) -> None:
         self.published_at = published_at
         self.with_sources = sources
+        # The previous version, not the one in force, so a document rendered
+        # under today's policy is told apart from one rendered under the
+        # release's (RF-34).
+        self.licence_policy_version = licence_policy_version
 
     async def release(self, site_id: str, artefact: str) -> ReleasePackageOut | None:
         del site_id
@@ -94,6 +104,7 @@ class Published(EmptyReadModel):
             anchored_at=None,
             approver="a.stewart",
             sole_approver_exception=True,
+            licence_policy_version=self.licence_policy_version,
         )
 
     async def lineage(self, site_id: str, artefact: str) -> LineageOut | None:
@@ -210,6 +221,18 @@ def sourceless() -> Iterator[None]:
     yield from _install(Published(sources=False))
 
 
+@pytest.fixture
+def unrecorded() -> Iterator[None]:
+    """A release published before RF-34, which recorded no licence policy version."""
+    yield from _install(Published(licence_policy_version=None))
+
+
+@pytest.fixture
+def unheld() -> Iterator[None]:
+    """A release recording a licence policy version this build does not hold."""
+    yield from _install(Published(licence_policy_version="gleipnir-licence/2019.01"))
+
+
 def download(document: str, claims: dict[str, Any] | object | None = _DEFAULT) -> Any:
     return client(claims).get(f"/v1/releases/{ARTEFACT}/documents/{document}")
 
@@ -317,11 +340,49 @@ def test_the_downloaded_attestation_is_the_exported_one_dated_by_the_release() -
 
 
 @pytest.mark.usefixtures("published")
-def test_the_copyright_policy_names_the_version_it_was_rendered_under() -> None:
+def test_the_copyright_policy_is_rendered_under_the_version_the_release_recorded() -> None:
+    """RF-34, SAD 10.2: the version in force at release, not the one in force now."""
     policy = json.loads(download("copyright-policy").text)
 
-    assert policy["version"].startswith("copyright/")
-    assert policy["licencePolicy"]["version"] == CURRENT.version
+    assert policy["version"] == f"copyright/{PREVIOUS.version.split('/')[-1]}"
+    assert policy["licencePolicy"]["version"] == PREVIOUS.version
+    assert PREVIOUS.version != CURRENT.version, "the test would not tell the two apart"
+
+
+@pytest.mark.usefixtures("published")
+def test_the_training_summary_cites_the_recorded_copyright_policy() -> None:
+    summary = json.loads(download("training-summary").text)
+
+    assert PREVIOUS.version.split("/")[-1] in json.dumps(summary)
+
+
+@pytest.mark.usefixtures("unrecorded")
+def test_a_release_that_records_no_licence_policy_has_its_copyright_policy_refused() -> None:
+    """Refused, rather than rendered under today's policy. RF-34."""
+    response = download("copyright-policy")
+
+    assert response.status_code == 409, response.text
+    assert response.json()["code"] == "licence-policy-unrecorded"
+    assert "records no licence policy version" in response.json()["detail"]
+
+
+@pytest.mark.usefixtures("unheld")
+def test_a_release_recording_a_version_nobody_holds_is_refused_too() -> None:
+    response = download("copyright-policy")
+
+    assert response.status_code == 409, response.text
+    assert "does not hold" in response.json()["detail"]
+
+
+@pytest.mark.usefixtures("unrecorded")
+def test_the_other_documents_state_the_policy_as_not_recorded_rather_than_refusing() -> None:
+    """Only the copyright policy is refused; the card says what it does not know."""
+    card = download("model-card")
+    summary = download("training-summary")
+
+    assert card.status_code == 200, card.text
+    assert CURRENT.version.split("/")[-1] not in card.text
+    assert summary.status_code == 200, summary.text
 
 
 # ---------------------------------------------------------------------------

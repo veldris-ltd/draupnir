@@ -129,6 +129,8 @@ class ProjectedRelease:
     published_at: datetime
     anchored_at: datetime | None
     documents: Mapping[str, str]
+    #: The licence policy version the publication recorded (RF-34), or None.
+    licence_policy_version: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,6 +271,11 @@ def _release(
         published_at=entry.ts,
         anchored_at=min(covering) if covering else None,
         documents={name: document_address(digest, name) for name in DOCUMENTS},
+        licence_policy_version=(
+            str(payload["licence_policy_version"])
+            if payload.get("licence_policy_version")
+            else None
+        ),
     )
 
 
