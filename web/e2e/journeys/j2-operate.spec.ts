@@ -153,7 +153,44 @@ test.describe('J2 Operate', () => {
     // toast after it.
     await expect(dialog.getByRole('button', { name: 'Cancel the run' })).toBeVisible();
   });
+
+  test('confirming a cancel stops the run, and the run says so', async ({ page }) => {
+    // RF-32. The test above stops at the dialog, and until RF-32 the
+    // confirmation could not succeed: the console sent no If-Match, and the API
+    // refused every cancel from it with 428. A journey that never confirmed was
+    // how that passed.
+    const before = await runNamed(page, 'cim-gbr-v0.4');
+    if (before.state !== 'TRAINING') {
+      // The seeded training run is consumed by the first run against a stack,
+      // and the database outlives the run locally. What must then be true is
+      // that the cancellation was recorded, not that it can be made twice.
+      expect(before.state).toBe('FAILED');
+      return;
+    }
+
+    await page.goto(`/runs/${before.id}`);
+    await page.getByRole('button', { name: 'Cancel this run' }).click();
+
+    const cancelled = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname.endsWith('/cancel'),
+    );
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel the run' }).click();
+
+    expect((await cancelled).status()).toBe(202);
+    await expect(page.getByTestId('run-action-result')).toContainText('Cancellation requested');
+    await expect.poll(async () => (await runNamed(page, 'cim-gbr-v0.4')).state).toBe('FAILED');
+  });
 });
+
+async function runNamed(page: Page, name: string): Promise<{ id: string; state: string }> {
+  const response = await page.request.get('/v1/runs?limit=100');
+  const body = (await response.json()) as { items: { id: string; name: string; state: string }[] };
+  const run = body.items.find((item) => item.name === name);
+  if (run === undefined) throw new Error(`the seeded stack has no run named ${name}`);
+  return run;
+}
 
 async function firstRunId(page: Page): Promise<string> {
   const response = await page.request.get('/v1/runs?limit=1');

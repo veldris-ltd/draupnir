@@ -176,7 +176,57 @@ test.describe('J3 Approve', () => {
     await expect(dialog).toContainText('quarantined rather than deleted');
     await expect(dialog).toContainText('reason is required');
   });
+
+  test('a confirmed rejection quarantines the artefact and takes it off the queue', async ({
+    page,
+  }) => {
+    // RF-32. The two tests above open the decision dialogs and confirm
+    // neither, and until RF-32 neither could succeed: the console sent no
+    // If-Match, so the API refused every decision from it with 428.
+    //
+    // Rejection rather than approval, because a rejection needs no signature.
+    // The console signs an approval with a placeholder that cannot verify,
+    // which is a finding of its own. The gate decided here is the seed's
+    // cim-nzl-v0.1, which exists to be decided, so cim-aus-v0.1 stays pending
+    // for the tests above and for the keyboard walk that follows this stage.
+    const gateId = await pendingGateFor(page, 'cim-nzl-v0.1');
+    if (gateId === undefined) {
+      // Decided by an earlier run against a database that outlives it.
+      expect(await stateOf(page, 'cim-nzl-v0.1')).toBe('QUARANTINED');
+      return;
+    }
+
+    await page.goto(`/gates/${gateId}`);
+    await expect(page.getByTestId('gate-evidence')).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Reject' }).click();
+
+    const decided = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname.endsWith('/decide'),
+    );
+    await page.getByRole('dialog').getByRole('button', { name: 'Reject and quarantine' }).click();
+
+    expect((await decided).status()).toBe(201);
+    await expect(page.getByTestId('decision-outcome')).toContainText('quarantined');
+    expect(await stateOf(page, 'cim-nzl-v0.1')).toBe('QUARANTINED');
+    expect(await pendingGateFor(page, 'cim-nzl-v0.1')).toBeUndefined();
+  });
 });
+
+async function pendingGateFor(page: Page, model: string): Promise<string | undefined> {
+  const response = await page.request.get('/v1/gates?limit=100&state=pending');
+  const body = (await response.json()) as { items: { id: string; model: string }[] };
+  return body.items.find((item) => item.model === model)?.id;
+}
+
+async function stateOf(page: Page, name: string): Promise<string> {
+  const response = await page.request.get('/v1/runs?limit=100');
+  const body = (await response.json()) as { items: { name: string; state: string }[] };
+  const run = body.items.find((item) => item.name === name);
+  if (run === undefined) throw new Error(`the seeded stack has no run named ${name}`);
+  return run.state;
+}
 
 async function firstGateId(page: Page): Promise<string> {
   const response = await page.request.get('/v1/gates?limit=1&state=pending');

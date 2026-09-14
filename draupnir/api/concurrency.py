@@ -85,6 +85,39 @@ def etag(state: Mapping[str, Any]) -> str:
     return f'"{hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]}"'
 
 
+def run_version(run_id: object, state: object | None, retry_count: int) -> dict[str, Any]:
+    """What a conditional write about a run is conditional on. RF-32.
+
+    The state and the retry count, because those are what a cancel, a retry and
+    a decision change. The count as well as the state because a run comes back
+    to states it has been in: requeued from EVALUATING, it reaches EVALUATING
+    again, and a tag over the state alone would let a retry read before the
+    first requeue pass after it.
+
+    One function for the read and the write. `cancelRun`, `retryRun` and
+    `decideGate` checked a tag over the identifier alone, which never changes,
+    while `getRun` returned one over the identifier and the state -- so the tag
+    a client was given was refused, and a tag nobody read could never be stale.
+    """
+    return {
+        "id": str(run_id),
+        "state": None if state is None else str(state),
+        "retryCount": int(retry_count),
+    }
+
+
+def release_version(
+    artefact: str, approval_seq: int | None, published_seq: int | None
+) -> dict[str, Any]:
+    """What a publication is conditional on: its approval and any publication. RF-32.
+
+    A publisher who read the release before somebody else published it, or
+    before the approval it rests on was recorded, is refused with 412 rather
+    than publishing against a release they did not see.
+    """
+    return {"artefact": artefact, "approvalSeq": approval_seq, "publishedSeq": published_seq}
+
+
 def matches(current: str, header: str | None) -> bool:
     """Whether an `If-Match` header value permits the write.
 

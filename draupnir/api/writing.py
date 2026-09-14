@@ -37,6 +37,7 @@ from uuid import UUID
 import anyio
 from sqlalchemy import Connection, Engine
 
+from draupnir.api.concurrency import release_version
 from draupnir.core.application.orchestrator import Applied, Orchestrator, RunFacts
 from draupnir.core.domain.ledger import LedgerEntry
 from draupnir.core.domain.sites import SiteScope
@@ -139,6 +140,39 @@ def publication_facts_for(artefact_sha256: str) -> Question:
 
     def ask(orchestrator: Orchestrator) -> Any:
         return orchestrator.publication_facts(artefact_sha256)
+
+    return ask
+
+
+#: A release is about the artefact, not the run (SAD 7.1).
+RELEASE_SUBJECT = "release"
+
+#: The transition a publication records against its release.
+PUBLISHED = "published"
+
+
+def publication_version_of(artefact_sha256: str) -> Question:
+    """What a publication of these bytes is conditional on. RF-32.
+
+    The approval it rests on and the latest publication already recorded, as
+    `concurrency.release_version` shapes them. Asked by `getLineage`, which the
+    publish action sits under, and by `publishRelease` itself, so the tag the
+    publisher was given and the tag the publication checks come from one
+    question over one chain.
+    """
+
+    def ask(orchestrator: Orchestrator) -> dict[str, Any]:
+        approval = orchestrator.released_entry_for(artefact_sha256)
+        published = [
+            entry.seq
+            for entry in orchestrator.entries_of_type(RELEASE_SUBJECT)
+            if entry.subject_id == artefact_sha256 and entry.transition == PUBLISHED
+        ]
+        return release_version(
+            artefact_sha256,
+            approval.seq if approval is not None else None,
+            max(published, default=None),
+        )
 
     return ask
 

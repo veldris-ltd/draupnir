@@ -166,7 +166,7 @@ export function LineageExplorer({ artefact }: { artefact: string }): JSX.Element
               </ul>
             </section>
 
-            <PublishPanel artefact={artefact} />
+            <PublishPanel artefact={artefact} etag={data.etag} />
           </>
         )}
       </StateSurface>
@@ -197,7 +197,14 @@ function nodeOf(node: Record<string, unknown>, index: number): LineageNode {
  * it enabled to fail would tell the approver the action was available, let them
  * take it, and then take it back.
  */
-function PublishPanel({ artefact }: { artefact: string }): JSX.Element {
+function PublishPanel({
+  artefact,
+  etag,
+}: {
+  artefact: string;
+  /** The lineage read's tag, which the publication is conditional on (RF-32). */
+  etag: string;
+}): JSX.Element {
   const sites = useResource('listSites', {});
   const health = useResource('getHealth', {});
   const here = sites.data?.items.find((site) => site.id === health.data?.siteId);
@@ -216,6 +223,7 @@ function PublishPanel({ artefact }: { artefact: string }): JSX.Element {
       await call('publishRelease', {
         params: { artefact },
         body: {},
+        ifMatch: etag,
         idempotencyKey: idempotencyKey(),
       });
       setOutcome('Published. The release is in the registry and the ledger.');

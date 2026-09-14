@@ -472,7 +472,7 @@ class DatabaseReadModel:
         # lineage explorer is opened with, and an approver who has to look it
         # up separately is an approver who approves without looking.
         sql = (
-            "SELECT r.id AS run_id, r.name, r.started_at, "  # noqa: S608 -- literal fragments, bound values
+            "SELECT r.id AS run_id, r.name, r.started_at, r.retry_count, "  # noqa: S608 -- literal fragments, bound values
             "COALESCE(a.sha256_manifest, '') AS artefact_sha256 "
             "FROM run r LEFT JOIN artefact a ON a.created_from_run = r.id "
             f"WHERE {' AND '.join(clauses)} "
@@ -520,6 +520,7 @@ class DatabaseReadModel:
                     gates=gates.get(row["run_id"], []),
                     submitted_by="curator@veldris.internal",
                     awaiting_since=row["started_at"] or datetime.now(UTC),
+                    retry_count=int(row["retry_count"]),
                 )
                 for row in rows
             ],
@@ -1285,4 +1286,5 @@ def _run_out(row: Any) -> RunOut:
         created_at=row["started_at"],
         updated_at=row["ended_at"] or row["started_at"],
         retry_budget_remaining=max(0, 3 - int(row["retry_count"])),
+        retry_count=int(row["retry_count"]),
     )

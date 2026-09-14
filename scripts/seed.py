@@ -2,7 +2,7 @@
 
 Produces, exactly as Prompt 0 specifies:
 
-    2 sites, 6 sources, 12 runs across every state, 3 releases,
+    2 sites, 6 sources, 13 runs across every state, 3 releases,
     400 ledger entries
 
 The dataset is deterministic. Identifiers are UUIDv7 built from a fixed epoch
@@ -63,7 +63,7 @@ SEED = 20260901
 EPOCH = datetime(2026, 3, 2, 9, 0, tzinfo=UTC)
 
 TARGET_LEDGER_ENTRIES = 400
-TARGET_RUNS = 12
+TARGET_RUNS = 13
 TARGET_SOURCES = 6
 TARGET_RELEASES = 3
 
@@ -176,6 +176,14 @@ RUN_PLAN = (
     ("cim-aus-v0.1", "adapter", RunState.AWAITING_APPROVAL, "sindri"),
     ("cim-gbr-v0.1", "adapter", RunState.RELEASED, "sindri"),
     ("cim-fra-v0.1", "adapter", RunState.QUARANTINED, "brokkr"),
+    # A second artefact awaiting approval, which journey J3 decides (RF-32). J3
+    # used to open the decision dialogs and confirm neither, which is how a
+    # console whose decision control could not succeed passed its journey. A
+    # decision consumes its gate, so the one J3 decides is its own: cim-aus-v0.1
+    # stays pending for the other approval journeys and for the keyboard walk
+    # of stage 2.8. Last in the plan, so it is the newest in the queue and the
+    # generated values of every run before it are unchanged.
+    ("cim-nzl-v0.1", "adapter", RunState.AWAITING_APPROVAL, "sindri"),
 )
 
 GATES = ("E1", "E2", "E3", "E4", "E5", "E6")

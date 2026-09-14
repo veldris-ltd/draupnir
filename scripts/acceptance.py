@@ -446,7 +446,12 @@ REGISTER: dict[str, Entry] = {
     ),
     "AC-B4": Entry(
         IMPLEMENTED,
-        "A conditional write without If-Match is refused and a stale tag is 412.",
+        "A conditional write without If-Match is refused with 428, and a write sending the "
+        "tag its read returned is refused with 412 once the state has moved. Reachable by a "
+        "correct client as of RF-32: cancel, retry, decide and publish checked a tag over "
+        "the identifier alone, which no read returned and which could never be stale, so "
+        "the 412 was unreachable. Each tag is now over the state the write changes, and the "
+        "read an operator acts from returns it.",
         "make test-contract",
     ),
     "AC-B5": Entry(

@@ -12,9 +12,10 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Path, Query, Response
 
-from draupnir.api import release_documents, telemetry
+from draupnir.api import release_documents, telemetry, writing
+from draupnir.api.concurrency import etag, release_version
 from draupnir.api.deps import Cursor, Guarded, PageSize, Reading, now
 from draupnir.api.guards import needs
 from draupnir.api.problems import ProblemError
@@ -41,7 +42,9 @@ Artefact = Annotated[
     response_model=LineageOut,
 )
 @needs(Permission.READ)
-async def lineage(artefact: Artefact, ctx: Guarded, reading: Reading) -> LineageOut:
+async def lineage(
+    artefact: Artefact, ctx: Guarded, reading: Reading, response: Response
+) -> LineageOut:
     """The complete chain to base model licences and corpus hashes. AC-F11.
 
     `complete` and `gaps` are returned rather than an error on an incomplete
@@ -49,11 +52,23 @@ async def lineage(artefact: Artefact, ctx: Guarded, reading: Reading) -> Lineage
     breaks, and a 404 or a 500 tells them nothing. Producing a signed
     *attestation* over a broken chain is what is refused, and that refusal is
     in SKIDBLADNIR.
+
+    It carries the tag `publishRelease` is conditional on (RF-32), because S20's
+    publish action sits on this screen and a publication is conditional on the
+    release the publisher was looking at. Read from the chain the publication
+    checks, through the same question, so the two cannot compute different tags.
     """
     telemetry.log("lineage.requested", artefactSha256=artefact)
     found = await reading.lineage(ctx.site_id, artefact)
     if found is not None:
-        return found
+        version = await writing.writer().read(
+            site_id=ctx.site_id,
+            actor=ctx.actor,
+            question=writing.publication_version_of(artefact),
+        )
+        tag = etag(version if version is not None else release_version(artefact, None, None))
+        response.headers["ETag"] = tag
+        return found.model_copy(update={"etag": tag})
     raise ProblemError(
         status=404,
         code="artefact-not-found",

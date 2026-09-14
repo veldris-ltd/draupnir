@@ -151,6 +151,20 @@ def tag_for(state: dict[str, Any]) -> str:
     return concurrency.etag(state)
 
 
+def current_tag(path: str) -> str:
+    """The `ETag` a read returns, which is what a client sends back. RF-32.
+
+    These tests computed a tag over the identifier alone, because that is what
+    the handlers checked -- a tag no read ever returned. Taken from the read
+    now, so a handler and a read that computed different tags fail here.
+    """
+    request = urllib.request.Request(f"{BASE}{path}", method="GET")  # noqa: S310
+    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+        tag = response.headers.get("ETag")
+    assert tag, f"GET {path} returned no ETag"
+    return str(tag)
+
+
 def entries(owner: Connection, subject_id: str) -> list[Any]:
     """Every ledger entry about one subject, at Sindri."""
     return list(LedgerRepository(owner, SiteScope(SITE)).entries_for_subject(subject_id))
@@ -297,7 +311,7 @@ def test_approving_a_gate_moves_the_run_to_released(
     status, body = post(
         f"/v1/gates/{run_id}/decide",
         signed("gates pass and the lineage is complete", run_id),
-        if_match=tag_for({"id": str(run_id)}),
+        if_match=current_tag(f"/v1/runs/{run_id}"),
     )
 
     assert status == 201, body
@@ -326,12 +340,12 @@ def test_the_sole_approver_exception_is_computed_from_the_chain(
     _, exception = post(
         f"/v1/gates/{same}/decide",
         signed("same identity", same, exception=True),
-        if_match=tag_for({"id": str(same)}),
+        if_match=current_tag(f"/v1/runs/{same}"),
     )
     _, separated = post(
         f"/v1/gates/{other}/decide",
         signed("two identities", other),
-        if_match=tag_for({"id": str(other)}),
+        if_match=current_tag(f"/v1/runs/{other}"),
     )
 
     assert exception["soleApproverException"] is True
@@ -350,7 +364,7 @@ def test_rejecting_a_gate_quarantines_the_run(
     status, body = post(
         f"/v1/gates/{run_id}/decide",
         {"decision": "rejected", "reason": "the DPIA reference is missing", "signature": "sig"},
-        if_match=tag_for({"id": str(run_id)}),
+        if_match=current_tag(f"/v1/runs/{run_id}"),
     )
 
     assert status == 201, body
@@ -369,7 +383,7 @@ def test_deciding_a_run_that_is_not_awaiting_approval_is_refused(
     status, body = post(
         f"/v1/gates/{run_id}/decide",
         signed("too early", run_id, exception=True),
-        if_match=tag_for({"id": str(run_id)}),
+        if_match=current_tag(f"/v1/runs/{run_id}"),
     )
 
     assert status == 409, body
@@ -387,7 +401,7 @@ def test_cancelling_a_training_run_leaves_it_in_a_defined_state(
     status, body = post(
         f"/v1/runs/{run_id}/cancel",
         {"reason": "the corpus was wrong"},
-        if_match=tag_for({"id": str(run_id)}),
+        if_match=current_tag(f"/v1/runs/{run_id}"),
     )
 
     assert status == 202, body
@@ -412,7 +426,7 @@ def test_cancelling_a_queued_run_is_refused_and_says_why(
     status, body = post(
         f"/v1/runs/{run_id}/cancel",
         {"reason": "changed my mind"},
-        if_match=tag_for({"id": str(run_id)}),
+        if_match=current_tag(f"/v1/runs/{run_id}"),
     )
 
     assert status == 409, body
@@ -436,7 +450,7 @@ def test_requeueing_an_evaluating_run_that_failed_a_gate(
             payload={"failing_gates": ["E3"], "run_id": str(run_id)},
         )
 
-    status, body = post(f"/v1/runs/{run_id}/retry", if_match=tag_for({"id": str(run_id)}))
+    status, body = post(f"/v1/runs/{run_id}/retry", if_match=current_tag(f"/v1/runs/{run_id}"))
 
     assert status == 202, body
     last = [entry for entry in entries(owner, str(run_id)) if entry.subject_type == "run"][-1]
@@ -452,7 +466,7 @@ def test_requeueing_a_run_with_no_recorded_failure_is_refused(
     del api, site
     run_id = place_run(owner_engine, reaching=RunState.EVALUATING)
 
-    status, body = post(f"/v1/runs/{run_id}/retry", if_match=tag_for({"id": str(run_id)}))
+    status, body = post(f"/v1/runs/{run_id}/retry", if_match=current_tag(f"/v1/runs/{run_id}"))
 
     assert status == 409, body
     assert body["code"] == "nothing-to-retry"
@@ -468,7 +482,8 @@ def test_publishing_without_an_approval_is_refused(api: str, site: str) -> None:
     del api, site
     artefact = "9" * 64
     status, body = post(
-        f"/v1/releases/{artefact}/publish", if_match=tag_for({"artefact": artefact})
+        f"/v1/releases/{artefact}/publish",
+        if_match=tag_for(concurrency.release_version(artefact, None, None)),
     )
 
     assert status == 409, body
@@ -511,9 +526,14 @@ def test_publishing_an_approved_artefact_records_the_publication(
                 "formats": ["nvfp4"],
             },
         )
+    # The tag over the approval just recorded and no publication. Computed
+    # rather than read: this run has no artefact in the read model, so there is
+    # no lineage to read it from.
+    approval_seq = entries(owner, str(run_id))[-1].seq
 
     status, body = post(
-        f"/v1/releases/{artefact}/publish", if_match=tag_for({"artefact": artefact})
+        f"/v1/releases/{artefact}/publish",
+        if_match=tag_for(concurrency.release_version(artefact, approval_seq, None)),
     )
 
     # RF-05. This asserted a 202, and that was the finding: the handler read

@@ -250,6 +250,9 @@ export function RunDetail({ runId }: { runId: string }): JSX.Element {
       await call('cancelRun', {
         params: { run_id: runId },
         body: { reason: 'Cancelled from the console.' },
+        // The tag of the run this operator is looking at (RF-32). Without it the
+        // API refused every cancel from the console with 428.
+        ifMatch: data?.etag ?? '',
         idempotencyKey: idempotencyKey(),
       });
       setAction({ state: 'ready', message: 'Cancellation requested. The board will show it.' });
@@ -420,6 +423,8 @@ function FailureDiagnosis({ run, onRetried }: { run: Run; onRetried: () => void 
     try {
       await call('retryRun', {
         params: { run_id: run.id },
+        // RF-32: conditional on the state and retry count this diagnosis was read at.
+        ifMatch: run.etag,
         idempotencyKey: idempotencyKey(),
       });
       setResult('Retry accepted. The board will show the requeued run.');

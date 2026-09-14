@@ -78,7 +78,7 @@ What the build enforces rather than asserts:
 - A site scope is chosen, never inferred. A repository cannot be constructed
   without one, and the queries carry an explicit predicate as well as relying
   on row level security.
-- A deterministic seed writes chains, not rows: 2 sites, 6 sources, 12 runs
+- A deterministic seed writes chains, not rows: 2 sites, 6 sources, 13 runs
   resting in every run state, 3 releases and 400 hash-chained ledger entries.
 - A driver is an installation, not a core change. Nothing in DRAUPNIR names a
   driver, and an import contract forbids a driver from reaching into the core.

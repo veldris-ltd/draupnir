@@ -3806,6 +3806,85 @@ read, and are tested stale. The four above were not changed.
 - A journey confirms a cancel and a decision and observes the result.
 - Gated in stages 2.3 and 2.7.
 
+> **Status: done, for all four writes, with a decision confirmed as a rejection
+> and approval left to RF-40.**
+>
+> **Runs and gates.** One function, `concurrency.run_version`, gives the state
+> a run write changes: the state and the retry count.
+> - **The retry count as well as the state**, because a requeued run comes
+>   back to EVALUATING. A tag over the state alone would let a retry read before
+>   somebody else's requeue pass after it.
+> - **Every run read carries the tag.** `RunOut` carries it as a computed
+>   `etag`, so the board and `getRun` return it in the body as well as the
+>   header. The console reads bodies, and a computed field cannot be forgotten
+>   by a constructor.
+> - **So does the approval queue.** Each queue item carries its run's tag,
+>   because a gate is a run awaiting approval.
+> - **The writes check after reading.** `cancelRun`, `retryRun` and
+>   `decideGate` now check the tag after reading the run's facts, not before,
+>   and compute it with the same function.
+>
+> **Releases.** `concurrency.release_version` is the approval and any
+> publication already recorded. The publish action sits on the lineage screen,
+> so `getLineage` returns the tag. Both `getLineage` and `publishRelease` ask for
+> it through one writer question, `writing.publication_version_of`, so the two
+> cannot compute it differently.
+>
+> **The console sends each tag** from the read it acts on: the run it shows,
+> the queue entry the evidence came from, and the lineage the publish panel sits
+> under.
+>
+> **Tests.**
+> - **`tests/contract/test_conditional_writes.py`**, over doubles that share
+>   one chain, reads, lets the state move and shows the stale write is refused
+>   with 412 on all four routes — and that the same tag was accepted while
+>   current:
+>   - a cancel repeated with its first tag;
+>   - a retry after somebody else requeued it, where only the retry count
+>     moved;
+>   - a decision after somebody else decided;
+>   - a publication after somebody else published.
+>
+>   A tag over the identifier alone no longer passes.
+> - **Against a real chain**, `test_release_publication.py` refuses a second
+>   publication sent with a tag read before the first.
+> - **The existing tests.** The contract and integration tests sent the
+>   identifier-only tag, because that is what the handlers checked. They now
+>   send what a read returns.
+>
+> **Journeys.**
+> - **J2** confirms a cancel on the seeded training run and observes it fail.
+> - **J3** confirms a rejection and observes the artefact quarantined and gone
+>   from the queue.
+>
+> **J3 rejects rather than approves:** a console approval cannot succeed for
+> reasons of its own, recorded as RF-40.
+>
+> **The seed gains `cim-nzl-v0.1`**, a second artefact awaiting approval, for
+> J3 to decide. Otherwise deciding would consume the gate the other approval
+> tests and stage 2.8's keyboard walk use. It is last in the plan, so every run
+> before it is generated as before. The seed's run count is updated from 12 to
+> 13 where it is stated.
+>
+> **Found on the way, and recorded, not fixed:**
+> - **RF-39:** `draupnirctl` never sends `If-Match`, so its four conditional
+>   commands are refused with 428 every time.
+> - **RF-40:** the console approves with no `decidedAt` and the placeholder
+>   signature `console-session`, so it is refused before its signature is
+>   checked, and the placeholder could not verify anyway.
+>
+> AC-B4's entry now says the 412 is reachable by a correct client.
+>
+> **Results.**
+> - Python: 2,130 unit, property and contract tests and 222 integration tests
+>   pass. On the first full run, one failure was the acceptance pack's
+>   freshness check, which had started before the pack was regenerated for the
+>   new tests; it passes against the regenerated pack.
+> - Frontend: 1,055.
+> - Journeys, against a freshly reseeded stack: 49 of 52, including both new
+>   confirmations. The three failures are RF-35's two and RF-36's, as before.
+> - The OpenAPI diff is additive only.
+
 ---
 
 ### RF-33 — P3 — The release package is read from a table only the seed writes
@@ -4045,6 +4124,70 @@ re-running is how a real violation gets waved through with the flake.
 
 ---
 
+### RF-39 — P4 — `draupnirctl` cannot perform a conditional write
+
+*Found while working RF-32.*
+
+`draupnirctl` is a generated client of the API, and every command goes through
+one generic caller in `draupnirctl/cli.py`. It sends an `Idempotency-Key` on
+every mutating request and never sends `If-Match`, and no command takes a tag.
+`cancel-run`, `retry-run`, `decide-gate` and `publish-release` are conditional
+writes, so the API refuses each of them with 428 every time.
+
+Before RF-32 a caller could have reached them only with a tag computed over the
+identifier, and nothing in the CLI computed one either. The console had the same
+defect, and RF-32 fixed it there.
+
+**Prompt**
+
+> Give the generic caller an `--if-match` option on every operation that takes
+> `If-Match`, and a way to act on what was just read: for a conditional command
+> given no tag, read the resource's `ETag` first and send it, saying so. That
+> way the command is conditional on what the operator last saw, rather than on
+> nothing.
+
+**Acceptance criteria**
+
+- Each of the four conditional commands succeeds against a current resource, and
+  is refused with 412 when the tag is stale.
+- The generated command table carries the option, and the drift gate covers it.
+- Gated in stage 2.3.
+
+---
+
+### RF-40 — P3 — The console's approval can never be accepted
+
+*Found while working RF-32.*
+
+S13's "Sign and approve" calls `decideGate` with
+`signature: 'console-session'` and no `decidedAt`. The API refuses an approval
+with no `decidedAt` as 422 `decision-undated`, before it looks at the signature
+at all. Were the date supplied, the placeholder would then have to verify
+against the approver's registered key (RF-06), and a literal string cannot. So
+the approver's primary action cannot succeed from the console.
+
+RF-32 made the console send the tag every decision needs. A rejection needs no
+signature, so J3 now confirms one end to end. It still only opens the approval
+dialog, because the approval cannot be confirmed.
+
+**Prompt**
+
+> Sign the approval where the approver's key is. Decide with the approver how the
+> console reaches it — a hardware key through WebAuthn, or a local signing agent —
+> build the signing payload the API verifies (`Approval.signing_payload()`),
+> date it with the instant signed over, and send both. Where no key is reachable,
+> say so on S13 rather than offering a control that cannot succeed.
+
+**Acceptance criteria**
+
+- An approval confirmed in the console is accepted and verified, and J3 confirms
+  one end to end.
+- An approver with no reachable key is told so before the dialog, not refused
+  after it.
+- Gated in stage 2.7.
+
+---
+
 ## 5  Summary
 
 | ID | Severity | Finding |
@@ -4080,13 +4223,15 @@ re-running is how a real violation gets waved through with the flake.
 | RF-29 | P6 | The open keyboard finding K-1 is still open — **done**; unavailable controls stay in the tab ring, and activating one is shown to do nothing |
 | RF-30 | P6 | Three documents state counts and controls the code does not have — **done**; figures and reachability are now derived and tested, and transport security is marked NOT BUILT (RF-37) |
 | RF-31 | P6 | Committed acceptance evidence is non-deterministic — **done**; run records are not committed, the pipeline writes and uploads both, and stage 2.8 fails if one shows up as a change |
-| RF-32 | P2 | A conditional write is conditional on nothing; the console's four conditional actions cannot succeed |
+| RF-32 | P2 | A conditional write is conditional on nothing; the console's four conditional actions cannot succeed — **done**; each tag is over the state the write changes, the reads return it, and the console sends it |
 | RF-33 | P3 | The release package is read from a table only the seed writes |
 | RF-34 | P3 | A release does not record the licence policy it was judged under |
 | RF-35 | P4 | The console's default specification is refused by its own API |
 | RF-36 | P5 | The journey stack does not route `/auth`, so sign-in cannot pass |
 | RF-37 | P2 | SAD 9.5's transport security is not built: nothing terminates TLS and nothing uses mTLS |
 | RF-38 | P5 | The Storybook axe sweep races Storybook's own axe run — **done**; the addon's automatic run is off on the sweep's pages, and the shard fails if it ever starts again |
+| RF-39 | P4 | `draupnirctl` cannot perform a conditional write: it never sends `If-Match` |
+| RF-40 | P3 | The console's approval can never be accepted: no `decidedAt`, and a placeholder signature |
 
 ---
 
@@ -4125,7 +4270,11 @@ until they land two journeys stay red for reasons that have nothing to do with
 whatever change is being tested. RF-37 surfaced while RF-30 re-marked the
 reconciliation, and belongs with the second group: a transport the
 specification requires, which the installer insists on a certificate for and
-nothing serves.
+nothing serves. RF-38 surfaced during RF-31 and is done. RF-39 and RF-40
+surfaced while RF-32 made the console's conditional writes succeed. RF-39 belongs
+with the edge contracts: the CLI's four conditional commands still cannot
+succeed. RF-40 belongs with the second group: the approver's primary action in
+the console still cannot succeed.
 
 **Throughout, the documentation.** RF-27 through RF-31 should be amended as each
 finding is closed, not batched at the end. The reconciliation in particular

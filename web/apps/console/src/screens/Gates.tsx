@@ -122,6 +122,9 @@ export function ApprovalDetail({ gateId }: { gateId: string }): JSX.Element {
       await call('decideGate', {
         params: { gate_id: gateId },
         body: { decision, reason, signature: 'console-session' },
+        // RF-32: conditional on the queue entry the evidence above was read
+        // from, so a decision somebody else took meanwhile is refused with 412.
+        ifMatch: approval?.etag ?? '',
         idempotencyKey: idempotencyKey(),
       });
       setOutcome(

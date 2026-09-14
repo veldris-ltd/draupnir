@@ -19,7 +19,7 @@ from uuid import UUID
 from fastapi import APIRouter, Path, Query, status
 
 from draupnir.api import telemetry, writing
-from draupnir.api.concurrency import ConcurrencyError, require
+from draupnir.api.concurrency import ConcurrencyError, release_version, require, run_version
 from draupnir.api.deps import (
     Cursor,
     Guarded,
@@ -55,7 +55,8 @@ POLICY_VERSION = "gleipnir/2026.01"
 
 #: A release is about the artefact, not the run. SAD 7.1 gives it its own
 #: entity, and an auditor asks what was published rather than what was decided.
-RELEASE_SUBJECT = "release"
+#: Defined beside the question that reads publications back (RF-32).
+RELEASE_SUBJECT = writing.RELEASE_SUBJECT
 
 GateId = Annotated[UUID, Path(description="The subject awaiting a decision.")]
 Artefact = Annotated[
@@ -125,12 +126,6 @@ async def decide_gate(
     if replayed is not None and replayed.body:
         return DecisionOut.model_validate(replayed.body)
 
-    try:
-        require(f"gate {gate_id}", {"id": str(gate_id)}, if_match)
-    except ConcurrencyError as error:
-        release(key, ctx)
-        raise as_problem(error) from error
-
     recorder = writing.writer()
     facts = await recorder.read(
         site_id=ctx.site_id, actor=ctx.actor, question=writing.facts_of(gate_id)
@@ -147,6 +142,21 @@ async def decide_gate(
                 "(SAD 11C constraint 3)."
             ),
         )
+
+    # RF-32. Over the run's state and retry count, from the facts just read, so
+    # the tag the approval queue gave the approver is the tag checked here. It
+    # was over the identifier alone, which never changes: an approver who read
+    # the queue before somebody else decided could not be told so.
+    version = run_version(
+        gate_id,
+        facts.state if facts is not None else None,
+        facts.retry_count if facts is not None else 0,
+    )
+    try:
+        require(f"gate {gate_id}", version, if_match)
+    except ConcurrencyError as error:
+        release(key, ctx)
+        raise as_problem(error) from error
 
     with telemetry.span("gates.decide", telemetry.EDGE, subjectId=str(gate_id)):
         # Computed here from the chain, never supplied. Constraint C-11: the
@@ -278,13 +288,24 @@ async def publish(
     if replayed is not None and replayed.body:
         return PublishOut.model_validate(replayed.body)
 
+    recorder = writing.writer()
+    # RF-32. Over the approval and any publication already recorded, asked the
+    # same way `getLineage` asks it, so the tag the publish panel was given is
+    # the tag checked here. It was over the artefact digest alone, which never
+    # changes, so a second publication from a stale screen could not be refused.
+    version = await recorder.read(
+        site_id=ctx.site_id, actor=ctx.actor, question=writing.publication_version_of(artefact)
+    )
     try:
-        require(f"release {artefact[:12]}", {"artefact": artefact}, if_match)
+        require(
+            f"release {artefact[:12]}",
+            version if version is not None else release_version(artefact, None, None),
+            if_match,
+        )
     except ConcurrencyError as error:
         release(key, ctx)
         raise as_problem(error) from error
 
-    recorder = writing.writer()
     facts = await recorder.read(
         site_id=ctx.site_id, actor=ctx.actor, question=writing.publication_facts_for(artefact)
     )
@@ -361,7 +382,7 @@ async def publish(
             actor=ctx.actor,
             subject_type=RELEASE_SUBJECT,
             subject_id=artefact,
-            transition="published",
+            transition=writing.PUBLISHED,
             payload={
                 "artefact_sha256": artefact,
                 "run_id": approval.subject_id,

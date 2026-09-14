@@ -20,9 +20,10 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, computed_field
 from pydantic.alias_generators import to_camel
 
+from draupnir.api import concurrency
 from draupnir.core.domain.states import RunState
 
 
@@ -157,6 +158,18 @@ class RunOut(Wire):
         default=None, description="When the run last changed state, where it has."
     )
     retry_budget_remaining: int = Field(default=0, description="How many automatic retries remain.")
+    retry_count: int = Field(default=0, description="How many times the run has been requeued.")
+
+    @computed_field(  # type: ignore[prop-decorator]
+        description=(
+            "The entity tag `cancelRun` and `retryRun` are conditional on, over the run's "
+            "state and retry count (RF-32). Send it back as `If-Match`."
+        )
+    )
+    @property
+    def etag(self) -> str:
+        """Computed, so no read that builds a run can return a run without it."""
+        return concurrency.etag(concurrency.run_version(self.id, self.state, self.retry_count))
 
 
 class RunPage(Wire):
@@ -218,6 +231,20 @@ class ApprovalItem(Wire):
     gates: list[GateOut] = Field(default_factory=list, description="The gate results.")
     submitted_by: str = Field(description="Who submitted the run.")
     awaiting_since: datetime = Field(description="When it entered the queue.")
+    retry_count: int = Field(default=0, description="How many times the run has been requeued.")
+
+    @computed_field(  # type: ignore[prop-decorator]
+        description=(
+            "The entity tag `decideGate` is conditional on (RF-32). A gate is a run awaiting "
+            "approval, so this is that run's tag. Send it back as `If-Match`."
+        )
+    )
+    @property
+    def etag(self) -> str:
+        """The run's tag at AWAITING_APPROVAL, which is the only state this queue holds."""
+        return concurrency.etag(
+            concurrency.run_version(self.id, RunState.AWAITING_APPROVAL, self.retry_count)
+        )
 
 
 class ApprovalPage(Wire):
@@ -336,6 +363,13 @@ class LineageOut(Wire):
     approval: dict[str, Any] = Field(
         default_factory=dict,
         description="The approval, carrying the sole approver exception (SAD 9.4).",
+    )
+    etag: str = Field(
+        default="",
+        description=(
+            "The entity tag `publishRelease` is conditional on, over the approval and any "
+            "publication already recorded (RF-32). Send it back as `If-Match`."
+        ),
     )
 
 

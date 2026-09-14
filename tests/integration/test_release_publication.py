@@ -153,27 +153,32 @@ def site(owner: Connection) -> Iterator[str]:
 # ---------------------------------------------------------------------------
 
 
-def _tag(state: dict[str, Any]) -> str:
-    """The entity tag the handler will compute for this state.
+def _current_tag(owner_engine: Engine, artefact: str) -> str:
+    """The tag `getLineage` gives for this artefact, from the chain. RF-32.
 
-    Derived with the real function rather than hard-coded: a tag written into a
-    test stops matching the moment the derivation changes, and the test then
-    fails for a reason that has nothing to do with what it checks.
+    Through the question the publication itself asks, over a real orchestrator.
+    This sent a tag over the artefact digest alone, because that is what the
+    handler checked -- a tag no read returned, and one that could never be
+    stale.
     """
-    from draupnir.api import concurrency
+    from draupnir.api import concurrency, writing
 
-    return concurrency.etag(state)
+    with owner_engine.begin() as connection:
+        orchestrator = for_connection(connection, SiteScope(SITE), actor=DEV_ACTOR)
+        return concurrency.etag(writing.publication_version_of(artefact)(orchestrator))
 
 
-def _publish(artefact: str) -> tuple[int, dict[str, Any]]:
-    """POST the publication, as the console does."""
+def _publish(
+    artefact: str, owner_engine: Engine, *, tag: str | None = None
+) -> tuple[int, dict[str, Any]]:
+    """POST the publication, as the console does: with the tag it last read."""
     request = urllib.request.Request(  # noqa: S310 -- fixed http, fixed host
         f"{BASE}/v1/releases/{artefact}/publish",
         data=b"",
         headers={
             "Content-Type": "application/json",
             "Idempotency-Key": uuid.uuid4().hex,
-            "If-Match": _tag({"artefact": artefact}),
+            "If-Match": tag if tag is not None else _current_tag(owner_engine, artefact),
         },
         method="POST",
     )
@@ -399,7 +404,7 @@ def test_a_release_with_every_control_satisfied_is_published(
     del api, site
     release = _release(owner_engine, store, tmp_path)
 
-    status, body = _publish(release.digest)
+    status, body = _publish(release.digest, owner_engine)
 
     assert status == 202, body
     assert body["artefactSha256"] == release.digest
@@ -423,12 +428,33 @@ def test_publishing_twice_replays_rather_than_recording_again(
     del api, site
     release = _release(owner_engine, store, tmp_path)
 
-    first, body = _publish(release.digest)
-    second, again = _publish(release.digest)
+    first, body = _publish(release.digest, owner_engine)
+    second, again = _publish(release.digest, owner_engine)
 
     assert first == 202, body
     assert second == 202, again
     assert again["artefactSha256"] == body["artefactSha256"]
+
+
+def test_a_publication_from_a_tag_read_before_another_is_refused(
+    api: str, owner_engine: Engine, site: str, store: PosixStoreDriver, tmp_path: Path
+) -> None:
+    """RF-32, against a real chain. A publisher who read the release first is told.
+
+    The tag covers the publications already recorded, so a publisher whose
+    screen was read before somebody else's publication is refused with 412
+    rather than publishing again against a release they did not see.
+    """
+    del api, site
+    release = _release(owner_engine, store, tmp_path)
+    read_before = _current_tag(owner_engine, release.digest)
+
+    first, body = _publish(release.digest, owner_engine)
+    stale, refused = _publish(release.digest, owner_engine, tag=read_before)
+
+    assert first == 202, body
+    assert stale == 412, refused
+    assert refused["code"] == "precondition-failed"
 
 
 # ---------------------------------------------------------------------------
@@ -453,7 +479,7 @@ def test_bytes_that_changed_after_the_gate_are_refused(
     del api, site
     release = _release(owner_engine, store, tmp_path, evidence_digest="a" * 64)
 
-    status, body = _publish(release.digest)
+    status, body = _publish(release.digest, owner_engine)
 
     assert status == 409, body
     assert body["code"] == "artefact-mismatch", body
@@ -473,7 +499,7 @@ def test_a_format_that_was_built_and_never_evaluated_is_refused(
     del api, site
     release = _release(owner_engine, store, tmp_path, formats_built=(FORMAT, "gguf-q4km"))
 
-    status, body = _publish(release.digest)
+    status, body = _publish(release.digest, owner_engine)
 
     assert status == 409, body
     assert body["code"] == "release-inadmissible", body
@@ -491,7 +517,7 @@ def test_an_artefact_with_no_approval_is_refused(
     del api, site
     release = _release(owner_engine, store, tmp_path, approve=False)
 
-    status, body = _publish(release.digest)
+    status, body = _publish(release.digest, owner_engine)
 
     assert status == 409, body
     assert body["code"] == "release-unapproved", body
@@ -511,7 +537,7 @@ def test_a_release_ahead_of_the_countersigned_anchor_is_refused(
     del api, site
     release = _release(owner_engine, store, tmp_path, anchor=1)
 
-    status, body = _publish(release.digest)
+    status, body = _publish(release.digest, owner_engine)
 
     assert status == 409, body
     assert body["code"] == "anchor-behind", body
@@ -529,7 +555,7 @@ def test_a_release_at_a_forge_that_has_never_anchored_is_refused(
     del api, site
     release = _release(owner_engine, store, tmp_path, anchor=False)
 
-    status, body = _publish(release.digest)
+    status, body = _publish(release.digest, owner_engine)
 
     assert status == 409, body
     assert body["code"] == "anchor-behind", body

@@ -23,8 +23,7 @@ from fastapi.responses import StreamingResponse
 
 from draupnir.api import events as event_stream
 from draupnir.api import telemetry, writing
-from draupnir.api.concurrency import ConcurrencyError, require
-from draupnir.api.concurrency import etag as concurrency_etag
+from draupnir.api.concurrency import ConcurrencyError, require, run_version
 from draupnir.api.context import RequestContext
 from draupnir.api.deps import (
     Cursor,
@@ -503,9 +502,7 @@ async def get_run(run_id: RunId, ctx: Guarded, reading: Reading, response: Respo
     """Return one run, with an `ETag` for a later conditional write."""
     found = await reading.run(ctx.site_id, run_id)
     if found is not None:
-        response.headers["ETag"] = concurrency_etag(
-            {"id": str(found.id), "state": str(found.state)}
-        )
+        response.headers["ETag"] = found.etag
         return found
     raise ProblemError(
         status=404,
@@ -545,14 +542,9 @@ async def cancel(
     if replayed is not None and replayed.body:
         return Accepted.model_validate(replayed.body)
 
-    try:
-        require(f"run {run_id}", {"id": str(run_id)}, if_match)
-    except ConcurrencyError as error:
-        release(key, ctx)
-        raise as_problem(error) from error
-
     recorder = writing.writer()
     facts = await _facts(recorder, ctx, run_id, on_error=lambda: release(key, ctx))
+    _require_current(run_id, facts, if_match, on_error=lambda: release(key, ctx))
 
     with telemetry.span("runs.cancel", telemetry.EDGE, runId=str(run_id)):
         try:
@@ -613,14 +605,9 @@ async def retry(
     if replayed is not None and replayed.body:
         return Accepted.model_validate(replayed.body)
 
-    try:
-        require(f"run {run_id}", {"id": str(run_id)}, if_match)
-    except ConcurrencyError as error:
-        release(key, ctx)
-        raise as_problem(error) from error
-
     recorder = writing.writer()
     facts = await _facts(recorder, ctx, run_id, on_error=lambda: release(key, ctx))
+    _require_current(run_id, facts, if_match, on_error=lambda: release(key, ctx))
 
     with telemetry.span("runs.retry", telemetry.EDGE, runId=str(run_id)):
         failing = facts.failing_gates if facts else ()
@@ -889,6 +876,36 @@ async def _facts(
         on_error()
         raise _no_such_run(run_id, ctx.site_id, unknown) from unknown
     return found
+
+
+def _require_current(
+    run_id: UUID,
+    facts: RunFacts | None,
+    if_match: str | None,
+    *,
+    on_error: Callable[[], None],
+) -> None:
+    """Refuse a write conditional on a run state that has since moved. RF-32.
+
+    After the facts are read, because the tag is computed from them: the
+    state and retry count the write would change, which is also what `getRun`
+    and the board return. It used to be checked first, over the identifier
+    alone, so the tag `getRun` gave a client was refused with 412 and a tag
+    nobody read could never be stale.
+
+    A writer that records nothing has no state to be stale against, and the
+    tag is the run's with none.
+    """
+    version = run_version(
+        run_id,
+        facts.state if facts is not None else None,
+        facts.retry_count if facts is not None else 0,
+    )
+    try:
+        require(f"run {run_id}", version, if_match)
+    except ConcurrencyError as error:
+        on_error()
+        raise as_problem(error) from error
 
 
 def _no_such_run(run_id: UUID, site_id: str, cause: Exception) -> ProblemError:

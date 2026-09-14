@@ -69,6 +69,8 @@ class FakeWriter:
         #: recorded a location, which the publication path refuses (RF-05).
         self.artefact_uris: dict[str, str] = {}
         self.written: list[tuple[str, str, str]] = []
+        #: What `record` appended, so a question about releases can be answered.
+        self.recorded: list[LedgerEntry] = []
 
     @property
     def records(self) -> bool:
@@ -108,7 +110,9 @@ class FakeWriter:
     async def record(self, **kwargs: Any) -> LedgerEntry:
         """Append an entry about something that is not a run."""
         self.written.append((kwargs["subject_type"], kwargs["subject_id"], kwargs["transition"]))
-        return _entry(kwargs["subject_type"], kwargs["subject_id"], kwargs["transition"], {})
+        entry = _entry(kwargs["subject_type"], kwargs["subject_id"], kwargs["transition"], {})
+        self.recorded.append(entry)
+        return entry
 
     async def read(self, *, site_id: str, actor: str, question: Any) -> Any:
         """Answer against this double's own idea of the chain."""
@@ -124,6 +128,10 @@ class FakeWriter:
     def released_entry_for(self, artefact_sha256: str) -> LedgerEntry | None:
         """The approval that released these bytes, if this double holds one."""
         return self.approvals.get(artefact_sha256)
+
+    def entries_of_type(self, subject_type: str) -> tuple[LedgerEntry, ...]:
+        """What this double recorded about subjects of one type. RF-32 asks for releases."""
+        return tuple(entry for entry in self.recorded if entry.subject_type == subject_type)
 
     def publication_facts(self, artefact_sha256: str) -> Any:
         """Everything a publication is decided against. RF-05.
@@ -243,6 +251,24 @@ def headers(state: dict[str, Any] | None = None) -> dict[str, str]:
     return values
 
 
+def run_headers(facts: RunFacts) -> dict[str, str]:
+    """An idempotency key, and the tag `getRun` gives for this run. RF-32.
+
+    These tests sent a tag over the identifier alone, because that is what the
+    handlers checked, and a client could never have been given one.
+    """
+    return headers(concurrency.run_version(facts.run_id, facts.state, facts.retry_count))
+
+
+def release_headers(fake: FakeWriter, artefact: str) -> dict[str, str]:
+    """An idempotency key, and the tag `getLineage` gives. RF-32.
+
+    Through the real question, asked of this double as the handler asks it.
+    """
+    question: Any = writing.publication_version_of(artefact)
+    return headers(question(fake))
+
+
 # ---------------------------------------------------------------------------
 # Subjects that are not runs
 # ---------------------------------------------------------------------------
@@ -315,7 +341,7 @@ def test_approving_a_gate_records_the_transition(installed: FakeWriter) -> None:
     response = client().post(
         f"/v1/gates/{facts.run_id}/decide",
         json=_approval("the gates pass", facts.run_id),
-        headers=headers({"id": str(facts.run_id)}),
+        headers=run_headers(facts),
     )
 
     assert response.status_code == 201, response.text
@@ -334,7 +360,7 @@ def test_the_sole_approver_exception_is_computed_not_supplied(installed: FakeWri
         .post(
             f"/v1/gates/{same.run_id}/decide",
             json=_approval("one identity", same.run_id, exception=True),
-            headers=headers({"id": str(same.run_id)}),
+            headers=run_headers(same),
         )
         .json()
     )
@@ -343,7 +369,7 @@ def test_the_sole_approver_exception_is_computed_not_supplied(installed: FakeWri
         .post(
             f"/v1/gates/{other.run_id}/decide",
             json=_approval("two identities", other.run_id),
-            headers=headers({"id": str(other.run_id)}),
+            headers=run_headers(other),
         )
         .json()
     )
@@ -360,7 +386,7 @@ def test_deciding_a_run_that_is_not_awaiting_approval_is_refused(installed: Fake
     response = client().post(
         f"/v1/gates/{facts.run_id}/decide",
         json=_approval("too early", facts.run_id),
-        headers=headers({"id": str(facts.run_id)}),
+        headers=run_headers(facts),
     )
 
     assert response.status_code == 409, response.text
@@ -396,7 +422,7 @@ def test_cancelling_a_training_run_moves_it_to_failed(installed: FakeWriter) -> 
     response = client().post(
         f"/v1/runs/{facts.run_id}/cancel",
         json={"reason": "the corpus was wrong"},
-        headers=headers({"id": str(facts.run_id)}),
+        headers=run_headers(facts),
     )
 
     assert response.status_code == 202, response.text
@@ -411,7 +437,7 @@ def test_cancelling_a_queued_run_is_refused_with_the_gap_named(installed: FakeWr
     response = client().post(
         f"/v1/runs/{facts.run_id}/cancel",
         json={"reason": "changed my mind"},
-        headers=headers({"id": str(facts.run_id)}),
+        headers=run_headers(facts),
     )
 
     assert response.status_code == 409, response.text
@@ -425,9 +451,7 @@ def test_requeueing_a_run_that_failed_a_gate_within_budget(installed: FakeWriter
     facts = facts_at(RunState.EVALUATING, retry_budget=2, retry_count=0, failing_gates=("E3",))
     installed.facts[facts.run_id] = facts
 
-    response = client().post(
-        f"/v1/runs/{facts.run_id}/retry", headers=headers({"id": str(facts.run_id)})
-    )
+    response = client().post(f"/v1/runs/{facts.run_id}/retry", headers=run_headers(facts))
 
     assert response.status_code == 202, response.text
     assert installed.written == [("run", str(facts.run_id), "EVALUATING->QUEUED")]
@@ -438,9 +462,7 @@ def test_requeueing_with_the_budget_exhausted_is_refused(installed: FakeWriter) 
     facts = facts_at(RunState.EVALUATING, retry_budget=2, retry_count=2, failing_gates=("E3",))
     installed.facts[facts.run_id] = facts
 
-    response = client().post(
-        f"/v1/runs/{facts.run_id}/retry", headers=headers({"id": str(facts.run_id)})
-    )
+    response = client().post(f"/v1/runs/{facts.run_id}/retry", headers=run_headers(facts))
 
     assert response.status_code == 409, response.text
     body = response.json()
@@ -452,9 +474,7 @@ def test_requeueing_a_run_with_no_recorded_failure_is_refused(installed: FakeWri
     facts = facts_at(RunState.EVALUATING, retry_budget=2)
     installed.facts[facts.run_id] = facts
 
-    response = client().post(
-        f"/v1/runs/{facts.run_id}/retry", headers=headers({"id": str(facts.run_id)})
-    )
+    response = client().post(f"/v1/runs/{facts.run_id}/retry", headers=run_headers(facts))
 
     assert response.status_code == 409, response.text
     assert response.json()["code"] == "nothing-to-retry"
@@ -471,7 +491,7 @@ def test_publishing_without_an_approval_is_refused(installed: FakeWriter) -> Non
     artefact = "9" * 64
 
     response = client().post(
-        f"/v1/releases/{artefact}/publish", headers=headers({"artefact": artefact})
+        f"/v1/releases/{artefact}/publish", headers=release_headers(installed, artefact)
     )
 
     assert response.status_code == 409, response.text
@@ -515,7 +535,7 @@ def test_publishing_refuses_when_the_chain_records_no_artefact_location(
     )
 
     response = client().post(
-        f"/v1/releases/{artefact}/publish", headers=headers({"artefact": artefact})
+        f"/v1/releases/{artefact}/publish", headers=release_headers(installed, artefact)
     )
 
     assert response.status_code == 409, response.text
@@ -540,7 +560,7 @@ def test_a_refused_publication_records_nothing(installed: FakeWriter) -> None:
     )
     before = list(installed.written)
 
-    client().post(f"/v1/releases/{artefact}/publish", headers=headers({"artefact": artefact}))
+    client().post(f"/v1/releases/{artefact}/publish", headers=release_headers(installed, artefact))
 
     assert installed.written == before, "a refused publication wrote to the chain"
 
@@ -614,7 +634,7 @@ def test_signing_a_payload_that_omits_the_exception_is_refused(installed: FakeWr
     response = client().post(
         f"/v1/gates/{facts.run_id}/decide",
         json=_approval("suppressing the exception", facts.run_id, exception=False),
-        headers=headers({"id": str(facts.run_id)}),
+        headers=run_headers(facts),
     )
 
     assert response.status_code == 422, response.text
@@ -634,7 +654,7 @@ def test_a_decision_with_no_instant_is_refused(installed: FakeWriter) -> None:
     response = client().post(
         f"/v1/gates/{facts.run_id}/decide",
         json={"decision": "approved", "reason": "undated", "signature": "a" * 64},
-        headers=headers({"id": str(facts.run_id)}),
+        headers=run_headers(facts),
     )
 
     assert response.status_code == 422
@@ -659,7 +679,7 @@ def test_a_decision_dated_far_from_now_is_refused(installed: FakeWriter) -> None
             "decidedAt": stale.isoformat(),
             "signature": sign_decision(approver="akuma", subject_id=facts.run_id, decided_at=stale),
         },
-        headers=headers({"id": str(facts.run_id)}),
+        headers=run_headers(facts),
     )
 
     assert response.status_code == 422

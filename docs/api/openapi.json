@@ -64,6 +64,12 @@
             "title": "Awaitingsince",
             "type": "string"
           },
+          "etag": {
+            "description": "The entity tag `decideGate` is conditional on (RF-32). A gate is a run awaiting approval, so this is that run's tag. Send it back as `If-Match`.",
+            "readOnly": true,
+            "title": "Etag",
+            "type": "string"
+          },
           "gates": {
             "description": "The gate results.",
             "items": {
@@ -83,6 +89,12 @@
             "title": "Model",
             "type": "string"
           },
+          "retryCount": {
+            "default": 0,
+            "description": "How many times the run has been requeued.",
+            "title": "Retrycount",
+            "type": "integer"
+          },
           "runId": {
             "description": "The run that produced it.",
             "format": "uuid",
@@ -101,7 +113,8 @@
           "model",
           "artefactSha256",
           "submittedBy",
-          "awaitingSince"
+          "awaitingSince",
+          "etag"
         ],
         "title": "ApprovalItem",
         "type": "object"
@@ -1075,6 +1088,12 @@
             },
             "title": "Corpushashes",
             "type": "array"
+          },
+          "etag": {
+            "default": "",
+            "description": "The entity tag `publishRelease` is conditional on, over the approval and any publication already recorded (RF-32). Send it back as `If-Match`.",
+            "title": "Etag",
+            "type": "string"
           },
           "gaps": {
             "description": "Every gap, where there are any.",
@@ -2111,6 +2130,12 @@
             "description": "When the run started. Null for a run that has not started: the projection records when work began, and a run in DRAFT has not begun. A placeholder instant would render as a date in year 1, which is worse than an absence.",
             "title": "Createdat"
           },
+          "etag": {
+            "description": "The entity tag `cancelRun` and `retryRun` are conditional on, over the run's state and retry count (RF-32). Send it back as `If-Match`.",
+            "readOnly": true,
+            "title": "Etag",
+            "type": "string"
+          },
           "id": {
             "description": "UUIDv7 run identifier.",
             "format": "uuid",
@@ -2158,6 +2183,12 @@
             "title": "Retrybudgetremaining",
             "type": "integer"
           },
+          "retryCount": {
+            "default": 0,
+            "description": "How many times the run has been requeued.",
+            "title": "Retrycount",
+            "type": "integer"
+          },
           "schedulerJobId": {
             "anyOf": [
               {
@@ -2203,7 +2234,8 @@
           "siteId",
           "name",
           "state",
-          "specHash"
+          "specHash",
+          "etag"
         ],
         "title": "RunOut",
         "type": "object"
@@ -5074,7 +5106,7 @@
     },
     "/v1/lineage/{artefact}": {
       "get": {
-        "description": "The complete chain to base model licences and corpus hashes. AC-F11.\n\n    `complete` and `gaps` are returned rather than an error on an incomplete\n    chain: an auditor asking about a broken lineage needs to see where it\n    breaks, and a 404 or a 500 tells them nothing. Producing a signed\n    *attestation* over a broken chain is what is refused, and that refusal is\n    in SKIDBLADNIR.\n    \n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
+        "description": "The complete chain to base model licences and corpus hashes. AC-F11.\n\n    `complete` and `gaps` are returned rather than an error on an incomplete\n    chain: an auditor asking about a broken lineage needs to see where it\n    breaks, and a 404 or a 500 tells them nothing. Producing a signed\n    *attestation* over a broken chain is what is refused, and that refusal is\n    in SKIDBLADNIR.\n\n    It carries the tag `publishRelease` is conditional on (RF-32), because S20's\n    publish action sits on this screen and a publication is conditional on the\n    release the publisher was looking at. Read from the chain the publication\n    checks, through the same question, so the two cannot compute different tags.\n    \n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
         "operationId": "getLineage",
         "parameters": [
           {

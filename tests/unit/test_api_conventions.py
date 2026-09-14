@@ -249,6 +249,36 @@ def test_the_tag_changes_when_the_state_does() -> None:
     assert etag({"state": "TRAINING"}) != etag({"state": "TRAINED"})
 
 
+def test_a_run_tag_moves_when_its_state_or_its_retry_count_does() -> None:
+    """RF-32. What cancel, retry and a decision change is what the tag covers."""
+    read = etag(concurrency.run_version("run-1", "EVALUATING", 0))
+
+    assert etag(concurrency.run_version("run-1", "EVALUATING", 0)) == read
+    assert etag(concurrency.run_version("run-1", "QUEUED", 0)) != read
+    # Requeued and evaluated again: back in the state it was read in, and a
+    # retry read before the first requeue must still be stale.
+    assert etag(concurrency.run_version("run-1", "EVALUATING", 1)) != read
+
+
+def test_a_release_tag_moves_when_it_is_approved_or_published() -> None:
+    """RF-32. A second publication from a screen read before the first is stale."""
+    unapproved = etag(concurrency.release_version("a" * 64, None, None))
+    approved = etag(concurrency.release_version("a" * 64, 7, None))
+    published = etag(concurrency.release_version("a" * 64, 7, 9))
+
+    assert len({unapproved, approved, published}) == 3
+
+
+def test_a_tag_over_the_identifier_alone_is_not_what_a_write_checks() -> None:
+    """RF-32. The tag every conditional write used to check could never be stale."""
+    identifier_only = etag({"id": "run-1"})
+
+    with pytest.raises(PreconditionFailedError):
+        concurrency.require(
+            "run run-1", concurrency.run_version("run-1", "TRAINING", 0), identifier_only
+        )
+
+
 # ---------------------------------------------------------------------------
 # Server-sent events: deltas, not refreshes
 # ---------------------------------------------------------------------------

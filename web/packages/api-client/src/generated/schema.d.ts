@@ -487,6 +487,11 @@ export interface paths {
          *         *attestation* over a broken chain is what is refused, and that refusal is
          *         in SKIDBLADNIR.
          *
+         *         It carries the tag `publishRelease` is conditional on (RF-32), because S20's
+         *         publish action sits on this screen and a publication is conditional on the
+         *         release the publisher was looking at. Read from the chain the publication
+         *         checks, through the same question, so the two cannot compute different tags.
+         *
          *
          *     Requires: `admin`, `approver`, `curator`, `operator`, `viewer`.
          */
@@ -1184,6 +1189,11 @@ export interface components {
              */
             awaitingSince: string;
             /**
+             * Etag
+             * @description The entity tag `decideGate` is conditional on (RF-32). A gate is a run awaiting approval, so this is that run's tag. Send it back as `If-Match`.
+             */
+            readonly etag: string;
+            /**
              * Gates
              * @description The gate results.
              */
@@ -1199,6 +1209,12 @@ export interface components {
              * @description What the artefact is.
              */
             model: string;
+            /**
+             * Retrycount
+             * @description How many times the run has been requeued.
+             * @default 0
+             */
+            retryCount: number;
             /**
              * Runid
              * Format: uuid
@@ -1897,6 +1913,12 @@ export interface components {
              */
             corpusHashes?: string[];
             /**
+             * Etag
+             * @description The entity tag `publishRelease` is conditional on, over the approval and any publication already recorded (RF-32). Send it back as `If-Match`.
+             * @default
+             */
+            etag: string;
+            /**
              * Gaps
              * @description Every gap, where there are any.
              */
@@ -2543,6 +2565,11 @@ export interface components {
              */
             createdAt?: string | null;
             /**
+             * Etag
+             * @description The entity tag `cancelRun` and `retryRun` are conditional on, over the run's state and retry count (RF-32). Send it back as `If-Match`.
+             */
+            readonly etag: string;
+            /**
              * Id
              * Format: uuid
              * @description UUIDv7 run identifier.
@@ -2575,6 +2602,12 @@ export interface components {
              * @default 0
              */
             retryBudgetRemaining: number;
+            /**
+             * Retrycount
+             * @description How many times the run has been requeued.
+             * @default 0
+             */
+            retryCount: number;
             /**
              * Schedulerjobid
              * @description The scheduler's identifier for the job.
