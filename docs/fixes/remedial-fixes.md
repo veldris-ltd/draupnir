@@ -4289,6 +4289,107 @@ transport itself is this finding.
 - The reconciliation's NOT BUILT 2 is closed with the evidence.
 - Gated in stages 2.3 and 2.4.
 
+> **Status — done.**
+>
+> Two choices were put to the user and taken as recommended:
+> - the proxy test starts the web image's own nginx base with testcontainers
+>   in stage 2.3;
+> - with no certificates the proxy and the API refuse to start unless
+>   `DRAUPNIR_DEV` is set.
+>
+> **Built.**
+> - **The console proxy.** `docker/nginx.conf` terminates TLS 1.3 only, on
+>   8443, with no plain HTTP listener. It passes to the API over TLS 1.3,
+>   verifies the API's certificate against the internal CA under the name
+>   `draupnir-api`, and presents its own certificate.
+> - **The API.** `draupnir/api/serve.py` is now the API image's command. It
+>   serves TLS 1.3 only and requires a client certificate from the internal
+>   CA. It refuses to start without that material unless `DRAUPNIR_DEV` is
+>   set, and refuses a half-configured set even then. The development stack
+>   and the journeys still run `uvicorn` against the application.
+> - **GULLINBURSTI.** The worker's MEGINGJORD client presents the site
+>   certificate and verifies MEGINGJORD against the internal CA. Without the
+>   material it submits nothing and logs `worker.federation.unauthenticated`,
+>   so the anchor duty reports no federation link.
+> - **One statement of the policy.** `draupnir/svalinn/transport.py` holds
+>   the two contexts, both pinned to TLS 1.3 at floor and ceiling, and
+>   `declared_by`, which reads what an nginx configuration declares.
+>
+> **The inventory's TLS row** is derived from `docker/nginx.conf`.
+> - It is in use only when every listener is TLS and TLS 1.3 is the only
+>   protocol named.
+> - mTLS is named only when every upstream is HTTPS, verified, restricted to
+>   TLS 1.3 and presented with a client certificate.
+>
+> **Installer and units.**
+> - `install.sh --check` loads the material rather than looking for it.
+>   - It runs `nginx -t` in the console image, with each file mounted where
+>     `docker/nginx.conf` reads it.
+>   - It loads the API's and GULLINBURSTI's material in the API image through
+>     `python -m draupnir.svalinn.transport`, which also checks that the
+>     internal CA issued it.
+> - Both checks run inside the image because under rootless podman the files
+>   belong to the container's subordinate uid, not the service account. A
+>   host-side `openssl` would read them as the wrong user. For the same
+>   reason `draupnir-run.sh` tests that each file exists, not that it is
+>   readable.
+> - `draupnir-run.sh` mounts each file read-only at the name its reader
+>   expects, and publishes the console on 8443.
+> - `docs/runbook.md` gains a Certificates section: which certificates, what
+>   each carries, who reads it, and what happens without it.
+> - `docs/DEPLOYMENT.md`'s commissioning checks now go through the console
+>   over TLS.
+>
+> **Tests.**
+> - **Stage 2.3,** `tests/contract/test_transport.py`.
+>   - The proxy, started in the nginx image `web.Dockerfile` builds on,
+>     completes a TLS 1.3 handshake, refuses TLS 1.2, serves the console with
+>     HSTS, and does not start without its certificates.
+>   - The API refuses a connection with no client certificate, one with a
+>     certificate from another CA, and TLS 1.2. It also refuses to start
+>     unconfigured.
+>   - The installer's material check refuses a certificate from another CA,
+>     and a key that is not the certificate's.
+> - **Stage 2.4,** `tests/integration/test_transport.py`.
+>   - A request passes through the proxy to the API over mTLS.
+>   - The same proxy without its client certificate is refused by the API,
+>     asserted on nginx's log as well as on the 502.
+>   - GULLINBURSTI's client is accepted by a stand-in MEGINGJORD that refuses
+>     a forge presenting no certificate.
+> - **Unit.** The TLS row reports in use for a TLS 1.3 configuration, not for
+>   one that also admits TLS 1.2, and not once the file is gone.
+>
+> **The reconciliation** marks transport security IMPLEMENTED under 9.1–9.5
+> with this evidence. NOT BUILT 2 is closed, and one item remains not built.
+>
+> **Found by starting the proxy, and fixed.** In nginx a `location` with an
+> `add_header` of its own inherits none of the server's. So since RF-03 the
+> console's document and assets were served without HSTS, the content
+> security policy or X-Frame-Options. Both locations now set caching with
+> `expires` instead.
+>
+> **Found, and recorded, not fixed:** RF-44. Each unit is a separate rootless
+> container, so the proxy's upstream `127.0.0.1:8000` is the web container's
+> own loopback rather than the API.
+>
+> **Results.**
+> - The coverage-gated stages, each above its floor:
+>   - unit: 1,660 tests at 90.21% (floor 90);
+>   - contract: 516 tests at 89.30% (floor 87), including the proxy's TLS
+>     tests against the pulled `cgr.dev/chainguard/nginx` base;
+>   - integration: 227 tests at 77.29% (floor 77).
+> - Unit, property and contract together: 2,188 tests. The one failure first
+>   seen, `draupnir/api/serve.py` under no coverage floor, was fixed by
+>   measuring it in the contract stage.
+> - mypy across `draupnir` and `scripts` is clean. The import contracts hold
+>   (7 kept). Shell syntax is clean; `shellcheck` is not installed on this
+>   machine, so the shell lint did not run.
+> - The acceptance pack is current (AC-S16 updated). The generated inventory's
+>   TLS row reads in use, with mTLS to the API.
+> - The console journeys and the a11y sweep were not re-run. They serve the
+>   console from `serve-console.mjs` and run `uvicorn` directly, neither of
+>   which RF-37 changes.
+
 ---
 
 ### RF-38 — P5 — The Storybook axe sweep races Storybook's own axe run
@@ -4553,6 +4654,47 @@ takes it outside a demonstration.
 
 ---
 
+### RF-44 — P1 — The console proxy cannot reach the API: its upstream is its own loopback
+
+*Found while working RF-37.*
+
+`docker/nginx.conf` sends the API's paths to `127.0.0.1:8000`: `http` since
+RF-03, `https` since RF-37. `deploy/units/draupnir-run.sh` starts each unit as
+its own rootless container, with no `--pod` and no `--network`, so each has its
+own network namespace. Inside `draupnir-web`, 127.0.0.1 is the web container
+itself. The API container publishes on the host's loopback, which the web
+container cannot reach at that address.
+
+So on a commissioned host every request the console proxies fails with 502,
+and has since RF-03 put the proxy there. Nothing caught it:
+- no test starts the units together;
+- stage 3.1a starts the API image without serving it;
+- the journeys serve the console from `serve-console.mjs` on the host.
+
+RF-37's integration test reaches the API from the proxy container through
+`host.docker.internal`, which is how it observes mTLS end to end. Its docstring
+says the deployed upstream is not the address it uses.
+
+**Prompt**
+
+> Make the console proxy reach the API on a commissioned host. Either:
+> - run the units in one pod, so they share a loopback; or
+> - give the proxy an address that reaches the API from its container, such as
+>   `host.containers.internal` where the API publishes on the host.
+>
+> Keep the name the proxy verifies the API's certificate under,
+> `draupnir-api`, independent of the address. Say which option you chose, and
+> why, in `deploy/README.md`.
+
+**Acceptance criteria**
+
+- A test starts the web and API images the way `draupnir-run.sh` starts them,
+  and a request through the proxy reaches the API over mTLS.
+- `docker/nginx.conf`'s upstream is the address that test uses.
+- Gated in stage 3.1a, which already starts a built image.
+
+---
+
 ## 5  Summary
 
 | ID | Severity | Finding |
@@ -4593,13 +4735,14 @@ takes it outside a demonstration.
 | RF-34 | P3 | A release does not record the licence policy it was judged under — **done**; the decision's version is carried to the release, and the copyright policy is rendered under it or refused |
 | RF-35 | P4 | The console's default specification is refused by its own API — **done**; the default takes its tier, base and site from a table generated from the API's and from `/healthz`, and J2 uses it; an over-budget checkpoint interval is a 422 rather than a 500, and the board reads a run it has not seen rather than labelling it by identifier |
 | RF-36 | P5 | The journey stack does not route `/auth`, so sign-in cannot pass — **done**; both development servers read one list of proxied prefixes, `/auth` among them, and a test holds it to nginx |
-| RF-37 | P2 | SAD 9.5's transport security is not built: nothing terminates TLS and nothing uses mTLS |
+| RF-37 | P2 | SAD 9.5's transport security is not built: nothing terminates TLS and nothing uses mTLS — **done**; the console proxy terminates TLS 1.3 only, the API and MEGINGJORD require the certificates the proxy and GULLINBURSTI present, and the inventory row reads the proxy's configuration |
 | RF-38 | P5 | The Storybook axe sweep races Storybook's own axe run — **done**; the addon's automatic run is off on the sweep's pages, and the shard fails if it ever starts again |
 | RF-39 | P4 | `draupnirctl` cannot perform a conditional write: it never sends `If-Match` |
 | RF-40 | P3 | The console's approval can never be accepted: no `decidedAt`, and a placeholder signature |
 | RF-41 | P3 | Gate results are read from a table only the seed writes, so an estate's approval queue shows no evidence |
 | RF-42 | P3 | The licence register is read from a table only the seed writes, so a registered source appears nowhere |
 | RF-43 | P1 | Nothing but the demonstration procedure takes a run's licence decision, so a submitted run stays at DRAFT |
+| RF-44 | P1 | The console proxy cannot reach the API on a commissioned host: its upstream 127.0.0.1 is its own container's loopback |
 
 ---
 
@@ -4648,7 +4791,9 @@ an estate is shown no gate evidence. RF-42 and RF-43 surfaced while RF-34
 carried the licence decision to the release. RF-42 belongs with RF-41, one more
 table only the seed writes. RF-43 belongs with the first group: until it lands,
 a run submitted through the console never reaches the pipeline the rest of this
-register repairs.
+register repairs. RF-44 surfaced while RF-37 started the proxy for the first
+time, and belongs with the first group: until it lands, a commissioned console
+answers every request it proxies with a 502.
 
 **Throughout, the documentation.** RF-27 through RF-31 should be amended as each
 finding is closed, not batched at the end. The reconciliation in particular

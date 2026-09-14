@@ -72,6 +72,13 @@ from draupnir.worker.stages import Context, Outcome, Result
 
 logger = structlog.get_logger(__name__)
 
+
+def _path_or_none(raw: str) -> Path | None:
+    """A configured path, or `None` where the setting is empty."""
+    value = raw.strip()
+    return Path(value) if value else None
+
+
 #: What one committed piece of work returns. Named so that `_commit` hands the
 #: caller back its own type rather than `Any`.
 _T = TypeVar("_T")
@@ -291,6 +298,14 @@ class WorkerSettings:
     #: the identifier from the public half, so there is no second setting to
     #: keep in step with it.
     signing_key: Path | None = None
+    #: GULLINBURSTI's site certificate and its key, from the MEGINGJORD
+    #: internal PKI, and the CA MEGINGJORD's own certificate is verified
+    #: against. SAD 9.5 makes the link mutually authenticated, so a forge with
+    #: a registry and none of these has no federation link rather than an
+    #: unauthenticated one (RF-37).
+    federation_certificate: Path | None = None
+    federation_private_key: Path | None = None
+    internal_ca: Path | None = None
 
     @classmethod
     def from_environment(cls, environ: Mapping[str, str] | None = None) -> WorkerSettings:
@@ -344,6 +359,13 @@ class WorkerSettings:
             not in {"0", "false", "FALSE", "no"},
             registry_url=source.get("DRAUPNIR_REGISTRY_URL", "").strip(),
             signing_key=Path(signing_key) if signing_key else None,
+            federation_certificate=_path_or_none(
+                source.get("DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE", "")
+            ),
+            federation_private_key=_path_or_none(
+                source.get("DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY", "")
+            ),
+            internal_ca=_path_or_none(source.get("DRAUPNIR_INTERNAL_CA", shared.internal_ca)),
             secret_store=Path(secret_store) if secret_store else None,
             incoming_root=Path(incoming) if incoming else None,
             evaluation_sets=Path(evaluation_sets) if evaluation_sets else None,
@@ -1250,16 +1272,45 @@ class Worker:
         import httpx
 
         from draupnir.gullinbursti.federation import RemoteRegistry
+        from draupnir.svalinn import transport
         from draupnir.svalinn.egress import (
             FEDERATION_POLICY,
             FEDERATION_PURPOSE,
             BrokeredClient,
         )
 
+        # Mutually authenticated or not at all (SAD 9.5, RF-37). The client
+        # used to be a bare `httpx.Client`: it verified MEGINGJORD against the
+        # public trust store, which holds no Veldris CA, and presented nothing,
+        # so the registry could not tell this forge from anyone who had its
+        # signing key. A forge without its site certificate has no federation
+        # link, which is what the anchor duty then reports.
+        certificate = self.settings.federation_certificate
+        private_key = self.settings.federation_private_key
+        authority = self.settings.internal_ca
+        if certificate is None or private_key is None or authority is None:
+            logger.error(
+                "worker.federation.unauthenticated",
+                reason=(
+                    "a registry is configured and GULLINBURSTI's site certificate, its key "
+                    "or the internal CA is not, so nothing is submitted"
+                ),
+            )
+            return None
+        try:
+            context = transport.client_context(
+                certificate=str(certificate),
+                private_key=str(private_key),
+                server_ca=str(authority),
+            )
+        except transport.TransportError as unreadable:
+            logger.error("worker.federation.unauthenticated", reason=str(unreadable))
+            return None
+
         return RemoteRegistry(
             base_url=self.settings.registry_url,
             client=BrokeredClient(
-                inner=httpx.Client(timeout=REGISTRY_TIMEOUT_SECONDS),
+                inner=httpx.Client(timeout=REGISTRY_TIMEOUT_SECONDS, verify=context),
                 purpose=FEDERATION_PURPOSE,
                 approving_policy=FEDERATION_POLICY,
             ),

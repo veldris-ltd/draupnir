@@ -447,6 +447,33 @@ def test_the_worker_reads_the_baseline_the_installer_writes() -> None:
     assert by_hand.fabric_baseline_gbps == pytest.approx(190.0)
 
 
+def test_the_worker_reads_the_certificate_it_presents_to_megingjord() -> None:
+    """RF-37. The federation link is authenticated with what install.sh writes."""
+    installer = (Path(__file__).parents[2] / "deploy" / "install.sh").read_text(encoding="utf-8")
+    names = (
+        "DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE",
+        "DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY",
+        "DRAUPNIR_INTERNAL_CA",
+    )
+    for name in names:
+        assert f"{name}=${{" in installer, f"install.sh does not write {name}"
+
+    configured = WorkerSettings.from_environment(
+        {
+            "DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE": "/etc/draupnir/tls/federation.pem",
+            "DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY": "/etc/draupnir/tls/federation.key",
+            "DRAUPNIR_INTERNAL_CA": "/etc/draupnir/tls/internal-ca.pem",
+        }
+    )
+    unconfigured = WorkerSettings.from_environment({"DRAUPNIR_INTERNAL_CA": ""})
+
+    assert configured.federation_certificate == Path("/etc/draupnir/tls/federation.pem")
+    assert configured.federation_private_key == Path("/etc/draupnir/tls/federation.key")
+    assert configured.internal_ca == Path("/etc/draupnir/tls/internal-ca.pem")
+    assert unconfigured.federation_certificate is None
+    assert unconfigured.internal_ca is None
+
+
 def test_the_genesis_hash_is_what_a_fresh_chain_starts_from() -> None:
     """A guard on the fixture above rather than on the worker."""
     first = entry(

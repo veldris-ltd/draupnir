@@ -10,7 +10,8 @@ the question that mark cannot.
 Derived rather than judged, and static. A module is reachable when it is
 imported, directly or through other modules, from something a deployment runs:
 
-- the API application `uvicorn` serves (`docker/api.Dockerfile`);
+- the API application, and `draupnir.api.serve`, which serves it over mTLS and
+  is the API image's command (`docker/api.Dockerfile`, RF-37);
 - the worker, run as `python -m draupnir.worker`;
 - `draupnirctl`, the console script `pyproject.toml` declares;
 - every installed plug-in, through the entry point its `pyproject.toml`
@@ -43,6 +44,7 @@ ROOT = Path(__file__).resolve().parents[1]
 #: What a deployment runs, other than plug-ins and migrations.
 ENTRY_POINTS = (
     "draupnir.api.app",
+    "draupnir.api.serve",
     "draupnir.worker.__main__",
     "draupnirctl.__main__",
 )

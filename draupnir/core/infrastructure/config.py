@@ -53,14 +53,25 @@ class Settings(BaseSettings):
     # Forge Matrix will have different hardware and the same specifications.
     accelerator: str = ""
 
-    # The TLS certificate and key the ingress terminates with. Empty means TLS
-    # is not configured, and two things follow: `install.sh --check` refuses to
-    # commission, and the cryptographic inventory reports TLS 1.3 as *not* in
-    # use. SAD 9.5 says "TLS 1.3 only"; an inventory that asserted a transport
-    # nobody terminates is exactly the failure AC-S16 exists to prevent
-    # (RF-03).
+    # The TLS certificate and key the console proxy terminates with. Empty
+    # means TLS is not configured, and `install.sh --check` refuses to
+    # commission (RF-03). The proxy reads the files, not these settings: they
+    # are here so the installer and the unit wrapper read one spelling.
     tls_certificate: str = ""
     tls_private_key: str = ""
+
+    # What the API serves with. SAD 9.5 requires mTLS between control plane
+    # components, so `draupnir.api.serve` serves TLS 1.3 only, with this
+    # certificate, and refuses a client whose certificate does not chain to
+    # `internal_ca`. All three or none; none is refused unless DRAUPNIR_DEV is
+    # set (RF-37).
+    api_tls_certificate: str = ""
+    api_tls_private_key: str = ""
+
+    # The internal signing CA of Decision S9, PEM. What the API verifies the
+    # proxy's client certificate against, and what the proxy and GULLINBURSTI
+    # verify the servers they call against.
+    internal_ca: str = ""
 
     # Where the approvers' public keys are, one PEM per subject. SAD 9.4,
     # AC-S15.

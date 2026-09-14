@@ -85,6 +85,51 @@ if [[ -z "${image}" ]]; then
   exit 1
 fi
 
+# One setting, from the environment or else from draupnir.env. The key is read
+# rather than the file sourced, for the reason given at the vault mount below.
+setting() {
+  local name="$1" value="${!1:-}"
+  if [[ -z "${value}" && -r "${CONFIG_DIR}/draupnir.env" ]]; then
+    value="$(sed -n "s/^${name}=//p" "${CONFIG_DIR}/draupnir.env" | tail -n 1)"
+  fi
+  printf '%s' "${value}"
+}
+
+# TLS material, mounted read-only under the names docker/nginx.conf and
+# draupnir.api.serve read (SAD 9.5, RF-37). Nothing here decides whether TLS is
+# required: the proxy and the API refuse to start without their material, in
+# their own words, and a wrapper that second-guessed them would be a second
+# copy of that rule. A path that is set and does not exist is said here once,
+# so the reason is in the log above the refusal.
+#
+# Existence, not readability. The files belong to the container's user, which
+# under rootless podman is a subordinate uid rather than the account this runs
+# as (docs/runbook.md, Certificates), so `-r` here would be false for exactly
+# the files that are set up correctly.
+tls=()
+tls_file() {
+  local name="$1" target="$2" path
+  path="$(setting "${name}")"
+  [[ -z "${path}" ]] && return 0
+  if [[ -e "${path}" ]]; then
+    tls+=("--volume" "${path}:/etc/draupnir/tls/${target}:ro")
+  else
+    echo "${UNIT}: ${name} is ${path}, which does not exist; the unit will refuse to start." >&2
+  fi
+  return 0
+}
+
+# For a process that reads the setting itself: the path inside the container,
+# which is not the path in draupnir.env. `--env` is given after `--env-file`,
+# and podman lets the later one win.
+tls_setting() {
+  local name="$1" target="$2"
+  if [[ -n "$(setting "${name}")" ]]; then
+    tls+=("--env" "${name}=/etc/draupnir/tls/${target}")
+  fi
+  return 0
+}
+
 # Per-unit differences, in one place. The worker runs the API image with a
 # different command: the pipeline builds `api` and `web` and there is no third
 # image, because the worker is the same application with a different entry
@@ -94,14 +139,32 @@ case "${UNIT}" in
   draupnir-api)
     publish=("--publish" "${DRAUPNIR_API_BIND:-127.0.0.1}:${DRAUPNIR_API_PORT:-8000}:8000")
     command=()
+    tls_file DRAUPNIR_API_TLS_CERTIFICATE api.pem
+    tls_file DRAUPNIR_API_TLS_PRIVATE_KEY api.key
+    tls_file DRAUPNIR_INTERNAL_CA internal-ca.pem
+    tls_setting DRAUPNIR_API_TLS_CERTIFICATE api.pem
+    tls_setting DRAUPNIR_API_TLS_PRIVATE_KEY api.key
+    tls_setting DRAUPNIR_INTERNAL_CA internal-ca.pem
     ;;
   draupnir-worker)
     publish=()
     command=("-m" "draupnir.worker")
+    tls_file DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE federation.pem
+    tls_file DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY federation.key
+    tls_file DRAUPNIR_INTERNAL_CA internal-ca.pem
+    tls_setting DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE federation.pem
+    tls_setting DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY federation.key
+    tls_setting DRAUPNIR_INTERNAL_CA internal-ca.pem
     ;;
   draupnir-web)
-    publish=("--publish" "${DRAUPNIR_WEB_BIND:-127.0.0.1}:${DRAUPNIR_WEB_PORT:-8080}:8080")
+    # 8443 and TLS 1.3 only; there is no plain HTTP port to publish (RF-37).
+    publish=("--publish" "${DRAUPNIR_WEB_BIND:-127.0.0.1}:${DRAUPNIR_WEB_PORT:-8443}:8443")
     command=()
+    tls_file DRAUPNIR_TLS_CERTIFICATE server.pem
+    tls_file DRAUPNIR_TLS_PRIVATE_KEY server.key
+    tls_file DRAUPNIR_PROXY_CLIENT_CERTIFICATE proxy-client.pem
+    tls_file DRAUPNIR_PROXY_CLIENT_PRIVATE_KEY proxy-client.key
+    tls_file DRAUPNIR_INTERNAL_CA internal-ca.pem
     ;;
   *)
     echo "unknown unit: ${UNIT}" >&2
@@ -224,6 +287,7 @@ exec "${PODMAN}" run \
   --tmpfs /tmp:rw,noexec,nosuid,size=64m \
   "${env_files[@]}" \
   "${mounts[@]}" \
+  "${tls[@]}" \
   "${publish[@]}" \
   "${image}" \
   "${command[@]}"

@@ -561,6 +561,64 @@ evidence is written to `docs/acceptance/evidence/procedure-m1-m10.json`, which
 git ignores: it is the record of one run. The pipeline runs the procedure on
 every build and uploads that record in `acceptance-evidence-<commit>`.
 
+## Certificates
+
+SAD 9.5 is TLS 1.3 only, with mTLS between control plane components and
+between GULLINBURSTI and MEGINGJORD (RF-37). Every certificate here comes from
+the **Veldris internal CA**, the signing CA of Decision S9, which issues them
+directly. None is a public certificate, and nothing here trusts the public
+certificate store.
+
+| Certificate and key | Settings | Must carry | Read by |
+|---|---|---|---|
+| Console server | `DRAUPNIR_TLS_CERTIFICATE`, `DRAUPNIR_TLS_PRIVATE_KEY` | `alviss.<site>.veldris.internal`, server authentication | the console proxy |
+| Internal CA (certificate only) | `DRAUPNIR_INTERNAL_CA` | — | the proxy, the API and the worker |
+| Proxy client | `DRAUPNIR_PROXY_CLIENT_CERTIFICATE`, `DRAUPNIR_PROXY_CLIENT_PRIVATE_KEY` | client authentication | the console proxy, presenting it to the API |
+| API server | `DRAUPNIR_API_TLS_CERTIFICATE`, `DRAUPNIR_API_TLS_PRIVATE_KEY` | the name `draupnir-api`, server authentication | the API |
+| GULLINBURSTI site | `DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE`, `DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY` | client authentication, from the MEGINGJORD internal PKI | the worker, presenting it to MEGINGJORD |
+
+The GULLINBURSTI pair is needed only where `DRAUPNIR_REGISTRY_URL` is set.
+
+**Who reads the files.** The units are rootless containers, and nginx and the
+API run inside them as user 65532. Under rootless podman that user is a
+subordinate uid on the host, not the service account, so a key at `0600` owned
+by the service account cannot be opened inside the container. Set the modes
+first -- keys readable by their owner alone, certificates by anyone, since a
+certificate is not a secret and the CA is what `curl --cacert` needs -- then
+give each file to the container's user:
+
+```bash
+chmod 0400 ~/.config/draupnir/tls/*.key
+chmod 0444 ~/.config/draupnir/tls/*.pem
+podman unshare chown 65532:65532 ~/.config/draupnir/tls/*
+```
+
+`draupnir-run.sh` mounts each file read-only under `/etc/draupnir/tls`, at the
+name `docker/nginx.conf` and `draupnir.api.serve` read.
+
+**How you know they are right.** `install.sh --check` loads every file the way
+the unit that reads it does, in that unit's image. A certificate that is not
+the one for its key, one the internal CA did not issue, or a file the
+container's user cannot read is refused before anything starts:
+
+```
+==> preflight
+    tls: the console proxy loads its certificate, its client certificate and the CA
+    tls: the API loads its certificate, which the internal CA issued
+```
+
+**What happens without them.** Nothing falls back to plain HTTP.
+- The console proxy stops at start, naming the file under `/etc/draupnir/tls`
+  it could not load.
+- The API exits with `draupnir-api: no TLS material is configured` and names
+  the settings it needs.
+- The worker logs `worker.federation.unauthenticated` and submits no anchors,
+  so the anchor duty reports no federation link ([section 7](#7-wide-area-network-to-megingjord-lost)).
+
+**Renewing one.** Run `install.sh --check` with the new file in place of the
+old, keeping its owner and mode, then restart the unit that reads it. The proxy
+and the API load their material at start and not again.
+
 ## What to read when something is wrong
 
 | Question | Where |

@@ -17,7 +17,6 @@ make crypto-inventory
 ## Evidence
 
 - `.github/workflows/ci.yaml`
-- `draupnir/core/infrastructure/config.py`
 - `draupnir/svalinn/identity.py`
 - `draupnir/svalinn/inventory.py`
 - `tasks.py`

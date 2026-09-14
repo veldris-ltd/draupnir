@@ -74,12 +74,12 @@ def test_a_relative_import_resolves_against_its_package(tmp_path: Path) -> None:
 def test_an_import_inside_a_function_counts() -> None:
     """The one over-approximation, asserted so the docstring's claim is true.
 
-    `tls_configured` imports the settings inside the function body.
+    `pki.registry` imports the settings inside the function body.
     """
-    path = ROOT / "draupnir" / "svalinn" / "inventory.py"
+    path = ROOT / "draupnir" / "svalinn" / "pki.py"
 
     assert "draupnir.core.infrastructure.config" in reachability.imported_names(
-        path, "draupnir.svalinn.inventory"
+        path, "draupnir.svalinn.pki"
     )
 
 

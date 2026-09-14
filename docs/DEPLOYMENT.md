@@ -502,10 +502,16 @@ in front of them:
 If either says `auth-refused`, the credential is wrong: go back to Part 5. Use
 the table in Part 3 for anything else.
 
-Wait about 30 seconds, then ask the software whether it is running:
+Wait about 30 seconds, then ask the software whether it is running. Ask through
+the console's address: the API itself answers only a client that presents the
+console proxy's certificate, so a plain `curl` to port 8000 is refused by
+design (SAD 9.5). The `--cacert` file is the internal CA certificate, the one
+`DRAUPNIR_INTERNAL_CA` names:
 
 ```bash
-curl -s http://127.0.0.1:8000/healthz
+curl -s --cacert ~/.config/draupnir/tls/internal-ca.pem \
+  --resolve alviss.sindri.veldris.internal:8443:127.0.0.1 \
+  https://alviss.sindri.veldris.internal:8443/healthz
 ```
 
 **What you should see:** a short line of text containing the word `ok`.
@@ -517,7 +523,9 @@ Now the more important check. This one asks whether it can reach everything it
 needs:
 
 ```bash
-curl -s http://127.0.0.1:8000/readyz
+curl -s --cacert ~/.config/draupnir/tls/internal-ca.pem \
+  --resolve alviss.sindri.veldris.internal:8443:127.0.0.1 \
+  https://alviss.sindri.veldris.internal:8443/readyz
 ```
 
 **What you should see:** a line containing `"status":"ready"`.
@@ -766,38 +774,49 @@ rule and what changed. Three questions, in order:
    is why the gate ran green from the first commit to RF-21 without ever having
    anything to compare against.
 
-### Getting a certificate
+### Getting the certificates
 
-**The installer will not commission a host without one.** SAD 9.5 is "TLS 1.3
-only", and the reason this is a refusal rather than a warning is that the
-failure it prevents is silent: the session cookie is marked `Secure`, a browser
-will not send a `Secure` cookie over plain HTTP, so signing in appears to work
-and every request after it arrives anonymous. You would see a console that
-loads, a sign-in that succeeds, and an empty run board.
+**The installer will not commission a host without them.** SAD 9.5 is "TLS 1.3
+only", with mTLS between control plane components, and the reason a missing
+certificate is a refusal rather than a warning is that the failure it prevents
+is silent: the session cookie is marked `Secure`, a browser will not send a
+`Secure` cookie over plain HTTP, so signing in appears to work and every
+request after it arrives anonymous. You would see a console that loads, a
+sign-in that succeeds, and an empty run board.
 
-Ask whoever runs the **Veldris internal CA** for a server certificate for this
-host's name — `alviss.sindri.veldris.internal` — and put the two files on
-ALVISS at `0600`, owned by the service account:
+Everything comes from the **Veldris internal CA**, the signing CA of Decision
+S9. [The runbook's Certificates section](runbook.md#certificates) says what
+each certificate has to carry, who reads each file, and how to renew one. The
+settings go in `~/.config/draupnir/draupnir.env`:
 
 | Setting | What it is |
 |---|---|
-| `DRAUPNIR_TLS_CERTIFICATE` | The certificate, PEM, with any intermediates |
-| `DRAUPNIR_TLS_PRIVATE_KEY` | Its private key, PEM |
+| `DRAUPNIR_TLS_CERTIFICATE` | The console's server certificate for `alviss.sindri.veldris.internal`, PEM, with any intermediates |
+| `DRAUPNIR_TLS_PRIVATE_KEY` | Its private key |
+| `DRAUPNIR_INTERNAL_CA` | The internal CA's certificate |
+| `DRAUPNIR_PROXY_CLIENT_CERTIFICATE`, `DRAUPNIR_PROXY_CLIENT_PRIVATE_KEY` | What the console proxy presents to the API |
+| `DRAUPNIR_API_TLS_CERTIFICATE`, `DRAUPNIR_API_TLS_PRIVATE_KEY` | The API's server certificate, which must carry the name `draupnir-api` |
+| `DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE`, `DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY` | GULLINBURSTI's site certificate, required where `DRAUPNIR_REGISTRY_URL` is set |
 
-Both go in `~/.config/draupnir/draupnir.env`, and `install.sh --check` reports
-them:
+`install.sh --check` loads them rather than looking for the files. It runs
+`nginx -t` in the console image with each file mounted where
+`docker/nginx.conf` reads it, and loads the API's and GULLINBURSTI's material
+in the API image the way those processes do:
 
 ```
 ==> preflight
-    tls: certificate and key present
+    tls: the console proxy loads its certificate, its client certificate and the CA
+    tls: the API loads its certificate, which the internal CA issued
 ```
+
+That needs the images on the host, and `--check` pulls nothing: pull the
+revision first.
+
+**The console answers on 8443, in TLS 1.3 only.** There is no plain HTTP port,
+and a missing file stops the unit at start rather than falling back to one.
 
 **If you see `tls: not required, DRAUPNIR_DEV is set`**, this is a development
 machine. That is correct there and wrong anywhere else.
-
-**A path that is set and missing is refused too**, and separately, because it
-is the worse case: the first check passes, so the deployment reports itself
-configured for a transport it cannot terminate.
 
 ### What the console origin serves
 

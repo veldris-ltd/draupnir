@@ -153,6 +153,10 @@ CONTRACT_COVERAGE: tuple[str, ...] = (
     # S17's documents (RF-27). Generated per request from the read model, so
     # the request is what exercises them, against a stub that holds a release.
     "draupnir.api.release_documents",
+    # The API image's command (RF-37). What exercises it is a server started
+    # over mTLS and a client refused by it, which is the contract stage's
+    # `test_transport.py`.
+    "draupnir.api.serve",
 )
 
 #: The integration stage: what needs a database or an object store to exercise.

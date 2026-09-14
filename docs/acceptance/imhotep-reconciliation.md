@@ -60,7 +60,7 @@ ought to work.
 | 7.1–7.4 Data | 11 entities, 4 topics | 15 | 0 | 0 |
 | 8.1 API surface | 43 operations | 43 | 0 | 0 |
 | 8.2 Plug-in interfaces | 7 | 7 | 0 | 0 |
-| 9.1–9.5 Security | 5 topics, 14 threats | 17 | 1 | 1 |
+| 9.1–9.5 Security | 5 topics, 14 threats | 18 | 1 | 0 |
 | 9A Article 53 | 4 | 4 | 0 | 0 |
 | 10 Extensibility | 3 | 3 | 0 | 0 |
 | 11.1–11.4 Operations | 4 | 3 | 1 | 0 |
@@ -72,8 +72,8 @@ ought to work.
 | 15 Decisions | 14 | 13 | 1 | 0 |
 | 16A Custody | 1 | 1 | 0 | 0 |
 
-Two items are **NOT BUILT**; they are named in the sections below and repeated
-at the end.
+One item is **NOT BUILT**; it is named in the sections below and repeated at
+the end.
 
 ---
 
@@ -273,20 +273,31 @@ applying it needs the appliance's kernel. AC-S11's "an executor attempting an
 outbound connection fails" is demonstrated against the profile, not against a
 running executor.
 
-**NOT BUILT**: transport security, SAD 9.5's "TLS 1.3 only, mTLS between
-control plane components". This section was marked IMPLEMENTED with the sandbox
-as its only deviation, and that was wrong (RF-30). Nothing in the repository
-terminates TLS:
-- the console proxy (`docker/nginx.conf`) listens in plain HTTP;
-- the API listens in plain HTTP behind it;
-- no component presents or verifies a client certificate.
+**IMPLEMENTED**: transport security, SAD 9.5's "TLS 1.3 only, mTLS between
+control plane components" (RF-37). This section was marked IMPLEMENTED while
+nothing terminated TLS, which RF-30 corrected to NOT BUILT. It is now built:
+- the console proxy (`docker/nginx.conf`) terminates TLS 1.3 only, and has no
+  plain HTTP listener to fall back to;
+- the proxy passes requests to the API over TLS 1.3, verifies the API's
+  certificate against the internal CA, and presents its own;
+- the API (`draupnir.api.serve`, the image's command) serves TLS 1.3 only, and
+  refuses a connection with no client certificate from the internal CA;
+- GULLINBURSTI's client presents its site certificate to MEGINGJORD and
+  verifies MEGINGJORD's against the same CA.
 
-What does exist is the precondition. `install.sh --check` refuses to
-commission without a readable certificate and key (RF-03), because the session
-cookie is `Secure` and sign-in silently fails without TLS. But nothing reads
-that certificate. The cryptographic inventory reported the transport in use
-with mTLS whenever the setting was present, and now says it is not built. See
-NOT BUILT 2.
+The evidence:
+- `tests/contract/test_transport.py` starts the proxy in its base image and
+  has it refuse a TLS 1.2 handshake. It also starts the API and has it refuse
+  a connection with no client certificate, one from another CA, and TLS 1.2.
+- `tests/integration/test_transport.py` passes a request through the proxy to
+  the API over mTLS. The API refuses the same proxy without its certificate.
+- The cryptographic inventory's TLS row is derived from what
+  `docker/nginx.conf` declares, not from whether a certificate path is set.
+- `install.sh --check` loads every certificate in the image that will read it.
+
+What the estate supplies is the certificates, from the internal CA of Decision
+S9. `docs/runbook.md`, Certificates, says which, what each must carry, and who
+reads each file.
 
 Threats T1 to T14 each have their control and their test. T3's teacher-model
 destination is absent from the allow list, and distillation stays out of scope
@@ -482,7 +493,7 @@ IMPLEMENTED — which is what IMPLEMENTED alone could not say.
 
 ---
 
-## The two that are not built
+## The one that is not built
 
 ### NOT BUILT 1 — Three non-functional targets are unmeasured
 
@@ -492,18 +503,9 @@ does not exist. They are commissioning measurements. Nothing here estimates
 them, because an estimate recorded in an acceptance pack is read as a
 measurement.
 
-### NOT BUILT 2 — Transport security: no TLS termination and no mTLS
-
-SAD 9.5 specifies TLS 1.3 only, and mTLS between control plane components and
-between GULLINBURSTI and MEGINGJORD. Neither exists here:
-- the console proxy and the API both listen in plain HTTP;
-- no configuration anywhere names a TLS protocol version;
-- no component presents or verifies a client certificate.
-
-The certificate `install.sh` insists on is checked for and never served. This
-is not the estate's absence: terminating TLS and presenting client
-certificates are software a control plane either configures or does not, and
-this one does not. It is recorded in the remedial register as RF-37.
+Transport security was NOT BUILT 2 until RF-37 built it: TLS 1.3 only at the
+console proxy, and mTLS from the proxy to the API and from GULLINBURSTI to
+MEGINGJORD. The evidence is under 9.1–9.5 above.
 
 ---
 

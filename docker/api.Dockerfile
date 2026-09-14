@@ -81,5 +81,11 @@ EXPOSE 8000
 # runs the worker of SAD 5.1 ("two to four processes, poll the ledger for
 # actionable transitions"). One image rather than two, because they are one
 # codebase and a second Dockerfile is a second thing to keep in step.
+#
+# The API is served by `draupnir.api.serve` rather than by `uvicorn` directly:
+# TLS 1.3 only, a client certificate from the internal CA required, and a
+# refusal to start without the material unless DRAUPNIR_DEV is set (SAD 9.5,
+# RF-37). The host and port come from DRAUPNIR_API_HOST and DRAUPNIR_API_PORT,
+# which install.sh writes.
 ENTRYPOINT ["/app/.venv/bin/python"]
-CMD ["-m", "uvicorn", "draupnir.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["-m", "draupnir.api.serve"]

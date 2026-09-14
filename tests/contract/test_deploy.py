@@ -1458,35 +1458,137 @@ def test_the_console_sends_a_content_security_policy_and_hsts() -> None:
     )
 
 
+def _check_tls() -> str:
+    installer = (DEPLOY / "install.sh").read_text(encoding="utf-8")
+    assert "check_tls" in installer, "install.sh does not check for a certificate"
+    return installer.split("check_tls() {", 1)[1].split("\n}", 1)[0]
+
+
 def test_the_installer_refuses_to_commission_without_tls() -> None:
-    """SAD 9.5 is TLS 1.3 only, and nothing in deploy/ mentioned TLS at all.
+    """SAD 9.5 is TLS 1.3 only, with mTLS between control plane components.
 
     A refusal rather than a warning, because the failure it prevents is silent:
     the session cookie is marked `Secure`, a browser will not send it over
     plain HTTP, so signing in appears to work and every request after it is
-    anonymous.
+    anonymous. RF-37 added the material the two mutually authenticated hops
+    need, and every piece of it is refused when absent.
     """
-    installer = (DEPLOY / "install.sh").read_text(encoding="utf-8")
+    block = _check_tls()
 
-    assert "check_tls" in installer, "install.sh does not check for a certificate"
-    block = installer.split("check_tls() {", 1)[1].split("\n}", 1)[0]
-    assert "DRAUPNIR_TLS_CERTIFICATE" in block
+    for setting in (
+        "DRAUPNIR_TLS_CERTIFICATE",
+        "DRAUPNIR_INTERNAL_CA",
+        "DRAUPNIR_PROXY_CLIENT_CERTIFICATE",
+        "DRAUPNIR_API_TLS_CERTIFICATE",
+        "DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE",
+    ):
+        assert setting in block, f"--check does not require {setting}"
     assert "fail " in block, "a missing certificate warns rather than refusing"
     assert "DRAUPNIR_DEV" in block, (
         "there is no escape for a developer machine, so the check will be deleted"
     )
 
 
-def test_a_configured_certificate_that_is_absent_is_also_refused() -> None:
-    """A path that is set and missing is worse than one that is unset.
+def test_the_installer_asks_the_proxy_to_load_its_certificates() -> None:
+    """RF-37: that the proxy loads them, not that the files exist.
 
-    The first check passes, so the deployment reports itself configured for a
-    transport it cannot terminate.
+    `-r` passed for a certificate that is not the one for its key, and for a
+    file that is not a certificate at all. `nginx -t` loads the configuration
+    the image ships with the files mounted where it reads them, which is the
+    thing that has to work. The Python ends' material is loaded in the API
+    image by `draupnir.svalinn.transport`, as the user the unit runs as: a
+    host-side check reads the files as the service account, and under rootless
+    podman that is not who reads them.
     """
-    installer = (DEPLOY / "install.sh").read_text(encoding="utf-8")
-    block = installer.split("check_tls() {", 1)[1].split("\n}", 1)[0]
+    block = _check_tls()
 
-    assert "-r " in block, "the certificate path is not checked for readability"
+    assert '"${PODMAN}" run' in block, "--check does not start the proxy image"
+    assert "/usr/sbin/nginx" in block
+    assert " -t" in block, "the proxy is started, not asked to test its configuration"
+    assert "/etc/draupnir/tls/server.pem" in block
+    assert 'check_python_end "the API" server' in block, "the API's material is not loaded"
+
+    installer = (DEPLOY / "install.sh").read_text(encoding="utf-8")
+    checked = installer.split("check_python_end() {", 1)[1].split("\n}", 1)[0]
+    assert "-m draupnir.svalinn.transport" in checked, (
+        "the API's material is not loaded the way the API loads it"
+    )
+    assert "openssl" not in checked, "the check reads the files as the host user"
+
+
+@requires_bash
+def test_the_console_unit_mounts_its_tls_material_and_publishes_tls(tmp_path: Path) -> None:
+    """The proxy reads fixed paths, so the wrapper has to put the files there."""
+    assert BASH is not None
+    material = {}
+    for name in ("server.pem", "server.key", "proxy-client.pem", "proxy-client.key", "ca.pem"):
+        path = tmp_path / name
+        path.write_text("placeholder\n", encoding="utf-8")
+        material[name] = path
+
+    result = subprocess.run(  # noqa: S603
+        [BASH, str(UNITS_DIR / "draupnir-run.sh"), "draupnir-web"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        env={
+            **os.environ,
+            "DRAUPNIR_PLATFORM": "linux",
+            "DRAUPNIR_CONFIG_DIR": str(tmp_path / "config"),
+            "DRAUPNIR_STATE_DIR": str(tmp_path / "state"),
+            "DRAUPNIR_PODMAN": "echo",
+            "DRAUPNIR_IMAGE_draupnir_web": "registry.invalid/web:test",
+            "DRAUPNIR_TLS_CERTIFICATE": str(material["server.pem"]),
+            "DRAUPNIR_TLS_PRIVATE_KEY": str(material["server.key"]),
+            "DRAUPNIR_PROXY_CLIENT_CERTIFICATE": str(material["proxy-client.pem"]),
+            "DRAUPNIR_PROXY_CLIENT_PRIVATE_KEY": str(material["proxy-client.key"]),
+            "DRAUPNIR_INTERNAL_CA": str(material["ca.pem"]),
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "127.0.0.1:8443:8443" in result.stdout
+    assert "8080" not in result.stdout, "the console still publishes a plain HTTP port"
+    for source, target in (
+        ("server.pem", "server.pem"),
+        ("server.key", "server.key"),
+        ("proxy-client.pem", "proxy-client.pem"),
+        ("proxy-client.key", "proxy-client.key"),
+        ("ca.pem", "internal-ca.pem"),
+    ):
+        assert f"{material[source]}:/etc/draupnir/tls/{target}:ro" in result.stdout
+
+
+@requires_bash
+def test_the_api_unit_is_told_where_its_tls_material_is_mounted(tmp_path: Path) -> None:
+    """The API reads the setting, and the setting in draupnir.env is a host path."""
+    assert BASH is not None
+    certificate = tmp_path / "api.pem"
+    certificate.write_text("placeholder\n", encoding="utf-8")
+
+    result = subprocess.run(  # noqa: S603
+        [BASH, str(UNITS_DIR / "draupnir-run.sh"), "draupnir-api"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        env={
+            **os.environ,
+            "DRAUPNIR_PLATFORM": "linux",
+            "DRAUPNIR_CONFIG_DIR": str(tmp_path / "config"),
+            "DRAUPNIR_STATE_DIR": str(tmp_path / "state"),
+            "DRAUPNIR_PODMAN": "echo",
+            "DRAUPNIR_IMAGE_draupnir_api": "registry.invalid/api:test",
+            "DRAUPNIR_API_TLS_CERTIFICATE": str(certificate),
+            "DRAUPNIR_API_TLS_PRIVATE_KEY": str(tmp_path / "absent.key"),
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"{certificate}:/etc/draupnir/tls/api.pem:ro" in result.stdout
+    assert "DRAUPNIR_API_TLS_CERTIFICATE=/etc/draupnir/tls/api.pem" in result.stdout
+    assert "absent.key, which does not exist" in result.stderr
 
 
 # ---------------------------------------------------------------------------

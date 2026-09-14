@@ -18,7 +18,16 @@ from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519
 
-from draupnir.svalinn import egress, integrity, inventory, pki, sandbox, scanning, secrets
+from draupnir.svalinn import (
+    egress,
+    integrity,
+    inventory,
+    pki,
+    sandbox,
+    scanning,
+    secrets,
+    transport,
+)
 from draupnir.svalinn.egress import (
     ALLOW_LIST,
     TEACHER_DESTINATION,
@@ -986,51 +995,132 @@ def test_the_inventory_renders_as_a_build_artefact() -> None:
 
 
 def test_the_tls_row_reports_no_when_no_tls_is_configured(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """RF-03. An inventory that asserts a transport nobody terminates.
+    """RF-03, RF-30, RF-37. The row is derived from what the proxy declares.
 
-    This row read `in_use: yes` unconditionally while nothing in `deploy/`
-    terminated TLS. That is worse than a hand-written claim, because a
-    generated document carries the authority of having been derived from the
-    code — which is exactly what AC-S16 exists to establish.
+    It read `in_use: yes` unconditionally while nothing terminated TLS, and
+    then from whether a certificate path was set, which is not termination
+    either. It now reads the proxy's configuration, so a configuration that
+    listens in plain HTTP is reported as not in use, with the reason.
     """
-    from draupnir.core.infrastructure import config
-
-    unconfigured = config.get_settings().model_copy(
-        update={"tls_certificate": "", "tls_private_key": ""}
-    )
-    monkeypatch.setattr("draupnir.core.infrastructure.config.get_settings", lambda: unconfigured)
+    plain = tmp_path / "nginx.conf"
+    plain.write_text(PLAIN_PROXY, encoding="utf-8")
+    monkeypatch.setattr(transport, "PROXY_CONFIGURATION", plain)
 
     row = next(item for item in inventory.entries() if item.algorithm == "TLS 1.3")
 
     assert row.in_use is False
     assert "NOT IN USE" in row.notes
+    assert "listens without TLS" in row.notes
 
 
-def test_a_configured_certificate_is_not_reported_as_a_terminated_transport(
-    monkeypatch: pytest.MonkeyPatch,
+def test_the_tls_row_reports_in_use_only_when_the_proxy_terminates_tls_1_3(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """RF-30. A certificate path is not TLS, and neither is it mTLS.
+    """RF-37's criterion: set, and unset, and the row follows."""
+    configuration = tmp_path / "nginx.conf"
+    monkeypatch.setattr(transport, "PROXY_CONFIGURATION", configuration)
 
-    This asserted `in_use is True` and "mTLS" in the notes once a certificate
-    was configured. Nothing terminates TLS with that certificate and nothing
-    anywhere builds mTLS, so the test held the inventory to a claim about two
-    controls that do not exist. The row now says a certificate is configured
-    and that the transport is not built, and never names mTLS as present.
-    """
-    from draupnir.core.infrastructure import config
+    def row() -> inventory.Entry:
+        return next(item for item in inventory.entries() if item.algorithm == "TLS 1.3")
 
-    configured = config.get_settings().model_copy(
-        update={
-            "tls_certificate": "/etc/draupnir/tls.pem",
-            "tls_private_key": "/etc/draupnir/tls.key",
-        }
+    configuration.write_text(TLS13_PROXY, encoding="utf-8")
+    assert row().in_use is True
+    assert "mTLS" in row().notes
+
+    configuration.write_text(
+        TLS13_PROXY.replace(SERVER_PROTOCOLS, "        ssl_protocols TLSv1.2 TLSv1.3;"),
+        encoding="utf-8",
     )
-    monkeypatch.setattr("draupnir.core.infrastructure.config.get_settings", lambda: configured)
+    assert row().in_use is False, "a proxy that also admits TLS 1.2 was reported as TLS 1.3 only"
 
-    row = next(item for item in inventory.entries() if item.algorithm == "TLS 1.3")
+    configuration.write_text(TLS13_PROXY, encoding="utf-8")
+    assert row().in_use is True
 
-    assert row.in_use is False
-    assert "a certificate is configured" in row.notes
-    assert "not built" in row.notes
+    configuration.unlink()
+    assert row().in_use is False, "an unreadable configuration was reported as terminating TLS"
+
+
+def test_the_repository_proxy_terminates_tls_1_3_with_mtls_to_the_api() -> None:
+    declared = transport.proxy_declaration()
+
+    assert declared.terminates_tls13_only, declared.reasons
+    assert declared.upstream_mtls, declared.reasons
+
+
+def test_a_second_plain_listener_is_not_tls_1_3_only() -> None:
+    both = TLS13_PROXY.replace("listen 8443 ssl;", "listen 8443 ssl;\n        listen 8080;")
+
+    declared = transport.declared_by(both)
+
+    assert declared.terminates_tls13_only is False
+    assert any("8080" in reason for reason in declared.reasons)
+
+
+def test_a_proxy_naming_no_protocols_admits_nginx_s_default() -> None:
+    unnamed = TLS13_PROXY.replace(SERVER_PROTOCOLS, "")
+
+    assert transport.declared_by(unnamed).terminates_tls13_only is False
+
+
+def test_an_upstream_without_a_client_certificate_is_not_mtls() -> None:
+    anonymous = "\n".join(
+        line for line in TLS13_PROXY.splitlines() if "proxy_ssl_certificate " not in line
+    )
+
+    declared = transport.declared_by(anonymous)
+
+    assert declared.terminates_tls13_only is True
+    assert declared.upstream_mtls is False
+
+
+def test_a_plain_http_upstream_is_not_mtls() -> None:
+    plain_upstream = TLS13_PROXY.replace('"https://127.0.0.1:8000"', '"http://127.0.0.1:8000"')
+
+    assert transport.declared_by(plain_upstream).upstream_mtls is False
+
+
+def test_a_commented_out_directive_declares_nothing() -> None:
+    commented = TLS13_PROXY.replace(SERVER_PROTOCOLS, "        # ssl_protocols TLSv1.3;")
+
+    assert transport.declared_by(commented).terminates_tls13_only is False
+
+
+#: The server's own protocol line in `TLS13_PROXY`, indented as it is there so
+#: a replacement cannot also match `proxy_ssl_protocols`.
+SERVER_PROTOCOLS = "        ssl_protocols TLSv1.3;"
+
+TLS13_PROXY = """
+http {
+    map $host $draupnir_api {
+        default "https://127.0.0.1:8000";
+    }
+    proxy_ssl_certificate         /etc/draupnir/tls/proxy-client.pem;
+    proxy_ssl_certificate_key     /etc/draupnir/tls/proxy-client.key;
+    proxy_ssl_trusted_certificate /etc/draupnir/tls/internal-ca.pem;
+    proxy_ssl_verify              on;
+    proxy_ssl_protocols           TLSv1.3;
+    server {
+        listen 8443 ssl;
+        ssl_protocols TLSv1.3;
+        ssl_certificate     /etc/draupnir/tls/server.pem;
+        ssl_certificate_key /etc/draupnir/tls/server.key;
+        location /v1/ {
+            proxy_pass $draupnir_api;
+        }
+    }
+}
+"""
+
+PLAIN_PROXY = """
+http {
+    server {
+        listen 8080;
+        location /v1/ {
+            proxy_pass http://127.0.0.1:8000;
+        }
+    }
+}
+"""

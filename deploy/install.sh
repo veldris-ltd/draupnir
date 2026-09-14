@@ -83,16 +83,29 @@ SCHEDULER_URL="${DRAUPNIR_SCHEDULER_URL-}"
 # update. Derived after the arguments, like every other name.
 PROMETHEUS_URL="${DRAUPNIR_PROMETHEUS_URL-}"
 
-# The TLS certificate and key the ingress terminates with. From the Veldris
-# internal CA (docs/DEPLOYMENT.md).
+# The certificate and key the console proxy serves browsers with. From the
+# Veldris internal CA (docs/runbook.md, Certificates).
 #
 # `--check` refuses to commission without them. SAD 9.5 is "TLS 1.3 only", and
-# before RF-03 nothing in deploy/ mentioned TLS at all while the cryptographic
-# inventory asserted TLS 1.3 was in use -- a generated document claiming a
-# transport nobody terminated. The inventory now derives that from these two
-# settings, so a deployment with no certificate says so in its own evidence.
+# before RF-03 nothing in deploy/ mentioned TLS at all. RF-37 built the
+# transport, and `--check` now asks the proxy to load these rather than asking
+# whether the files exist: a file that exists and is not the certificate for
+# its key is the failure a readability check cannot see.
 TLS_CERTIFICATE="${DRAUPNIR_TLS_CERTIFICATE-}"
 TLS_PRIVATE_KEY="${DRAUPNIR_TLS_PRIVATE_KEY-}"
+
+# The internal signing CA of Decision S9, and the certificates the two mutually
+# authenticated hops present (SAD 9.5, RF-37): the proxy's client certificate
+# to the API, the API's own server certificate, and GULLINBURSTI's site
+# certificate to MEGINGJORD. The last pair is required only where a registry is
+# configured.
+INTERNAL_CA="${DRAUPNIR_INTERNAL_CA-}"
+PROXY_CLIENT_CERTIFICATE="${DRAUPNIR_PROXY_CLIENT_CERTIFICATE-}"
+PROXY_CLIENT_PRIVATE_KEY="${DRAUPNIR_PROXY_CLIENT_PRIVATE_KEY-}"
+API_TLS_CERTIFICATE="${DRAUPNIR_API_TLS_CERTIFICATE-}"
+API_TLS_PRIVATE_KEY="${DRAUPNIR_API_TLS_PRIVATE_KEY-}"
+FEDERATION_CLIENT_CERTIFICATE="${DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE-}"
+FEDERATION_CLIENT_PRIVATE_KEY="${DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY-}"
 
 # Who issues the tokens this control plane trusts, and who they are addressed
 # to. MEGINGJORD is the identity provider for the Forge Matrix (SAD 9.3).
@@ -286,7 +299,10 @@ DRAUPNIR_PROMETHEUS_URL, DRAUPNIR_WORKER_SUPPLY_STATUS, DRAUPNIR_RING_MEMBERS,
 DRAUPNIR_REGISTRY_URL, DRAUPNIR_SITE_SIGNING_KEY, DRAUPNIR_SECRET_STORE,
 DRAUPNIR_INCOMING_ROOT, DRAUPNIR_EVALUATION_SETS,
 DRAUPNIR_OIDC_ISSUER, DRAUPNIR_OIDC_AUDIENCE,
-DRAUPNIR_TLS_CERTIFICATE, DRAUPNIR_TLS_PRIVATE_KEY,
+DRAUPNIR_TLS_CERTIFICATE, DRAUPNIR_TLS_PRIVATE_KEY, DRAUPNIR_INTERNAL_CA,
+DRAUPNIR_PROXY_CLIENT_CERTIFICATE, DRAUPNIR_PROXY_CLIENT_PRIVATE_KEY,
+DRAUPNIR_API_TLS_CERTIFICATE, DRAUPNIR_API_TLS_PRIVATE_KEY,
+DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE, DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY,
 DRAUPNIR_ACCELERATOR, the DRAUPNIR_FABRIC_* probe settings and the
 DRAUPNIR_*_DIR paths override the defaults. DRAUPNIR_FABRIC_BASELINE_GBPS is
 the figure acceptance test A3 measured; leave it at 0 until there is one, and
@@ -496,10 +512,20 @@ check_dependencies() {
   check_tls
 }
 
-# TLS, and a refusal rather than a warning. SAD 9.5 is "TLS 1.3 only", and the
-# console sends a session cookie marked `Secure` -- which a browser will not
-# send over plain HTTP at all, so a deployment with no certificate is one where
-# signing in appears to work and every subsequent request is anonymous.
+# TLS, and a refusal rather than a warning. SAD 9.5 is "TLS 1.3 only", with
+# mTLS between control plane components, and the console sends a session
+# cookie marked `Secure` -- which a browser will not send over plain HTTP at
+# all, so a deployment with no certificate is one where signing in appears to
+# work and every subsequent request is anonymous.
+#
+# RF-37. This used to ask whether the files were readable, which passed for a
+# certificate that was not the one for its key and for a file that was not a
+# certificate at all. It now asks the things that load them:
+# - the console image runs `nginx -t` with the material mounted where
+#   docker/nginx.conf reads it, which loads the configuration, both
+#   certificates, both keys and the CA;
+# - `openssl` holds the API's certificate, and GULLINBURSTI's where a registry
+#   is configured, to the internal CA and to its own key (check_certificate).
 #
 # Skipped where DRAUPNIR_DEV is set, which is the same escape the plug-in
 # loader and the authentication layer use and should look the same.
@@ -514,18 +540,80 @@ check_tls() {
   local missing=()
   [[ -z "${TLS_CERTIFICATE}" ]] && missing+=("DRAUPNIR_TLS_CERTIFICATE")
   [[ -z "${TLS_PRIVATE_KEY}" ]] && missing+=("DRAUPNIR_TLS_PRIVATE_KEY")
+  [[ -z "${INTERNAL_CA}" ]] && missing+=("DRAUPNIR_INTERNAL_CA")
+  [[ -z "${PROXY_CLIENT_CERTIFICATE}" ]] && missing+=("DRAUPNIR_PROXY_CLIENT_CERTIFICATE")
+  [[ -z "${PROXY_CLIENT_PRIVATE_KEY}" ]] && missing+=("DRAUPNIR_PROXY_CLIENT_PRIVATE_KEY")
+  [[ -z "${API_TLS_CERTIFICATE}" ]] && missing+=("DRAUPNIR_API_TLS_CERTIFICATE")
+  [[ -z "${API_TLS_PRIVATE_KEY}" ]] && missing+=("DRAUPNIR_API_TLS_PRIVATE_KEY")
+  if [[ -n "${REGISTRY_URL}" ]]; then
+    [[ -z "${FEDERATION_CLIENT_CERTIFICATE}" ]] && missing+=("DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE")
+    [[ -z "${FEDERATION_CLIENT_PRIVATE_KEY}" ]] && missing+=("DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY")
+  fi
   if ((${#missing[@]})); then
-    fail "$(printf 'no TLS certificate is configured: %s is not set. SAD 9.5 is TLS 1.3 only, and the session cookie is marked Secure -- over plain HTTP a browser will not send it, so signing in appears to work and every request after it is anonymous. Obtain a certificate from the Veldris internal CA (docs/DEPLOYMENT.md), or set DRAUPNIR_DEV=1 on a machine with no real data.' "$(IFS=', '; echo "${missing[*]}")")"
+    fail "$(printf 'the TLS material is not configured: %s is not set. SAD 9.5 is TLS 1.3 only, with mTLS between control plane components, and the session cookie is marked Secure -- over plain HTTP a browser will not send it, so signing in appears to work and every request after it is anonymous. Obtain the certificates from the Veldris internal CA (docs/runbook.md, Certificates), or set DRAUPNIR_DEV=1 on a machine with no real data.' "$(IFS=', '; echo "${missing[*]}")")"
   fi
 
-  local unreadable=()
-  [[ -r "${TLS_CERTIFICATE}" ]] || unreadable+=("${TLS_CERTIFICATE}")
-  [[ -r "${TLS_PRIVATE_KEY}" ]] || unreadable+=("${TLS_PRIVATE_KEY}")
-  if ((${#unreadable[@]})); then
-    fail "$(printf 'the TLS material is configured and cannot be read: %s. A path that is set and absent is worse than one that is unset, because the check above passes.' "$(IFS=', '; echo "${unreadable[*]}")")"
+  # Each end loads its material in the image it will run in: the revision
+  # being installed, or the reference already recorded. --check pulls nothing,
+  # so with neither there is nothing to load the files, and that is said rather
+  # than something weaker checked instead.
+  local web_image api_image
+  web_image="$(known_image draupnir-web)"
+  api_image="$(known_image draupnir-api)"
+  if [[ -z "${web_image}" || -z "${api_image}" ]]; then
+    fail "the TLS material cannot be checked: the console and API images are not both known on this host, so nothing can load it. Pass --revision <sha> and pull those images first with ${PODMAN} pull; --check pulls nothing."
   fi
 
-  info "tls: certificate and key present"
+  local tested
+  if ! tested="$("${PODMAN}" run --rm --pull=never --read-only \
+    --tmpfs /tmp:rw,size=16m \
+    --entrypoint /usr/sbin/nginx \
+    --volume "${TLS_CERTIFICATE}:/etc/draupnir/tls/server.pem:ro" \
+    --volume "${TLS_PRIVATE_KEY}:/etc/draupnir/tls/server.key:ro" \
+    --volume "${PROXY_CLIENT_CERTIFICATE}:/etc/draupnir/tls/proxy-client.pem:ro" \
+    --volume "${PROXY_CLIENT_PRIVATE_KEY}:/etc/draupnir/tls/proxy-client.key:ro" \
+    --volume "${INTERNAL_CA}:/etc/draupnir/tls/internal-ca.pem:ro" \
+    "${web_image}" -t 2>&1)"; then
+    fail "$(printf 'the console proxy does not load its TLS material:\n%s\nEach file is mounted where docker/nginx.conf reads it and nginx refused one. A certificate that is not the one for its key, or a file the container user cannot read (docs/runbook.md, Certificates), is the usual cause.' "${tested}")"
+  fi
+  info "tls: the console proxy loads its certificate, its client certificate and the CA"
+
+  check_python_end "the API" server "${API_TLS_CERTIFICATE}" "${API_TLS_PRIVATE_KEY}" "${api_image}"
+  if [[ -n "${REGISTRY_URL}" ]]; then
+    check_python_end "GULLINBURSTI" client \
+      "${FEDERATION_CLIENT_CERTIFICATE}" "${FEDERATION_CLIENT_PRIVATE_KEY}" "${api_image}"
+  fi
+}
+
+# The image a unit will run: the revision being installed, or the reference
+# already recorded on this host. Empty when neither is known.
+known_image() {
+  local unit="$1"
+  if [[ -n "${REVISION}" ]]; then
+    draupnir_image_for "${unit}" "${REVISION}" "${REGISTRY}"
+  elif [[ -r "${STATE_DIR}/image-${unit}" ]]; then
+    cat "${STATE_DIR}/image-${unit}"
+  fi
+  return 0
+}
+
+# One certificate a Python end presents, loaded the way that end loads it: in
+# the API image, as the user the unit runs as, through
+# `draupnir.svalinn.transport`, which also checks the internal CA issued it. A
+# host-side openssl would read the files as the service account, and under
+# rootless podman that is not who reads them in deployment.
+check_python_end() {
+  local who="$1" role="$2" certificate="$3" private_key="$4" image="$5" checked
+  if ! checked="$("${PODMAN}" run --rm --pull=never --read-only \
+    --entrypoint /app/.venv/bin/python \
+    --volume "${certificate}:/etc/draupnir/tls/check.pem:ro" \
+    --volume "${private_key}:/etc/draupnir/tls/check.key:ro" \
+    --volume "${INTERNAL_CA}:/etc/draupnir/tls/internal-ca.pem:ro" \
+    "${image}" -m draupnir.svalinn.transport "${role}" \
+    /etc/draupnir/tls/check.pem /etc/draupnir/tls/check.key /etc/draupnir/tls/internal-ca.pem 2>&1)"; then
+    fail "$(printf '%s does not load its TLS material:\n%s' "${who}" "${checked}")"
+  fi
+  info "tls: ${who} loads its certificate, which the internal CA issued"
 }
 
 # A socket answering proves the machine is on. It does not prove there is a
@@ -648,6 +736,13 @@ DRAUPNIR_EVALUATION_SETS=${EVALUATION_SETS}
 DRAUPNIR_OIDC_ISSUER=${OIDC_ISSUER}
 DRAUPNIR_TLS_CERTIFICATE=${TLS_CERTIFICATE}
 DRAUPNIR_TLS_PRIVATE_KEY=${TLS_PRIVATE_KEY}
+DRAUPNIR_INTERNAL_CA=${INTERNAL_CA}
+DRAUPNIR_PROXY_CLIENT_CERTIFICATE=${PROXY_CLIENT_CERTIFICATE}
+DRAUPNIR_PROXY_CLIENT_PRIVATE_KEY=${PROXY_CLIENT_PRIVATE_KEY}
+DRAUPNIR_API_TLS_CERTIFICATE=${API_TLS_CERTIFICATE}
+DRAUPNIR_API_TLS_PRIVATE_KEY=${API_TLS_PRIVATE_KEY}
+DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE=${FEDERATION_CLIENT_CERTIFICATE}
+DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY=${FEDERATION_CLIENT_PRIVATE_KEY}
 DRAUPNIR_OIDC_AUDIENCE=${OIDC_AUDIENCE}
 DRAUPNIR_OIDC_JWKS_URL=${OIDC_JWKS_URL}
 DRAUPNIR_ACCELERATOR=${ACCELERATOR}

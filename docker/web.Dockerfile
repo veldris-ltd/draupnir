@@ -43,9 +43,11 @@ LABEL org.opencontainers.image.title="draupnir-web" \
 COPY docker/nginx.conf /etc/nginx/nginx.conf
 COPY --from=builder /src/apps/console/dist /usr/share/nginx/html
 
-# Rootless. The Chainguard nginx image already runs as 65532 and binds 8080.
+# Rootless. The Chainguard nginx image already runs as 65532. It listens on
+# 8443 in TLS 1.3 only, with the certificates draupnir-run.sh mounts at
+# /etc/draupnir/tls; there is no plain HTTP port (SAD 9.5, RF-37).
 USER 65532:65532
-EXPOSE 8080
+EXPOSE 8443
 
 ENTRYPOINT ["/usr/sbin/nginx"]
 CMD ["-g", "daemon off;"]

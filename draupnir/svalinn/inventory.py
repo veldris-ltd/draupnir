@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Final
 
+from draupnir.svalinn import transport
 from draupnir.svalinn.envelope import SUPPORTED, Algorithm
 from draupnir.svalinn.identity import TOKEN_ALGORITHMS
 
@@ -106,17 +107,32 @@ def _cryptography_version() -> str:
     return f"cryptography {version}"
 
 
-def tls_configured() -> bool:
-    """Whether this deployment has a certificate and a key to terminate with.
+def transport_notes(declared: transport.ProxyDeclaration) -> str:
+    """What the TLS row says, from what the proxy configuration declares. RF-37.
 
-    Read at build time from the same settings `install.sh` writes, so the
-    inventory describes the deployment it was generated on rather than an
-    intention.
+    RF-03 derived the row from whether a certificate path was set, and RF-30
+    found that a configured certificate is not a terminated one. The row is
+    now derived from `docker/nginx.conf`, which is the configuration the web
+    image runs: TLS 1.3 is in use when that file terminates TLS 1.3 and admits
+    nothing else, and mTLS to the API is named only when it also presents a
+    client certificate to a verified upstream.
     """
-    from draupnir.core.infrastructure.config import get_settings
-
-    settings = get_settings()
-    return bool(settings.tls_certificate and settings.tls_private_key)
+    if not declared.terminates_tls13_only:
+        return (
+            "NOT IN USE: the console proxy's configuration does not terminate TLS 1.3 "
+            f"only. {'; '.join(declared.reasons)}."
+        )
+    hop = (
+        "It passes requests to the API over TLS 1.3, verifies the API's certificate "
+        "against the internal CA and presents its own, and the API refuses a "
+        "connection without one (mTLS)."
+        if declared.upstream_mtls
+        else f"The hop to the API is not mutually authenticated: {'; '.join(declared.reasons)}."
+    )
+    return (
+        "The console proxy (docker/nginx.conf) terminates TLS 1.3 and admits no other "
+        f"version. {hop}"
+    )
 
 
 def entries() -> tuple[Entry, ...]:
@@ -127,6 +143,7 @@ def entries() -> tuple[Entry, ...]:
     `validate` rather than by an auditor.
     """
     module = _cryptography_version()
+    proxy = transport.proxy_declaration()
     openssl = f"OpenSSL via {module}"
 
     return (
@@ -161,25 +178,13 @@ def entries() -> tuple[Entry, ...]:
             # been generated (RF-03).
             #
             # RF-30. The derivation RF-03 put here read the certificate setting,
-            # and a configured certificate is not a terminated one: the console
-            # proxy listens in plain HTTP and nothing reads that setting. So the
-            # row said "TLS 1.3 only. mTLS between control plane components" on
-            # any deployment with a certificate path, about two controls
-            # nothing builds. It is never in use until something terminates
-            # TLS, and it says which of the two states the deployment is in.
-            in_use=False,
-            notes=(
-                "NOT IN USE: a certificate is configured, and nothing in this build "
-                "terminates TLS with it. The console proxy listens in plain HTTP. "
-                "SAD 9.5's TLS 1.3 only, and mTLS between control plane components, "
-                "are not built (RF-37)."
-                if tls_configured()
-                else (
-                    "NOT IN USE: no certificate is configured, so this deployment "
-                    "terminates no TLS. `install.sh --check` refuses to commission in "
-                    "this state; a development machine is expected to be in it."
-                )
-            ),
+            # and a configured certificate is not a terminated one.
+            #
+            # RF-37. Derived from `docker/nginx.conf`, the configuration the web
+            # image runs: in use when it terminates TLS 1.3 and admits nothing
+            # else, and mTLS to the API named only when the file declares it.
+            in_use=proxy.terminates_tls13_only,
+            notes=transport_notes(proxy),
         ),
         Entry(
             purpose="Hashing, artefact manifests and ledger chaining",
