@@ -21,11 +21,22 @@ from typing import Final
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SRC = REPO_ROOT / "web" / "packages" / "jarngreipr" / "src"
 
-#: `primitives` are the sixteen generic controls, `composites` the eight
-#: DRAUPNIR-shaped assemblies, and `example` is where this skill's worked
-#: example lives -- inside the package so the token linter, `tsc`, Storybook
-#: and Vitest all see it, and out of `index.ts` so it is not public API.
+#: `primitives` are the generic controls, `composites` the DRAUPNIR-shaped
+#: assemblies, and `example` is where this skill's worked example lives --
+#: inside the package so the token linter, `tsc`, Storybook and Vitest all see
+#: it, and out of `index.ts` so it is not public API. No counts here: the
+#: figures are stated in the READMEs and checked against the stories.
 LAYERS: Final = ("primitives", "composites", "example")
+
+#: The Storybook title each layer files its stories under. The example is not
+#: filed as `Example/`: Storybook's sidebar is read as the design system's
+#: inventory, and a sample beside the primitives pads it (RF-30). It is filed
+#: under the skill that produced it instead.
+TITLES: Final = {
+    "primitives": "Primitives",
+    "composites": "Composites",
+    "example": "Skill examples",
+}
 
 NAME = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 
@@ -239,7 +250,7 @@ const stories = stateStories((state) => (
 
 def _relative(layer: str) -> tuple[str, str, str]:
     """Return the import paths and the Storybook title for `layer`."""
-    return "../state/states", "../state/stories", layer.capitalize()
+    return "../state/states", "../state/stories", TITLES[layer]
 
 
 def scaffold(

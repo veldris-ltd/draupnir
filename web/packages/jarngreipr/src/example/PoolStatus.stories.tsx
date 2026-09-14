@@ -5,7 +5,7 @@ import { PoolStatus } from './PoolStatus';
 // A literal, because Storybook's story indexer is static: a default export it
 // cannot read at parse time is a component that never appears in the sidebar.
 export default {
-  title: 'Example/PoolStatus',
+  title: 'Skill examples/PoolStatus',
   ...COMPONENT_META,
 } satisfies Meta;
 

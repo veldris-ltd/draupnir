@@ -159,10 +159,20 @@ def entries() -> tuple[Entry, ...]:
             # is precisely the failure AC-S16 exists to prevent, and it is worse
             # than a hand-written one because it carries the authority of having
             # been generated (RF-03).
-            in_use=tls_configured(),
+            #
+            # RF-30. The derivation RF-03 put here read the certificate setting,
+            # and a configured certificate is not a terminated one: the console
+            # proxy listens in plain HTTP and nothing reads that setting. So the
+            # row said "TLS 1.3 only. mTLS between control plane components" on
+            # any deployment with a certificate path, about two controls
+            # nothing builds. It is never in use until something terminates
+            # TLS, and it says which of the two states the deployment is in.
+            in_use=False,
             notes=(
-                "TLS 1.3 only. mTLS between control plane components and between "
-                "GULLINBURSTI and MEGINGJORD."
+                "NOT IN USE: a certificate is configured, and nothing in this build "
+                "terminates TLS with it. The console proxy listens in plain HTTP. "
+                "SAD 9.5's TLS 1.3 only, and mTLS between control plane components, "
+                "are not built (RF-37)."
                 if tls_configured()
                 else (
                     "NOT IN USE: no certificate is configured, so this deployment "

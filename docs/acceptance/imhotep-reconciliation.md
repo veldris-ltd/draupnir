@@ -28,8 +28,18 @@ reasons for every deviation — is below.
 | Mark | Means |
 |---|---|
 | **IMPLEMENTED** | Built, and exercised by something that runs in the pipeline |
+| **REACHABLE** | Implemented, and on a path a running deployment takes. Derived, not judged — see [Reachability](#reachability) |
 | **DEVIATED** | Built differently from the specification, or built and not exercisable here. The reason is stated. |
 | **NOT BUILT** | Absent. What is missing is stated. |
+
+**Why a fourth mark.** IMPLEMENTED is satisfied by a unit test, so a module can
+carry it and sit on no path a request, a worker tick or a deployed command ever
+takes. The remedial register found the platform's security, federation,
+publication and array controls in exactly that state while this document marked
+them IMPLEMENTED (RF-30). REACHABLE is the third of the three things the
+register asks of a control — built, tested, and reachable — and it is applied
+to modules rather than to sections, because reachability is a property of
+code, not of a specification heading.
 
 **The one recurring reason.** The Sindri estate does not exist. SAD 1.3 puts
 the hardware build in VLD-INF-SINDRI-001 and out of scope. So there is no
@@ -48,9 +58,9 @@ ought to work.
 | 6.1 Lifecycle | 14 states, 16 transitions | all | 0 | 0 |
 | 6.2 Run specification | 1 | 1 | 0 | 0 |
 | 7.1–7.4 Data | 11 entities, 4 topics | 15 | 0 | 0 |
-| 8.1 API surface | 34 operations | 34 | 0 | 0 |
+| 8.1 API surface | 43 operations | 43 | 0 | 0 |
 | 8.2 Plug-in interfaces | 7 | 7 | 0 | 0 |
-| 9.1–9.5 Security | 5 topics, 14 threats | 18 | 1 | 0 |
+| 9.1–9.5 Security | 5 topics, 14 threats | 17 | 1 | 1 |
 | 9A Article 53 | 4 | 4 | 0 | 0 |
 | 10 Extensibility | 3 | 3 | 0 | 0 |
 | 11.1–11.4 Operations | 4 | 3 | 1 | 0 |
@@ -62,8 +72,8 @@ ought to work.
 | 15 Decisions | 14 | 13 | 1 | 0 |
 | 16A Custody | 1 | 1 | 0 | 0 |
 
-One item is **NOT BUILT**; it is named in the section below and repeated at
-the end.
+Two items are **NOT BUILT**; they are named in the sections below and repeated
+at the end.
 
 ---
 
@@ -146,7 +156,7 @@ Two things are stronger than the specification asked for, and one weaker:
 
 ## 8.1 API surface
 
-**IMPLEMENTED.** Thirty-four operations, every one with a role declaration, an
+**IMPLEMENTED.** 43 operations, every one with a role declaration, an
 `operationId` and a problem-document error path, and both clients generated
 from the exported document. The nine conventions of SAD 11E.2 are attached to
 routes rather than described, and `tests/contract/test_api_surface.py` checks
@@ -166,6 +176,13 @@ difference is the design rather than an implementation detail:
 | `POST /v1/runs/{id}/cancel` | TRAINING → FAILED | transition |
 | `POST /v1/runs/{id}/retry` | EVALUATING → QUEUED | transition |
 | `POST /v1/releases/{artefact}/publish` | the publication, under its approval | `release` entry |
+| `POST /v1/arrays` | the array and its elements | `array` entry |
+| `POST /v1/arrays/{name}/elements/{index}/requeue` | the requeue of an element that stopped without completing | `array` entry |
+| `POST /v1/retention/{action_id}/approve` | the approval; the retention duty carries it out | `corpus` entry |
+| `POST /v1/sweeps/{run_id}/select` | the chosen merge point, among those RAUN passed | `sweep` entry |
+
+`POST /v1/runs/dry-run` is the one mutating method that records nothing, by
+design: it validates a specification and returns what submitting it would do.
 
 A source, a corpus and a release are not runs — SAD 7.1 gives each its own
 entity — so those entries are folded by nothing and passed through by the
@@ -195,6 +212,18 @@ entry — the submitter is whoever appended it — so an approver cannot suppres
 it by describing themselves differently. `publishRelease` was likewise
 unconditional: it refused every publication with "no signed approval". It now
 looks for the approval in the chain and refuses only when there is none.
+
+**Publication's controls are on the request path.** The table above says what
+`publishRelease` records. For a time that was all it did: the controls AC-S8,
+AC-F9 and AC-S13 describe lived in `skidbladnir.publish`, and no request path
+called them. Since RF-05 the endpoint calls it before anything is recorded:
+- the artefact bytes are re-hashed;
+- the gates and the approval are checked;
+- the anchor must be current.
+
+Each refusal is a 409 naming the control that refused — `artefact-mismatch`,
+`artefact-ungated`, `release-unapproved`, `anchor-behind` — and a store outage
+is a 503, because a refusal is final and an outage is a retry.
 
 ## 8.2 Plug-in interfaces
 
@@ -234,6 +263,21 @@ no privilege escalation — but nothing here applies it to a process, because
 applying it needs the appliance's kernel. AC-S11's "an executor attempting an
 outbound connection fails" is demonstrated against the profile, not against a
 running executor.
+
+**NOT BUILT**: transport security, SAD 9.5's "TLS 1.3 only, mTLS between
+control plane components". This section was marked IMPLEMENTED with the sandbox
+as its only deviation, and that was wrong (RF-30). Nothing in the repository
+terminates TLS:
+- the console proxy (`docker/nginx.conf`) listens in plain HTTP;
+- the API listens in plain HTTP behind it;
+- no component presents or verifies a client certificate.
+
+What does exist is the precondition. `install.sh --check` refuses to
+commission without a readable certificate and key (RF-03), because the session
+cookie is `Secure` and sign-in silently fails without TLS. But nothing reads
+that certificate. The cryptographic inventory reported the transport in use
+with mTLS whenever the setting was present, and now says it is not built. See
+NOT BUILT 2.
 
 Threats T1 to T14 each have their control and their test. T3's teacher-model
 destination is absent from the allow list, and distillation stays out of scope
@@ -299,10 +343,10 @@ should.
 
 ## 11F Frontend and experience
 
-**IMPLEMENTED.** JARNGREIPR with twenty-four components at seven states each,
+**IMPLEMENTED.** JARNGREIPR with 30 components (19 primitives and 11 composites) at seven states each,
 the four primary journeys as Playwright acceptance evidence, the interaction
 requirements, and accessibility as an acceptance criterion rather than a review
-comment (Decision S13). 175 Storybook stories at zero serious or critical axe
+comment (Decision S13). 220 Storybook stories at zero serious or critical axe
 violations, and 23 routes likewise.
 
 The manual keyboard pass of AC-U5 is in `keyboard-pass.md`, with three findings,
@@ -343,7 +387,93 @@ concentration is auditable even though it is not reduced.
 
 ---
 
-## The one that is not built
+## Reachability
+
+REACHABLE is derived by `scripts/reachability.py`, and
+`tests/unit/test_reachability.py` fails when a mark below disagrees with it, or
+when a platform module nothing reaches is missing from this table.
+
+A module is REACHABLE when it is imported, directly or through other modules,
+from something a deployment runs:
+- the API application;
+- the worker;
+- `draupnirctl`;
+- an installed plug-in's entry point;
+- a migration.
+
+The analysis is static and conservative in one direction. An import inside a
+function counts whether or not the function is called, so REACHABLE is a
+necessary condition, not proof of use. NOT REACHABLE is a finding. To see the
+path by which a module is reached:
+
+```bash
+python -m scripts.reachability draupnir.svalinn.pki
+```
+
+**The remedial register's orphans, re-marked.** Section 2 of
+`docs/fixes/remedial-fixes.md` lists 24 modules no importer outside `tests/`
+reached. The register says twenty-three of them, and nineteen once it sets
+aside four as correct, but its own list has 24 names and 20 after the four. Of
+those 20, 13 are now reachable and 7 are not:
+
+| Module | Mark | Note |
+|---|---|---|
+| `draupnir.api.assurance` | **REACHABLE** | |
+| `draupnir.gleipnir.copyright` | **REACHABLE** | |
+| `draupnir.hamarr.config` | **REACHABLE** | |
+| `draupnir.hodd.quota` | **REACHABLE** | |
+| `draupnir.motsognir.arrays` | **REACHABLE** | |
+| `draupnir.skidbladnir.publish` | **REACHABLE** | on the publish request path since RF-05 |
+| `draupnir.svalinn.egress` | **REACHABLE** | |
+| `draupnir.svalinn.integrity` | **REACHABLE** | |
+| `draupnir.svalinn.pki` | **REACHABLE** | |
+| `draupnir.svalinn.sandbox` | **REACHABLE** | reached; the profile is still not applied to a process, as 9.1–9.5 says |
+| `draupnir.svalinn.scanning` | **REACHABLE** | |
+| `draupnir.svalinn.secrets` | **REACHABLE** | |
+| `draupnir.svalinn.signing` | **REACHABLE** | |
+| `draupnir.brisingamen.merge` | **NOT REACHABLE** | merge planning and adapter-to-dense export; the worker merges through the `draupnir.merge` plug-in instead |
+| `draupnir.megingjord.anchors` | **NOT REACHABLE** | chain continuity before a head is countersigned |
+| `draupnir.megingjord.registry` | **NOT REACHABLE** | the site registry, policy distribution and the signing trust root |
+| `draupnir.motsognir.retry` | **NOT REACHABLE** | retry and backoff |
+| `draupnir.raun.regression` | **NOT REACHABLE** | noticing that a release is worse than the last |
+| `draupnir.raun.transitions` | **NOT REACHABLE** | evidence into the facts the state machine's guards ask for |
+| `draupnir.skidbladnir.formats` | **NOT REACHABLE** | export formats and the cross-platform quantisation check |
+
+The four the register set aside:
+
+| Module | Mark | Note |
+|---|---|---|
+| `draupnir.worker.__main__` | **REACHABLE** | an entry point itself |
+| `draupnir.interfaces.testing.suite` | **NOT REACHABLE** | by design: the conformance harness a driver package's own tests inherit |
+| `draupnir.core.infrastructure.models` | **NOT REACHABLE** | nothing a deployment runs imports it; the schema is carried by the migrations, and only tests read these models. The register's "reached through SQLAlchemy metadata" does not hold |
+| `draupnir.svalinn.inventory` | **NOT REACHABLE** | by design: a build artefact, produced by `tasks.py crypto-inventory` |
+
+**Unreachable modules the register did not list.** Its analysis stopped at "has
+an importer outside `tests/`". Being imported only by another unreachable
+module, or only by a script, is the same state:
+
+| Module | Mark | Note |
+|---|---|---|
+| `draupnir.megingjord` | **NOT REACHABLE** | the federation registry's package: nothing a deployment runs imports any of MEGINGJORD |
+| `draupnir.brisingamen.routes` | **NOT REACHABLE** | imported only by `brisingamen.merge`, which is itself unreachable |
+| `draupnir.gullinbursti.roster` | **NOT REACHABLE** | what each machine at the forge is for (RF-E20) |
+| `draupnir.motsognir.supply_adapters` | **NOT REACHABLE** | a supply daemon's output rendered into the status contract (RF-E18) |
+| `draupnir.svalinn.containment` | **NOT REACHABLE** | how a training job is contained at a forge |
+| `draupnir.svalinn.site_egress` | **NOT REACHABLE** | by design: commissioning, through `scripts/egress_policy.py` |
+| `draupnir.procedures` | **NOT REACHABLE** | by design: the acceptance procedures, through `scripts/procedure.py` |
+| `draupnir.procedures.sindri` | **NOT REACHABLE** | by design, as above |
+| `draupnir.interfaces.testing` | **NOT REACHABLE** | by design: the conformance harness |
+| `draupnir.interfaces.testing.fixtures` | **NOT REACHABLE** | by design, as above |
+| `draupnir.interfaces.testing.harness` | **NOT REACHABLE** | by design, as above |
+
+Eleven of these are not deployment code by design. The other fifteen are
+platform code a running deployment never loads, and seven are the security,
+federation, evaluation and export controls this document otherwise marks
+IMPLEMENTED — which is what IMPLEMENTED alone could not say.
+
+---
+
+## The two that are not built
 
 ### NOT BUILT 1 — Three non-functional targets are unmeasured
 
@@ -352,6 +482,19 @@ and AC-N11 (anchor round trip over WireGuard) are measurements on hardware that
 does not exist. They are commissioning measurements. Nothing here estimates
 them, because an estimate recorded in an acceptance pack is read as a
 measurement.
+
+### NOT BUILT 2 — Transport security: no TLS termination and no mTLS
+
+SAD 9.5 specifies TLS 1.3 only, and mTLS between control plane components and
+between GULLINBURSTI and MEGINGJORD. Neither exists here:
+- the console proxy and the API both listen in plain HTTP;
+- no configuration anywhere names a TLS protocol version;
+- no component presents or verifies a client certificate.
+
+The certificate `install.sh` insists on is checked for and never served. This
+is not the estate's absence: terminating TLS and presenting client
+certificates are software a control plane either configures or does not, and
+this one does not. It is recorded in the remedial register as RF-37.
 
 ---
 

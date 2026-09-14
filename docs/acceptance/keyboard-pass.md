@@ -120,7 +120,7 @@ is `aria-disabled="true"` **without** `disabled`, keeping the control focusable
 while the handler stays a no-op.
 
 **Why it was not changed here.** JARNGREIPR asserts the current behaviour
-across all twenty-four components — `disables every acting control in the %s
+across every component — `disables every acting control in the %s
 state` — and two journey specs assert `toBeDisabled()`. Changing it is a
 design-system decision with a cross-cutting test change behind it, and this is
 the integration prompt. It is recorded rather than done, and the record names
@@ -195,5 +195,5 @@ asks for; only the phrasing is not.
   table navigation are unverified by this pass.
 - **Voice control and switch access.** Both depend on accessible names, which
   this checks, and on target size, which it does not.
-- **The Storybook component surface.** Covered by the axe sweep over 175
+- **The Storybook component surface.** Covered by the axe sweep over 220
   stories, which is a different check: it reads markup rather than walking it.

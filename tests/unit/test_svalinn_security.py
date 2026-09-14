@@ -1008,10 +1008,17 @@ def test_the_tls_row_reports_no_when_no_tls_is_configured(
     assert "NOT IN USE" in row.notes
 
 
-def test_the_tls_row_reports_yes_once_a_certificate_is_configured(
+def test_a_configured_certificate_is_not_reported_as_a_terminated_transport(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The other direction, so the derivation is a derivation and not a constant."""
+    """RF-30. A certificate path is not TLS, and neither is it mTLS.
+
+    This asserted `in_use is True` and "mTLS" in the notes once a certificate
+    was configured. Nothing terminates TLS with that certificate and nothing
+    anywhere builds mTLS, so the test held the inventory to a claim about two
+    controls that do not exist. The row now says a certificate is configured
+    and that the transport is not built, and never names mTLS as present.
+    """
     from draupnir.core.infrastructure import config
 
     configured = config.get_settings().model_copy(
@@ -1024,5 +1031,6 @@ def test_the_tls_row_reports_yes_once_a_certificate_is_configured(
 
     row = next(item for item in inventory.entries() if item.algorithm == "TLS 1.3")
 
-    assert row.in_use is True
-    assert "mTLS" in row.notes
+    assert row.in_use is False
+    assert "a certificate is configured" in row.notes
+    assert "not built" in row.notes

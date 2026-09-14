@@ -1,6 +1,6 @@
 # JARNGREIPR
 
-The DRAUPNIR design system: tokens, eighteen primitives, eight composites, and
+The DRAUPNIR design system: tokens, 19 primitives, 11 composites, and
 the six states every one of them ships.
 
 Named for the iron gloves without which Mjölnir cannot be held. The console is

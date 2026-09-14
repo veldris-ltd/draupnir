@@ -172,13 +172,14 @@ What the build enforces rather than asserts:
   callers is not the rule.
 - The OpenAPI document is the single source for both clients. The drift gate
   regenerates and fails the build if either was edited by hand.
-- JARNGREIPR, the design system, ships sixteen primitives and eight composites,
+- JARNGREIPR, the design system, ships 19 primitives and 11 composites,
   and every one of them ships six states beyond the happy path: loading, empty,
   error, denied, read only and partitioned. That is one shared contract rather
   than a convention, because a convention followed component by component is a
-  convention the twentieth component skips. 168 Storybook stories, 24
+  convention the twentieth component skips. 220 Storybook stories, 30
   components at seven states each, and a test that fails the build if a
-  component ships fewer.
+  component ships fewer. Those figures are checked against the stories
+  themselves, so a component added without them fails the build too.
 - Tokens are the only source of visual values, enforced by a linter rather than
   a guideline: a hard-coded colour, spacing or radius fails the build. The
   linter's own fixtures prove it fails, because a gate nobody has watched fail
@@ -187,7 +188,7 @@ What the build enforces rather than asserts:
   recomputes every declared pairing from the stylesheet and found the control
   border at 1.5:1 against a 3:1 requirement; the ramp changed, not the
   threshold.
-- axe runs over every route and over all 168 stories, so the denied and
+- axe runs over every route and over all 220 stories, so the denied and
   partitioned states -- the ones nobody looks at while building -- are checked
   as hard as the happy path.
 - The console and `draupnirctl` are both generated clients of one API. There is
