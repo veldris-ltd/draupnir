@@ -281,6 +281,27 @@ def test_the_strength_failure_is_distinguished_from_a_permissions_failure() -> N
     assert "hardware authenticator" in message
 
 
+def test_approving_a_deletion_requires_it() -> None:
+    """RF-27. The one approval that cannot be undone: a deleted corpus is gone."""
+    with pytest.raises(AuthenticationStrengthError):
+        require_hardware_mfa(
+            principal(Role.APPROVER, amr=("pwd", "otp")), Permission.APPROVE_RETENTION
+        )
+    assert decide(
+        requires(Permission.APPROVE_RETENTION), principal(Role.APPROVER, amr=("pwd", "hwk"))
+    )
+
+
+def test_only_an_approver_may_approve_a_deletion() -> None:
+    """SAD 7.3 asks for an approved deletion; the UX inventory gives S06 to approver.
+
+    Not the curator whose corpus it is, and not the admin who manages policy:
+    deleting training content is a release-grade decision, taken by the role
+    that takes those.
+    """
+    assert roles.roles_with(Permission.APPROVE_RETENTION) == (Role.APPROVER,)
+
+
 def test_submitting_a_run_does_not_require_a_hardware_authenticator() -> None:
     """The requirement is scoped to the actions AC-S15 names."""
     assert decide(requires(Permission.SUBMIT_RUN), principal(Role.OPERATOR, amr=("pwd",)))

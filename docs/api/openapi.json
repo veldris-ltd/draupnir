@@ -1844,6 +1844,18 @@
             "description": "Who approved the deletion. Null means unapproved: SAD 7.3 makes deletion an approved, ledgered action rather than a timer firing.",
             "title": "Approvedby"
           },
+          "corpusSha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The curated corpus the retention clock is measured against.",
+            "title": "Corpussha256"
+          },
           "daysRemaining": {
             "description": "Days until due. Negative when overdue.",
             "title": "Daysremaining",
@@ -1853,6 +1865,12 @@
             "description": "When the retention period expires.",
             "format": "date-time",
             "title": "Dueat",
+            "type": "string"
+          },
+          "etag": {
+            "default": "",
+            "description": "The entity tag an approval is conditional on (SAD 11E.2).",
+            "title": "Etag",
             "type": "string"
           },
           "executedAt": {
@@ -1874,6 +1892,18 @@
             "title": "Id",
             "type": "string"
           },
+          "jurisdiction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whose corpus, where known.",
+            "title": "Jurisdiction"
+          },
           "manifestsRetained": {
             "description": "Whether the manifests survive the deletion. They must: a lineage that loses its hashes when a corpus is deleted cannot be verified afterwards.",
             "title": "Manifestsretained",
@@ -1884,13 +1914,39 @@
             "title": "Policy",
             "type": "string"
           },
+          "refusal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the worker did not delete it, where it did not.",
+            "title": "Refusal"
+          },
+          "releases": {
+            "description": "The runs whose released models were built from this corpus: what a deletion must not orphan (AC-F20).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Releases",
+            "type": "array"
+          },
+          "state": {
+            "default": "PROPOSED",
+            "description": "`PROPOSED`, `APPROVED`, `EXECUTED` or `REFUSED`.",
+            "title": "State",
+            "type": "string"
+          },
           "subject": {
             "description": "What that subject is, in words.",
             "title": "Subject",
             "type": "string"
           },
           "subjectId": {
-            "description": "What it applies to.",
+            "description": "The entry the action was proposed as. The corpus it applies to is `corpusSha256`.",
             "format": "uuid",
             "title": "Subjectid",
             "type": "string"
@@ -6204,6 +6260,163 @@
           }
         },
         "summary": "Retention actions, due and executed",
+        "tags": [
+          "corpora"
+        ]
+      }
+    },
+    "/v1/retention/{action_id}/approve": {
+      "post": {
+        "description": "Approve one deletion. S06's primary action, RF-27; SAD 7.3.\n\n    The approval is recorded and nothing is deleted here. The worker's\n    retention duty carries it out, through `hodd.retention.execute`, and\n    records the outcome -- including a refusal that names the releases where\n    the curated manifests would not survive (AC-F20). Deletion cannot be\n    undone, so this takes a hardware authenticator (SVALINN), an\n    `Idempotency-Key`, and an `If-Match` over the action's state: an approver\n    who read the action before somebody else approved or refused it is refused\n    with 412 rather than approving what they did not see.\n    \n\nRequires: `approver`.",
+        "operationId": "approveRetention",
+        "parameters": [
+          {
+            "description": "The retention action, as `listRetention` returns it.",
+            "in": "path",
+            "name": "action_id",
+            "required": true,
+            "schema": {
+              "description": "The retention action, as `listRetention` returns it.",
+              "format": "uuid",
+              "title": "Action Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Entity tag the write is conditional on.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entity tag the write is conditional on.",
+              "title": "If-Match"
+            }
+          },
+          {
+            "description": "Replaying a request with the same key returns the original result.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replaying a request with the same key returns the original result.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Correlation-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Correlation-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "description": "An RFC 9457 problem document.",
+                  "properties": {
+                    "code": {
+                      "description": "Machine readable, stable problem code.",
+                      "title": "Code",
+                      "type": "string"
+                    },
+                    "detail": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Explanation for this occurrence.",
+                      "title": "Detail"
+                    },
+                    "instance": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "URI of this occurrence.",
+                      "title": "Instance"
+                    },
+                    "status": {
+                      "description": "HTTP status code.",
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "description": "Short, human readable summary.",
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Stable URI identifying the problem type.",
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "code"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "An RFC 9457 problem document"
+          }
+        },
+        "summary": "Approve the deletion a retention action proposes",
         "tags": [
           "corpora"
         ]

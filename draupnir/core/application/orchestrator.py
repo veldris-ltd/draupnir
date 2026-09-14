@@ -461,6 +461,15 @@ class Orchestrator:
         """
         return self._ledger.entries_for_subject(str(run_id))
 
+    def entries_of_type(self, subject_type: str) -> tuple[LedgerEntry, ...]:
+        """Every entry about subjects of one type, oldest first.
+
+        For the subjects that are not runs and have no projection -- retention
+        proposals among them (RF-27) -- where what a caller decides against is
+        the entries themselves, folded, rather than a row somebody maintains.
+        """
+        return self._ledger.entries_of_type(subject_type)
+
     def submitter_of(self, run_id: UUID) -> str:
         """Who registered this run.
 

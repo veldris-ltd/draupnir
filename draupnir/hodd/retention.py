@@ -22,7 +22,7 @@ of releases an operator can look at.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any
@@ -296,11 +296,230 @@ def execute(
 
     store.delete(action.artefact_uri)
 
-    from dataclasses import replace
-
     return replace(action, executed_at=now, manifests_retained=manifest_survives)
 
 
 def survivors(action: RetentionAction) -> tuple[str, ...]:
     """What remains after this action. Empty for an intermediate checkpoint."""
     return action.retained
+
+
+# ---------------------------------------------------------------------------
+# The record: a retention action as the chain holds it. RF-27.
+# ---------------------------------------------------------------------------
+#
+# SAD 7.1 gives retention a `retention_action` table, and nothing wrote it. The
+# daily duty recorded its proposals in the chain, S06 read a table that stayed
+# empty, and the one button on the screen closed a dialog. `authorise` and
+# `execute` above were called by unit tests and by nothing else.
+#
+# So an action is folded from its entries -- proposed, approved, executed or
+# refused -- the way RF-13 folded the array, rather than projected into a
+# second place that would disagree with the chain the first time either was
+# rebuilt. Here rather than in the worker because the API folds the same
+# entries, and the API may not import the worker.
+
+#: The subject every retention entry is recorded against: the corpus, by digest.
+CORPUS_SUBJECT = "corpus"
+#: The duty found a corpus past retention. Deletes nothing.
+PROPOSED = "retention.due"
+#: An approver approved the deletion, answering the proposal.
+APPROVED = "retention.approved"
+#: The worker deleted the raw corpus, and the manifests were retained.
+EXECUTED = "retention.executed"
+#: The worker did not delete it, and says why -- naming the releases, where
+#: deleting would have broken their lineage (AC-F20).
+REFUSED = "retention.refused"
+#: How an approval, an execution or a refusal names the proposal it answers.
+#: The same key `worker.accepted` uses, for the same reason.
+ANSWERS = "answers_seq"
+
+
+class ProposalState(StrEnum):
+    """Where one retention action has reached."""
+
+    PROPOSED = "PROPOSED"
+    APPROVED = "APPROVED"
+    EXECUTED = "EXECUTED"
+    REFUSED = "REFUSED"
+
+
+@dataclass(frozen=True, slots=True)
+class Proposal:
+    """One retention action, folded from the entries about it."""
+
+    #: The proposal entry's identifier, which is the action's identifier.
+    id: UUID
+    #: The proposal entry's sequence, which every later entry answers.
+    seq: int
+    corpus_sha256: str
+    #: The raw corpus a deletion removes. Empty where the proposal could not
+    #: name one, and then nothing is deleted.
+    artefact_uri: str
+    jurisdiction: str
+    due_at: datetime
+    #: The runs whose releases were built from this corpus.
+    releases: tuple[str, ...]
+    curated_by: str = ""
+    state: ProposalState = ProposalState.PROPOSED
+    approved_by: str | None = None
+    approved_seq: int | None = None
+    executed_at: datetime | None = None
+    manifests_retained: bool = True
+    #: Why the last attempt did not delete it, where it did not.
+    reason: str | None = None
+
+    @property
+    def approvable(self) -> bool:
+        """Whether an approver may approve it now.
+
+        A refusal may be approved again: the reason is on the record, and the
+        approver who reads it is the one who decides whether it still stands.
+        """
+        return self.state in {ProposalState.PROPOSED, ProposalState.REFUSED}
+
+    @property
+    def awaiting_execution(self) -> bool:
+        """Whether the worker has an approved deletion to carry out."""
+        return self.state is ProposalState.APPROVED
+
+    def version(self) -> dict[str, Any]:
+        """What a conditional write on this action is conditional on.
+
+        Everything that can change. An entity tag over the identifier alone
+        never changes, and a precondition that cannot fail is not one.
+        """
+        return {
+            "id": str(self.id),
+            "state": str(self.state),
+            "approvedSeq": self.approved_seq,
+            "reason": self.reason,
+        }
+
+    def action(self) -> RetentionAction:
+        """The action `execute` performs, built from the record."""
+        return RetentionAction(
+            id=self.id,
+            subject_id=self.id,
+            artefact_uri=self.artefact_uri,
+            policy=RetentionPolicy.RAW_CORPUS,
+            due_at=self.due_at,
+            approved_by=self.approved_by,
+            retained=RETAINED_BY_RAW_CORPUS_DELETION,
+        )
+
+    def lineage(self) -> LineageIndex:
+        """The releases built from this corpus, as `execute` asks for them."""
+        return LineageIndex(
+            edges=[LineageEdge(f"release:{item}", (self.artefact_uri,)) for item in self.releases],
+            releases={f"release:{item}": item for item in self.releases},
+        )
+
+
+def fold(entries: Iterable[Any]) -> tuple[Proposal, ...]:
+    """Every retention action at a site, soonest due first."""
+    proposals: dict[int, Proposal] = {}
+    for entry in entries:
+        if getattr(entry, "subject_type", CORPUS_SUBJECT) != CORPUS_SUBJECT:
+            continue
+        payload = entry.payload if isinstance(entry.payload, Mapping) else {}
+
+        if entry.transition == PROPOSED:
+            try:
+                due = datetime.fromisoformat(str(payload["dueAt"]))
+            except (KeyError, ValueError):
+                continue
+            proposals[int(entry.seq)] = Proposal(
+                id=entry.id if isinstance(entry.id, UUID) else UUID(str(entry.id)),
+                seq=int(entry.seq),
+                corpus_sha256=str(payload.get("corpusSha256") or entry.subject_id),
+                artefact_uri=str(payload.get("artefact") or ""),
+                jurisdiction=str(payload.get("jurisdiction") or ""),
+                due_at=due,
+                releases=tuple(str(item) for item in payload.get("releases", ())),
+                curated_by=str(payload.get("curatedBy") or ""),
+            )
+            continue
+
+        answered = payload.get(ANSWERS)
+        if not isinstance(answered, int) or answered not in proposals:
+            continue
+        current = proposals[answered]
+        if entry.transition == APPROVED:
+            proposals[answered] = replace(
+                current,
+                state=ProposalState.APPROVED,
+                approved_by=str(entry.actor),
+                approved_seq=int(entry.seq),
+                reason=None,
+            )
+        elif entry.transition == EXECUTED:
+            proposals[answered] = replace(
+                current,
+                state=ProposalState.EXECUTED,
+                executed_at=entry.ts,
+                manifests_retained=bool(payload.get("manifestsRetained", True)),
+                reason=None,
+            )
+        elif entry.transition == REFUSED:
+            proposals[answered] = replace(
+                current,
+                state=ProposalState.REFUSED,
+                reason=str(payload.get("reason") or "refused, with no reason recorded"),
+            )
+
+    return tuple(sorted(proposals.values(), key=lambda item: (item.due_at, item.seq)))
+
+
+def carry_out(
+    proposal: Proposal, store: Any, *, now: datetime, manifest_survives: bool
+) -> tuple[str, dict[str, Any]]:
+    """Execute one approved action, or say why not. AC-F19 and AC-F20.
+
+    Returns the transition and payload to record rather than recording them:
+    the chain is written by the transaction that owns it.
+    """
+    answering: dict[str, Any] = {
+        ANSWERS: proposal.seq,
+        "approvedSeq": proposal.approved_seq,
+        "artefact": proposal.artefact_uri,
+        "releases": list(proposal.releases),
+    }
+    if store is None:
+        return REFUSED, {
+            **answering,
+            "reason": (
+                "this worker has no artefact store configured (DRAUPNIR_VAULT_ROOT), so "
+                "there is nothing it can delete from. Nothing was deleted."
+            ),
+        }
+    if not proposal.artefact_uri:
+        return REFUSED, {
+            **answering,
+            "reason": (
+                "the proposal names no raw corpus, so there is nothing identified to "
+                "delete. Nothing was deleted."
+            ),
+        }
+    try:
+        done = execute(
+            proposal.action(),
+            proposal.lineage(),
+            store,
+            now=now,
+            manifest_survives=manifest_survives,
+        )
+    except RetentionError as refusal:
+        return REFUSED, {**answering, "reason": str(refusal)}
+    # Broad, because the store is a driver and its failures are its own; the
+    # reason belongs in the entry the approver reads, not in a worker log.
+    except Exception as failure:
+        return REFUSED, {
+            **answering,
+            "reason": f"the store did not delete {proposal.artefact_uri}: {failure}",
+        }
+    return EXECUTED, {
+        **answering,
+        "manifestsRetained": done.manifests_retained,
+        "retained": list(done.retained),
+    }

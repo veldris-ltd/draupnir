@@ -807,6 +807,24 @@ def test_requeueing_one_element_touches_one_element(
     worker = _array_worker(engine, site, tmp_path, scheduler)
     worker.run_once()
 
+    # Element 17 fails first. A requeue of an element that is still pending is
+    # refused (RF-27) -- it is already on the queue -- so the requeue this test
+    # is about is the one an operator actually makes: of an element that
+    # stopped without completing.
+    _accept_array(
+        engine,
+        site,
+        arrays.ELEMENT_OBSERVED,
+        element={
+            "index": 17,
+            "subject": tiers.ALL[17],
+            "state": "FAILED",
+            "attempts": 1,
+            "jobId": "9001_17",
+            "node": "dvalin",
+            "exitCode": 1,
+        },
+    )
     _accept_array(engine, site, arrays.ELEMENT_REQUEUE_ACCEPTED, index=17)
     worker.timetable = Timetable()
     worker.run_once()

@@ -1,7 +1,8 @@
 import type { JSX } from 'react';
-import { Badge, Button, Dialog, Table } from '@draupnir/jarngreipr';
+import { Badge, Button, Dialog, Table, type ComponentState } from '@draupnir/jarngreipr';
 import { useState } from 'react';
-import { pageIsEmpty, useResource } from '../api/useResource';
+import { ApiError, call, idempotencyKey } from '@draupnir/api-client';
+import { pageIsEmpty, stateForError, useResource } from '../api/useResource';
 import { linkProps } from '../routing';
 import { PageHeading } from './parts';
 
@@ -131,6 +132,16 @@ interface Retention {
   executedAt?: string | null;
   manifestsRetained: boolean;
   daysRemaining: number;
+  /** `PROPOSED`, `APPROVED`, `EXECUTED` or `REFUSED`. RF-27. */
+  state: string;
+  refusal?: string | null;
+  /** What the approval is conditional on, sent back as `If-Match`. */
+  etag: string;
+}
+
+/** An action an approver may approve: awaiting a decision, or refused and back for one. */
+function approvable(row: Retention): boolean {
+  return (row.state === 'PROPOSED' || row.state === 'REFUSED') && row.daysRemaining <= 0;
 }
 
 /**
@@ -143,6 +154,37 @@ interface Retention {
 export function RetentionSchedule(): JSX.Element {
   const retention = useResource('listRetention', { emptyWhen: pageIsEmpty });
   const [approving, setApproving] = useState<Retention | null>(null);
+  const [outcome, setOutcome] = useState<{ state: ComponentState; message: string } | null>(null);
+
+  // RF-27. The confirmation used to close the dialog and do nothing else, on
+  // the one action in the console that cannot be undone. It records a decision
+  // now, conditional on the state the approver read.
+  async function approve(row: Retention): Promise<void> {
+    setApproving(null);
+    setOutcome({ state: 'loading', message: `Recording the approval for ${row.subject}.` });
+    try {
+      await call('approveRetention', {
+        params: { action_id: row.id },
+        ifMatch: row.etag,
+        idempotencyKey: idempotencyKey(),
+      });
+      // Approved, not deleted: the daily retention duty carries it out and
+      // records the outcome on this screen, including a refusal naming the
+      // releases where the manifests would not survive.
+      setOutcome({
+        state: 'ready',
+        message:
+          `Deletion of ${row.subject} approved. The daily retention duty carries it out and ` +
+          'records the outcome here, including a refusal if the manifests would not survive.',
+      });
+      retention.refresh();
+    } catch (cause) {
+      setOutcome({
+        state: cause instanceof ApiError ? stateForError(cause) : 'error',
+        message: cause instanceof ApiError ? cause.problem.title : 'The approval did not complete.',
+      });
+    }
+  }
 
   const columns = [
     { key: 'subject', header: 'Subject', render: (row: Retention) => row.subject },
@@ -169,7 +211,14 @@ export function RetentionSchedule(): JSX.Element {
       key: 'approval',
       header: 'Approval',
       render: (row: Retention) =>
-        row.approvedBy == null ? (
+        row.state === 'REFUSED' ? (
+          <>
+            <Badge tone="danger">refused</Badge>{' '}
+            <span className="cn-note" data-testid="retention-refusal">
+              {row.refusal}
+            </span>
+          </>
+        ) : row.approvedBy == null ? (
           <Badge tone="warning">not approved</Badge>
         ) : (
           <span>{row.approvedBy}</span>
@@ -197,7 +246,7 @@ export function RetentionSchedule(): JSX.Element {
         <Button
           variant="secondary"
           size="sm"
-          state={row.executedAt == null && row.approvedBy == null ? 'ready' : 'readOnly'}
+          state={approvable(row) ? 'ready' : 'readOnly'}
           onClick={() => {
             setApproving(row);
           }}
@@ -236,6 +285,17 @@ export function RetentionSchedule(): JSX.Element {
         }
       />
 
+      {outcome === null ? null : (
+        <p
+          className="cn-action-result"
+          role="status"
+          data-testid="retention-result"
+          data-jg-state={outcome.state}
+        >
+          {outcome.message}
+        </p>
+      )}
+
       {approving === null ? null : (
         <Dialog
           title="Approve this deletion?"
@@ -246,7 +306,7 @@ export function RetentionSchedule(): JSX.Element {
           }
           confirmLabel="Approve the deletion"
           onConfirm={() => {
-            setApproving(null);
+            void approve(approving);
           }}
           onDismiss={() => {
             setApproving(null);

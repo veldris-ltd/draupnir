@@ -172,9 +172,11 @@ class Principal:
 
 #: Actions that require a hardware authenticator, whatever role permits them.
 #: Publishing is the one AC-S15 names; deciding a gate is here because under
-#: C-11 it is the same person and the same credential.
+#: C-11 it is the same person and the same credential. Approving a deletion is
+#: here because it is the one action that cannot be undone at all (RF-27): a
+#: release can be withdrawn, and a deleted corpus cannot be re-read.
 REQUIRES_HARDWARE_MFA: Final[frozenset[Permission]] = frozenset(
-    {Permission.PUBLISH_RELEASE, Permission.DECIDE_GATE}
+    {Permission.PUBLISH_RELEASE, Permission.DECIDE_GATE, Permission.APPROVE_RETENTION}
 )
 
 

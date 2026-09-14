@@ -37,11 +37,14 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
 
+from draupnir.api.reading import jurisdiction_of
 from draupnir.core.domain.ledger import LedgerEntry
+from draupnir.core.domain.projector import REGISTRATION
 from draupnir.core.domain.states import RunState
 from draupnir.gullinbursti.agent import ANCHOR_INTERVAL
+from draupnir.hodd import retention
 from draupnir.hodd.retention import RETENTION, due_at
-from draupnir.hodd.stores import StoreError
+from draupnir.hodd.stores import StoreError, artefact_uri
 from draupnir.interfaces.types import JobPlan, ResourceRequest
 from draupnir.motsognir import execution
 
@@ -75,13 +78,14 @@ BUS_BANDWIDTH = re.compile(r"Avg bus bandwidth\s*:\s*([0-9]+(?:\.[0-9]+)?)")
 
 #: The subject an alarm is recorded against: the forge itself.
 SITE_SUBJECT = "site"
-#: The subject a retention proposal is recorded against.
-CORPUS_SUBJECT = "corpus"
+#: The subject a retention proposal is recorded against. HODD's name since
+#: RF-27, because the API folds these entries too and may not import this.
+CORPUS_SUBJECT = retention.CORPUS_SUBJECT
 #: The transition string an alarm carries.
 ALARM_RAISED = "alarm.raised"
 #: The transition string a retention proposal carries. Read back on the next
 #: sweep, so a corpus is proposed once rather than once a day.
-RETENTION_PROPOSED = "retention.due"
+RETENTION_PROPOSED = retention.PROPOSED
 
 
 class Duty(StrEnum):
@@ -681,6 +685,12 @@ class Due:
     last_release_at: datetime
     due_at: datetime
     releases: tuple[str, ...]
+    #: Which jurisdiction's corpus, and the raw corpus a deletion would remove
+    #: (RF-27). Named at proposal time so an approver approves a deletion of
+    #: something identified, and the worker deletes exactly that. Empty where
+    #: the run that consumed the corpus does not name a jurisdiction.
+    jurisdiction: str = ""
+    artefact_uri: str = ""
 
     def as_payload(self) -> dict[str, Any]:
         """The ledger payload of the proposal."""
@@ -692,7 +702,18 @@ class Due:
             "releases": list(self.releases),
             "policy": "raw-corpus",
             "retentionMonths": round(RETENTION.days / 30),
+            "jurisdiction": self.jurisdiction,
+            "artefact": self.artefact_uri,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class Execution:
+    """What the retention duty did about one approved deletion. RF-27."""
+
+    corpus_sha256: str
+    transition: str
+    payload: Mapping[str, Any]
 
 
 _CURATED = f"{RunState.LICENCE_CLEARED}->{RunState.CURATED}"
@@ -717,10 +738,15 @@ def due_corpora(entries: Iterable[LedgerEntry], *, now: datetime) -> tuple[Due, 
     consumed: dict[str, str] = {}
     released: dict[str, datetime] = {}
     proposed: set[str] = set()
+    names: dict[str, str] = {}
+    site = ""
 
     for entry in entries:
         payload = entry.payload if isinstance(entry.payload, dict) else {}
-        if entry.transition == RETENTION_PROPOSED:
+        site = site or str(entry.site_id)
+        if entry.transition == REGISTRATION:
+            names[entry.subject_id] = str(payload.get("name") or "")
+        elif entry.transition == RETENTION_PROPOSED:
             proposed.add(entry.subject_id)
         elif entry.transition == _CURATED and payload.get("output_sha256"):
             curated[str(payload["output_sha256"])] = entry.subject_id
@@ -746,10 +772,65 @@ def due_corpora(entries: Iterable[LedgerEntry], *, now: datetime) -> tuple[Due, 
             last_release_at=released_at,
             due_at=due_at(released_at),
             releases=tuple(sorted(lineage[corpus])),
+            jurisdiction=_jurisdiction(names, curated.get(corpus, ""), lineage[corpus]),
+            artefact_uri=_raw_corpus(
+                site, _jurisdiction(names, curated.get(corpus, ""), lineage[corpus])
+            ),
         )
         for corpus, released_at in sorted(latest.items())
         if corpus not in proposed and due_at(released_at) <= now
     )
+
+
+def _jurisdiction(names: Mapping[str, str], curated_by: str, runs: Sequence[str]) -> str:
+    """The jurisdiction a corpus is for, read from a run that names it."""
+    for run in (curated_by, *runs):
+        found = jurisdiction_of(names.get(run, ""))
+        if found:
+            return found
+    return ""
+
+
+def _raw_corpus(site: str, jurisdiction: str) -> str:
+    """Where the raw corpus a deletion removes is held. HODD's layout."""
+    if not site or not jurisdiction:
+        return ""
+    return artefact_uri(site, "corpus", f"{jurisdiction}/raw")
+
+
+def execute_approved(chain: Chain, store: Any, *, now: datetime) -> tuple[Execution, ...]:
+    """Carry out every approved retention action. RF-27, AC-F19, AC-F20.
+
+    Only approved ones. A proposal nobody approved stays a proposal however far
+    past due it is: SAD 7.3's deletion is "an approved and ledgered retention
+    action rather than an unattended job", and a duty that deleted what was
+    merely overdue would be exactly the unattended job.
+
+    Whether the manifests survive is asked of the store, not assumed. The
+    curated corpus is the manifest a raw deletion leaves behind, and where it
+    is not there the deletion would break the lineage of every release built
+    from the corpus -- so it is refused, naming them.
+    """
+    done: list[Execution] = []
+    for proposal in retention.fold(chain.stream()):
+        if not proposal.awaiting_execution:
+            continue
+        transition, payload = retention.carry_out(
+            proposal, store, now=now, manifest_survives=_manifest_survives(store, proposal)
+        )
+        done.append(Execution(proposal.corpus_sha256, transition, payload))
+    return tuple(done)
+
+
+def _manifest_survives(store: Any, proposal: retention.Proposal) -> bool:
+    """Whether the curated corpus beside this raw corpus is held."""
+    if store is None or not proposal.artefact_uri.endswith("/raw"):
+        return False
+    curated = f"{proposal.artefact_uri.removesuffix('/raw')}/curated"
+    try:
+        return bool(store.stat(curated).exists)
+    except StoreError:
+        return False
 
 
 def sweep(chain: Chain, *, now: datetime) -> tuple[Finding, tuple[Due, ...]]:

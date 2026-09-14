@@ -25,6 +25,7 @@ make test-contract
 - `tests/contract/test_api_surface.py`
 - `tests/contract/test_api_write_path.py`
 - `tests/contract/test_release_documents.py`
+- `tests/contract/test_retention_approval.py`
 - `tests/integration/test_api_transitions.py`
 - `tests/unit/test_gleipnir_approvals.py`
 - `tests/unit/test_skidbladnir.py`

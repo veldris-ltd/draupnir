@@ -143,6 +143,20 @@ def publication_facts_for(artefact_sha256: str) -> Question:
     return ask
 
 
+def entries_of(subject_type: str) -> Question:
+    """Every entry about subjects of one type, oldest first. RF-27.
+
+    Asked through the writer rather than the read model when a write is
+    decided against it, so the answer comes from the chain the write will be
+    appended to.
+    """
+
+    def ask(orchestrator: Orchestrator) -> tuple[LedgerEntry, ...]:
+        return orchestrator.entries_of_type(subject_type)
+
+    return ask
+
+
 class NoWriter:
     """Records nothing. The default, and what a contract test runs against.
 

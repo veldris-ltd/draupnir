@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -327,3 +328,189 @@ def test_lineage_remains_complete_after_the_corpus_is_deleted(
 def test_a_naive_timestamp_is_refused() -> None:
     with pytest.raises(retention.RetentionError, match="explicit offset"):
         retention.due_at(datetime(2026, 4, 11))  # noqa: DTZ001 -- that is the point
+
+
+# ---------------------------------------------------------------------------
+# The record, folded from the chain, and carried out. RF-27.
+#
+# `authorise` and `execute` above were called by these tests and by nothing
+# else: the duty proposed, S06 read a table nobody wrote, and the approve
+# button closed its dialog. What follows is the path that now reaches them.
+# ---------------------------------------------------------------------------
+
+DUE = RELEASED + retention.RETENTION
+RAW = "hodd://sindri/corpora/GBR/raw"
+
+
+def recorded(
+    seq: int, transition: str, payload: dict[str, object], *, actor: str = "system:worker"
+) -> SimpleNamespace:
+    """An entry in the shape the fold reads, about one corpus."""
+    return SimpleNamespace(
+        id=uuid4(),
+        seq=seq,
+        ts=DUE + timedelta(days=seq),
+        actor=actor,
+        subject_type=retention.CORPUS_SUBJECT,
+        subject_id="c" * 64,
+        transition=transition,
+        payload=payload,
+    )
+
+
+def proposed(*, artefact: str = RAW, releases: tuple[str, ...] = ("run-1",)) -> SimpleNamespace:
+    return recorded(
+        1,
+        retention.PROPOSED,
+        {
+            "corpusSha256": "c" * 64,
+            "dueAt": DUE.isoformat(),
+            "releases": list(releases),
+            "jurisdiction": "GBR",
+            "artefact": artefact,
+        },
+    )
+
+
+def answering(seq: int, transition: str, **payload: object) -> SimpleNamespace:
+    actor = "approver@veldris.internal" if transition == retention.APPROVED else "system:worker"
+    return recorded(seq, transition, {retention.ANSWERS: 1, **payload}, actor=actor)
+
+
+def test_a_proposal_folds_to_an_action_awaiting_approval() -> None:
+    (action,) = retention.fold([proposed()])
+
+    assert action.state is retention.ProposalState.PROPOSED
+    assert action.approvable
+    assert not action.awaiting_execution
+    assert action.artefact_uri == RAW
+    assert action.releases == ("run-1",)
+
+
+def test_an_approved_and_executed_action_says_who_and_when() -> None:
+    (action,) = retention.fold(
+        [
+            proposed(),
+            answering(2, retention.APPROVED),
+            answering(3, retention.EXECUTED, manifestsRetained=True),
+        ]
+    )
+
+    assert action.state is retention.ProposalState.EXECUTED
+    assert action.approved_by == "approver@veldris.internal"
+    assert action.executed_at == DUE + timedelta(days=3)
+    assert not action.approvable, "an executed deletion offered for approval again"
+
+
+def test_a_refused_action_carries_its_reason_and_may_be_approved_again() -> None:
+    """The reason is on the record; the approver who reads it decides."""
+    (action,) = retention.fold(
+        [
+            proposed(),
+            answering(2, retention.APPROVED),
+            answering(3, retention.REFUSED, reason="the manifests would not survive"),
+        ]
+    )
+
+    assert action.state is retention.ProposalState.REFUSED
+    assert action.reason == "the manifests would not survive"
+    assert action.approvable
+
+
+def test_an_entry_answering_no_proposal_changes_nothing() -> None:
+    stray = recorded(5, retention.APPROVED, {retention.ANSWERS: 99})
+
+    (action,) = retention.fold([proposed(), stray])
+
+    assert action.state is retention.ProposalState.PROPOSED
+
+
+def test_a_proposal_with_no_due_date_is_not_an_action() -> None:
+    undated = recorded(1, retention.PROPOSED, {"corpusSha256": "c" * 64})
+
+    assert retention.fold([undated]) == ()
+
+
+def test_the_version_changes_when_the_action_does() -> None:
+    """A precondition over something that never changes cannot fail."""
+    before = retention.fold([proposed()])[0].version()
+    after = retention.fold([proposed(), answering(2, retention.APPROVED)])[0].version()
+
+    assert before != after
+
+
+def _approved(**kwargs: object) -> retention.Proposal:
+    return retention.fold([proposed(**kwargs), answering(2, retention.APPROVED)])[0]  # type: ignore[arg-type]
+
+
+def test_an_approved_deletion_removes_the_raw_corpus_and_keeps_the_manifests() -> None:
+    """AC-F19, through the path the worker takes."""
+    store = FakeStore()
+
+    transition, payload = retention.carry_out(
+        _approved(), store, now=DUE + timedelta(days=4), manifest_survives=True
+    )
+
+    assert transition == retention.EXECUTED
+    assert store.deleted == [RAW]
+    assert payload["retained"] == list(retention.RETAINED_BY_RAW_CORPUS_DELETION)
+    assert payload[retention.ANSWERS] == 1
+
+
+def test_a_deletion_that_would_orphan_a_release_is_refused_naming_it() -> None:
+    """AC-F20, through the path the worker takes."""
+    store = FakeStore()
+
+    transition, payload = retention.carry_out(
+        _approved(), store, now=DUE + timedelta(days=4), manifest_survives=False
+    )
+
+    assert transition == retention.REFUSED
+    assert "run-1" in str(payload["reason"])
+    assert store.deleted == []
+
+
+def test_an_unapproved_action_is_never_carried_out() -> None:
+    """The unattended job SAD 7.3 rules out, refused by the code that deletes."""
+    store = FakeStore()
+    (unapproved,) = retention.fold([proposed()])
+
+    transition, _payload = retention.carry_out(
+        unapproved, store, now=DUE + timedelta(days=4), manifest_survives=True
+    )
+
+    assert transition == retention.REFUSED
+    assert store.deleted == []
+
+
+def test_nothing_is_deleted_without_a_store() -> None:
+    transition, payload = retention.carry_out(
+        _approved(), None, now=DUE + timedelta(days=4), manifest_survives=True
+    )
+
+    assert transition == retention.REFUSED
+    assert "DRAUPNIR_VAULT_ROOT" in str(payload["reason"])
+
+
+def test_nothing_is_deleted_when_the_proposal_names_no_corpus() -> None:
+    store = FakeStore()
+
+    transition, _payload = retention.carry_out(
+        _approved(artefact=""), store, now=DUE + timedelta(days=4), manifest_survives=True
+    )
+
+    assert transition == retention.REFUSED
+    assert store.deleted == []
+
+
+def test_a_store_that_fails_is_a_refusal_on_the_record_rather_than_a_crash() -> None:
+    class Failing(FakeStore):
+        def delete(self, uri: str) -> int:
+            raise OSError("read-only file system")
+
+    transition, payload = retention.carry_out(
+        _approved(), Failing(), now=DUE + timedelta(days=4), manifest_survives=True
+    )
+
+    assert transition == retention.REFUSED
+    assert "read-only file system" in str(payload["reason"])

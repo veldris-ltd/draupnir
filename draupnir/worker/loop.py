@@ -492,6 +492,9 @@ class Maintenance:
     #: can block uninterruptibly -- so the worker measures and the API reads
     #: what it wrote. `None` in a test that is not exercising that path.
     measurements: Any = None
+    #: What the retention duty carried out or refused this tick (RF-27), for
+    #: the loop to record. Same shape, and same reason, as the corpus outcomes.
+    retention_outcomes: tuple[Any, ...] = ()
 
     #: What the last anchoring attempt produced, for the loop to record.
     anchored: duties.Anchored | None = None
@@ -668,6 +671,10 @@ class Maintenance:
                 (),
             )
         if duty is Duty.RETENTION and self.chain is not None:
+            # Approved deletions first, then new proposals. The store is the
+            # vault corpus work uses, because that is where the raw corpus is.
+            store = self.workspace.store if self.workspace is not None else None
+            self.retention_outcomes = duties.execute_approved(self.chain, store, now=now)
             return duties.sweep(self.chain, now=now)
         return None, ()
 
@@ -765,6 +772,18 @@ def maintain(
                     payload=dict(placed.payload),
                 )
             maintenance.array_outcomes = ()
+
+        # Every approved deletion carried out, and every one refused, with the
+        # reason where it was (RF-27). The approver reads the outcome on S06.
+        if duty is Duty.RETENTION and maintenance.retention_outcomes:
+            for carried in maintenance.retention_outcomes:
+                orchestrator.record(
+                    subject_type=duties.CORPUS_SUBJECT,
+                    subject_id=carried.corpus_sha256,
+                    transition=carried.transition,
+                    payload=dict(carried.payload),
+                )
+            maintenance.retention_outcomes = ()
 
         for item in due:
             orchestrator.record(

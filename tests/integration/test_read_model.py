@@ -301,3 +301,150 @@ async def test_a_cursor_this_api_did_not_issue_is_refused(reader: DatabaseReadMo
     """RF-16 made this a refusal rather than a silent reset to page one."""
     with pytest.raises(ProblemError):
         await reader.runs(SITE, limit=2, cursor="not-a-cursor")
+
+
+# ---------------------------------------------------------------------------
+# Retention, folded from the chain. RF-27.
+#
+# `retention` read `retention_action`, which nothing wrote: the duty recorded
+# its proposals in the chain and S06 reported nothing due whatever was. It
+# folds the entries now, and these are real entries in a real chain, hashed as
+# the ledger hashes them, at a forge of their own.
+# ---------------------------------------------------------------------------
+
+RETAINING = "sindri-read-model-retention"
+
+
+@pytest.fixture(scope="module")
+def retaining(owner_engine: Engine) -> Iterator[str]:
+    """One proposal approved, one refused with its reason, in a hashed chain."""
+    import json
+
+    from draupnir.core.domain.ledger import LedgerEntry, append
+    from draupnir.hodd import retention
+
+    due = AT - timedelta(days=3)
+    entries: list[LedgerEntry] = []
+    previous: LedgerEntry | None = None
+    specification = [
+        ("a" * 64, retention.PROPOSED, {}, "system:worker"),
+        ("a" * 64, retention.APPROVED, {retention.ANSWERS: 1}, "approver@veldris.internal"),
+        ("b" * 64, retention.PROPOSED, {}, "system:worker"),
+        ("b" * 64, retention.APPROVED, {retention.ANSWERS: 3}, "approver@veldris.internal"),
+        (
+            "b" * 64,
+            retention.REFUSED,
+            {retention.ANSWERS: 3, "reason": "the curated manifests are not held"},
+            "system:worker",
+        ),
+    ]
+    for corpus, transition, extra, actor in specification:
+        payload = (
+            {
+                "corpusSha256": corpus,
+                "dueAt": due.isoformat(),
+                "releases": ["run-1"],
+                "jurisdiction": "GBR",
+                "artefact": f"hodd://{RETAINING}/corpora/GBR/raw",
+            }
+            if transition == retention.PROPOSED
+            else extra
+        )
+        previous = append(
+            previous=previous,
+            site_id=RETAINING,
+            ts=AT + timedelta(minutes=len(entries)),
+            actor=actor,
+            subject_type=retention.CORPUS_SUBJECT,
+            subject_id=corpus,
+            transition=transition,
+            payload=payload,
+        )
+        entries.append(previous)
+
+    with owner_engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO site (id, name, location, timezone, control_plane_uri,"
+                " anchor_state) VALUES (:id, :id, 'Nuneaton', 'Europe/London',"
+                " 'https://alviss.example.internal', 'ANCHORED') ON CONFLICT (id) DO NOTHING"
+            ),
+            {"id": RETAINING},
+        )
+        connection.execute(
+            text("SELECT set_config('draupnir.site_id', :s, true)"), {"s": RETAINING}
+        )
+        for item in entries:
+            connection.execute(
+                text(
+                    "INSERT INTO ledger_entry (id, site_id, seq, prev_hash, entry_hash, ts,"
+                    " actor, subject_type, subject_id, transition, payload) VALUES (:id,"
+                    " :site, :seq, :prev, :hash, :ts, :actor, :type, :subject, :transition,"
+                    " CAST(:payload AS jsonb))"
+                ),
+                {
+                    "id": str(item.id),
+                    "site": item.site_id,
+                    "seq": item.seq,
+                    "prev": item.prev_hash,
+                    "hash": item.entry_hash,
+                    "ts": item.ts,
+                    "actor": item.actor,
+                    "type": item.subject_type,
+                    "subject": item.subject_id,
+                    "transition": item.transition,
+                    "payload": json.dumps(item.payload, sort_keys=True),
+                },
+            )
+    yield RETAINING
+
+
+async def test_retention_is_folded_from_the_chain_rather_than_an_empty_table(
+    reader: DatabaseReadModel, retaining: str
+) -> None:
+    page = await reader.retention(retaining)
+
+    by_corpus = {item.corpus_sha256: item for item in page.items}
+    assert set(by_corpus) == {"a" * 64, "b" * 64}
+
+    approved = by_corpus["a" * 64]
+    assert approved.state == "APPROVED"
+    assert approved.approved_by == "approver@veldris.internal"
+    assert approved.jurisdiction == "GBR"
+    assert approved.releases == ["run-1"]
+    assert approved.etag, "an action with no entity tag cannot be approved conditionally"
+
+    refused = by_corpus["b" * 64]
+    assert refused.state == "REFUSED"
+    assert refused.refusal == "the curated manifests are not held"
+    assert page.overdue == 2, "neither has been executed and both are past due"
+
+
+async def test_retention_at_one_forge_is_not_visible_from_another(
+    reader: DatabaseReadModel, retaining: str
+) -> None:
+    """Filtered by site as well as by row level security, like every read (RF-18)."""
+    page = await reader.retention(SITE)
+
+    assert all(item.corpus_sha256 not in {"a" * 64, "b" * 64} for item in page.items)
+    assert retaining != SITE
+
+
+async def test_lineage_sources_carry_the_registers_own_answers(
+    reader: DatabaseReadModel,
+) -> None:
+    """RF-27. The release documents are generated from these nodes.
+
+    Without the register's attribution and personal data answers on them, the
+    training content summary would report each as not recorded.
+    """
+    registry = await reader.models(SITE, limit=1, cursor=None)
+    lineage = await reader.lineage(SITE, registry.items[0].artefact)
+
+    assert lineage is not None
+    sources = [node for node in lineage.nodes if node["kind"] == "source"]
+    assert sources, "the fixture registers sources, and the lineage shows none"
+    for node in sources:
+        assert {"licence", "jurisdiction", "attributionRequired", "personalData"} <= set(node)
+        assert node["licence"] == node["fact"]
+    assert any(node["attributionRequired"] is True for node in sources)

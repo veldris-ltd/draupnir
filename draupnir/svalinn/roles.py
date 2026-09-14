@@ -48,6 +48,12 @@ class Permission(StrEnum):
     MANAGE_USERS = "manage_users"
     MANAGE_PLUGINS = "manage_plugins"
     MANAGE_POLICY = "manage_policy"
+    #: Approve the deletion of a raw corpus under retention (RF-27). SAD 7.3
+    #: makes deletion "an approved and ledgered retention action" and SAD 9.4
+    #: names no role that approves one; the UX inventory gives S06 to
+    #: `approver`. Granted there, and proposed as an amendment to 9.4 in
+    #: `docs/fixes/proposed-sad-amendments.md`.
+    APPROVE_RETENTION = "approve_retention"
     #: Deliberately granted to nobody. Present so that an attempt to delete a
     #: ledger entry has a name and is refused by the same machinery as anything
     #: else, rather than being unreachable by accident.
@@ -60,7 +66,14 @@ GRANTS: Final[dict[Role, frozenset[Permission]]] = {
     Role.VIEWER: frozenset({Permission.READ}),
     Role.CURATOR: frozenset({Permission.READ, Permission.REGISTER_SOURCE, Permission.CURATE}),
     Role.OPERATOR: frozenset({Permission.READ, Permission.SUBMIT_RUN, Permission.CANCEL_RUN}),
-    Role.APPROVER: frozenset({Permission.READ, Permission.DECIDE_GATE, Permission.PUBLISH_RELEASE}),
+    Role.APPROVER: frozenset(
+        {
+            Permission.READ,
+            Permission.DECIDE_GATE,
+            Permission.PUBLISH_RELEASE,
+            Permission.APPROVE_RETENTION,
+        }
+    ),
     Role.ADMIN: frozenset(
         {
             Permission.READ,

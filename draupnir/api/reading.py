@@ -84,6 +84,36 @@ def jurisdiction_of(name: str) -> str | None:
     return match.group(1).upper() if match else None
 
 
+def retention_out(proposal: Any, *, now: datetime) -> RetentionOut:
+    """One folded retention action, as S06 shows it. RF-27.
+
+    Shared by the list and by the approval, so the item an approver approves
+    and the item the list shows afterwards carry the same entity tag.
+    """
+    from draupnir.api.concurrency import etag
+    from draupnir.hodd.retention import RetentionPolicy
+
+    return RetentionOut(
+        id=proposal.id,
+        subject_id=proposal.id,
+        subject=(
+            f"{proposal.jurisdiction or 'Unattributed'} raw corpus {proposal.corpus_sha256[:12]}"
+        ),
+        policy=str(RetentionPolicy.RAW_CORPUS),
+        due_at=proposal.due_at,
+        approved_by=proposal.approved_by,
+        executed_at=proposal.executed_at,
+        manifests_retained=proposal.manifests_retained,
+        days_remaining=(proposal.due_at - now).days,
+        corpus_sha256=proposal.corpus_sha256,
+        jurisdiction=proposal.jurisdiction or None,
+        releases=list(proposal.releases),
+        state=str(proposal.state),
+        refusal=proposal.reason,
+        etag=etag(proposal.version()),
+    )
+
+
 class ReadModel(Protocol):
     """Everything the console and the CLI read.
 
@@ -801,28 +831,35 @@ class DatabaseReadModel:
         )
 
     async def retention(self, site_id: str) -> RetentionPage:
-        """Retention actions, soonest first, with the overdue ones counted."""
+        """Retention actions, folded from the chain, soonest first. RF-27.
+
+        Read from the entries rather than from `retention_action`, which
+        nothing wrote: the daily duty recorded its proposals in the chain and
+        this read a table that stayed empty, so S06 reported nothing due
+        whatever was. Filtered by site explicitly as well as by row level
+        security, for the reason every read here is (RF-18).
+        """
+        from draupnir.hodd import retention as retention_record
+
         sql = (
-            "SELECT id, subject_id, policy, due_at, approved_by, executed_at, "
-            "manifests_retained FROM retention_action ORDER BY due_at ASC"
+            "SELECT id, seq, ts, actor, subject_type, subject_id, transition, payload "
+            "FROM ledger_entry WHERE site_id = :site_id AND subject_type = :subject "
+            "ORDER BY seq"
         )
         async with self._scoped(site_id) as session:
-            rows = list((await session.execute(text(sql))).mappings())
+            rows = list(
+                (
+                    await session.execute(
+                        text(sql),
+                        {"site_id": site_id, "subject": retention_record.CORPUS_SUBJECT},
+                    )
+                ).mappings()
+            )
 
         now = datetime.now(UTC)
         items = [
-            RetentionOut(
-                id=row["id"],
-                subject_id=row["subject_id"],
-                subject=f"corpus {str(row['subject_id'])[:8]}",
-                policy=row["policy"],
-                due_at=row["due_at"],
-                approved_by=row["approved_by"],
-                executed_at=row["executed_at"],
-                manifests_retained=row["manifests_retained"],
-                days_remaining=(row["due_at"] - now).days,
-            )
-            for row in rows
+            retention_out(proposal, now=now)
+            for proposal in retention_record.fold(SimpleNamespace(**row) for row in rows)
         ]
         return RetentionPage(
             items=items,

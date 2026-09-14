@@ -880,3 +880,160 @@ def test_an_unreachable_registry_is_a_receipt_not_an_exception() -> None:
 
     assert not receipt.accepted
     assert "could not be reached" in receipt.reason
+
+
+# ---------------------------------------------------------------------------
+# Retention carried out. RF-27, AC-F19, AC-F20.
+#
+# The duty proposed and nothing ever acted on a proposal: S06's approval closed
+# a dialog, and `hodd.retention.execute` was called by unit tests alone. These
+# drive the path an approved deletion now takes through the worker.
+# ---------------------------------------------------------------------------
+
+from draupnir.hodd import retention as retention_record  # noqa: E402
+from draupnir.worker.loop import Maintenance  # noqa: E402
+
+_CORPUS = "c" * 64
+_RAW = f"hodd://{SITE}/corpora/GBR/raw"
+_CURATED = f"hodd://{SITE}/corpora/GBR/curated"
+
+
+class _HeldStore:
+    """A store holding named artefacts, recording what it deleted."""
+
+    def __init__(self, *held: str) -> None:
+        self.held = set(held)
+        self.deleted: list[str] = []
+
+    def stat(self, uri: str) -> Any:
+        return SimpleNamespace(uri=uri, exists=uri in self.held)
+
+    def delete(self, uri: str) -> int:
+        self.deleted.append(uri)
+        self.held.discard(uri)
+        return 1024
+
+
+def _retention_chain(*, approved: bool) -> _Chain:
+    """A proposal for GBR's raw corpus, approved or not."""
+    proposal = entry(
+        None,
+        subject_type=duties.CORPUS_SUBJECT,
+        subject_id=_CORPUS,
+        transition=retention_record.PROPOSED,
+        payload={
+            "corpusSha256": _CORPUS,
+            "dueAt": (NOW - timedelta(days=2)).isoformat(),
+            "releases": ["run-1"],
+            "jurisdiction": "GBR",
+            "artefact": _RAW,
+        },
+    )
+    entries = [proposal]
+    if approved:
+        entries.append(
+            entry(
+                proposal,
+                subject_type=duties.CORPUS_SUBJECT,
+                subject_id=_CORPUS,
+                transition=retention_record.APPROVED,
+                payload={retention_record.ANSWERS: proposal.seq},
+            )
+        )
+    return _Chain(tuple(entries))
+
+
+def test_a_proposal_names_the_jurisdiction_and_the_raw_corpus_it_would_delete() -> None:
+    """So an approver approves the deletion of something identified."""
+    released_at = NOW - RETENTION - timedelta(days=1)
+    run_id = str(uuid4())
+    registered = entry(
+        None,
+        subject_type="run",
+        subject_id=run_id,
+        transition="->DRAFT",
+        payload={"name": "cim-gbr-v0.1"},
+    )
+    curated = entry(
+        registered,
+        subject_type="run",
+        subject_id=run_id,
+        transition=f"{RunState.LICENCE_CLEARED}->{RunState.CURATED}",
+        payload={"output_sha256": _CORPUS},
+        ts=released_at - RETENTION,
+    )
+    queued = entry(
+        curated,
+        subject_type="run",
+        subject_id=run_id,
+        transition=f"{RunState.CURATED}->{RunState.QUEUED}",
+        payload={"input_artefact_sha256": _CORPUS},
+        ts=released_at - RETENTION,
+    )
+    released = entry(
+        queued,
+        subject_type="run",
+        subject_id=run_id,
+        transition=f"{RunState.AWAITING_APPROVAL}->{RunState.RELEASED}",
+        payload={},
+        ts=released_at,
+    )
+
+    (due,) = duties.due_corpora((registered, curated, queued, released), now=NOW)
+
+    assert due.jurisdiction == "GBR"
+    assert due.artefact_uri == _RAW
+    assert due.as_payload()["artefact"] == _RAW
+
+
+def test_an_approved_deletion_is_carried_out_and_the_manifests_kept() -> None:
+    """AC-F19, through the duty."""
+    vault = _HeldStore(_RAW, _CURATED)
+
+    (done,) = duties.execute_approved(_retention_chain(approved=True), vault, now=NOW)
+
+    assert done.transition == retention_record.EXECUTED
+    assert vault.deleted == [_RAW]
+    assert _CURATED in vault.held, "the curated manifests went with the raw corpus"
+    assert done.payload["manifestsRetained"] is True
+
+
+def test_a_deletion_that_would_leave_no_manifest_is_refused_naming_the_release() -> None:
+    """AC-F20, through the duty. The curated corpus is the manifest a deletion leaves."""
+    vault = _HeldStore(_RAW)
+
+    (done,) = duties.execute_approved(_retention_chain(approved=True), vault, now=NOW)
+
+    assert done.transition == retention_record.REFUSED
+    assert "run-1" in str(done.payload["reason"])
+    assert vault.deleted == []
+
+
+def test_an_unapproved_proposal_is_never_carried_out() -> None:
+    """However far past due. The unattended job SAD 7.3 rules out."""
+    vault = _HeldStore(_RAW, _CURATED)
+
+    assert duties.execute_approved(_retention_chain(approved=False), vault, now=NOW) == ()
+    assert vault.deleted == []
+
+
+def test_a_worker_with_no_vault_refuses_on_the_record() -> None:
+    (done,) = duties.execute_approved(_retention_chain(approved=True), None, now=NOW)
+
+    assert done.transition == retention_record.REFUSED
+    assert "DRAUPNIR_VAULT_ROOT" in str(done.payload["reason"])
+
+
+def test_the_retention_duty_hands_its_outcomes_to_the_loop() -> None:
+    """Recorded by the transaction that owns the chain, like every other duty's."""
+    vault = _HeldStore(_RAW, _CURATED)
+    maintenance = Maintenance(
+        chain=_retention_chain(approved=True),
+        workspace=SimpleNamespace(store=vault),
+    )
+
+    maintenance.perform(Duty.RETENTION, now=NOW)
+
+    assert [item.transition for item in maintenance.retention_outcomes] == [
+        retention_record.EXECUTED
+    ]

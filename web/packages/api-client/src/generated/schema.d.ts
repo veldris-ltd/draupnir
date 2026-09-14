@@ -739,6 +739,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/retention/{action_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve the deletion a retention action proposes
+         * @description Approve one deletion. S06's primary action, RF-27; SAD 7.3.
+         *
+         *         The approval is recorded and nothing is deleted here. The worker's
+         *         retention duty carries it out, through `hodd.retention.execute`, and
+         *         records the outcome -- including a refusal that names the releases where
+         *         the curated manifests would not survive (AC-F20). Deletion cannot be
+         *         undone, so this takes a hardware authenticator (SVALINN), an
+         *         `Idempotency-Key`, and an `If-Match` over the action's state: an approver
+         *         who read the action before somebody else approved or refused it is refused
+         *         with 412 rather than approving what they did not see.
+         *
+         *
+         *     Requires: `approver`.
+         */
+        post: operations["approveRetention"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/roles": {
         parameters: {
             query?: never;
@@ -2308,6 +2340,11 @@ export interface components {
              */
             approvedBy?: string | null;
             /**
+             * Corpussha256
+             * @description The curated corpus the retention clock is measured against.
+             */
+            corpusSha256?: string | null;
+            /**
              * Daysremaining
              * @description Days until due. Negative when overdue.
              */
@@ -2318,6 +2355,12 @@ export interface components {
              * @description When the retention period expires.
              */
             dueAt: string;
+            /**
+             * Etag
+             * @description The entity tag an approval is conditional on (SAD 11E.2).
+             * @default
+             */
+            etag: string;
             /**
              * Executedat
              * @description When it was carried out.
@@ -2330,6 +2373,11 @@ export interface components {
              */
             id: string;
             /**
+             * Jurisdiction
+             * @description Whose corpus, where known.
+             */
+            jurisdiction?: string | null;
+            /**
              * Manifestsretained
              * @description Whether the manifests survive the deletion. They must: a lineage that loses its hashes when a corpus is deleted cannot be verified afterwards.
              */
@@ -2340,6 +2388,22 @@ export interface components {
              */
             policy: string;
             /**
+             * Refusal
+             * @description Why the worker did not delete it, where it did not.
+             */
+            refusal?: string | null;
+            /**
+             * Releases
+             * @description The runs whose released models were built from this corpus: what a deletion must not orphan (AC-F20).
+             */
+            releases?: string[];
+            /**
+             * State
+             * @description `PROPOSED`, `APPROVED`, `EXECUTED` or `REFUSED`.
+             * @default PROPOSED
+             */
+            state: string;
+            /**
              * Subject
              * @description What that subject is, in words.
              */
@@ -2347,7 +2411,7 @@ export interface components {
             /**
              * Subjectid
              * Format: uuid
-             * @description What it applies to.
+             * @description The entry the action was proposed as. The corpus it applies to is `corpusSha256`.
              */
             subjectId: string;
         };
@@ -4654,6 +4718,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RetentionPage"];
+                };
+            };
+            /** @description An RFC 9457 problem document */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /**
+                         * Code
+                         * @description Machine readable, stable problem code.
+                         */
+                        code: string;
+                        /**
+                         * Detail
+                         * @description Explanation for this occurrence.
+                         */
+                        detail?: string | null;
+                        /**
+                         * Instance
+                         * @description URI of this occurrence.
+                         */
+                        instance?: string | null;
+                        /**
+                         * Status
+                         * @description HTTP status code.
+                         */
+                        status: number;
+                        /**
+                         * Title
+                         * @description Short, human readable summary.
+                         */
+                        title: string;
+                        /**
+                         * Type
+                         * @description Stable URI identifying the problem type.
+                         */
+                        type: string;
+                    };
+                };
+            };
+        };
+    };
+    approveRetention: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Entity tag the write is conditional on. */
+                "If-Match"?: string | null;
+                /** @description Replaying a request with the same key returns the original result. */
+                "Idempotency-Key"?: string | null;
+                "X-Correlation-Id"?: string | null;
+            };
+            path: {
+                /** @description The retention action, as `listRetention` returns it. */
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionOut"];
                 };
             };
             /** @description An RFC 9457 problem document */

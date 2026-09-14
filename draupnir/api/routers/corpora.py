@@ -10,28 +10,36 @@ the event stream.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Path, Response, status
 
 from draupnir.api import telemetry, writing
+from draupnir.api.concurrency import ConcurrencyError, require
 from draupnir.api.deps import (
     Cursor,
     Guarded,
     IdempotencyKey,
+    IfMatch,
     PageSize,
     Reading,
     accepted,
+    as_problem,
     complete,
+    now,
     release,
     replay_or_reserve,
     require_idempotency_key,
 )
 from draupnir.api.guards import needs
 from draupnir.api.problems import ProblemError
+from draupnir.api.reading import retention_out
 from draupnir.api.schemas import (
     Accepted,
     CorpusPage,
+    RetentionOut,
     RetentionPage,
     SourceIn,
     SourceOut,
@@ -39,6 +47,7 @@ from draupnir.api.schemas import (
 )
 from draupnir.core.domain.identifiers import new_id
 from draupnir.core.domain.states import RunState
+from draupnir.hodd import retention as retention_record
 from draupnir.svalinn.roles import Permission
 
 router = APIRouter(tags=["corpora"])
@@ -292,3 +301,128 @@ async def list_retention(ctx: Guarded, reading: Reading) -> RetentionPage:
     page = await reading.retention(ctx.site_id)
     telemetry.log("retention.listed", actions=len(page.items), overdue=page.overdue)
     return page
+
+
+@router.post(
+    "/retention/{action_id}/approve",
+    summary="Approve the deletion a retention action proposes",
+    operation_id="approveRetention",
+    response_model=RetentionOut,
+)
+@needs(Permission.APPROVE_RETENTION)
+async def approve_retention(
+    action_id: Annotated[
+        UUID, Path(description="The retention action, as `listRetention` returns it.")
+    ],
+    ctx: Guarded,
+    response: Response,
+    if_match: IfMatch = None,
+    idempotency_key: IdempotencyKey = None,
+) -> RetentionOut:
+    """Approve one deletion. S06's primary action, RF-27; SAD 7.3.
+
+    The approval is recorded and nothing is deleted here. The worker's
+    retention duty carries it out, through `hodd.retention.execute`, and
+    records the outcome -- including a refusal that names the releases where
+    the curated manifests would not survive (AC-F20). Deletion cannot be
+    undone, so this takes a hardware authenticator (SVALINN), an
+    `Idempotency-Key`, and an `If-Match` over the action's state: an approver
+    who read the action before somebody else approved or refused it is refused
+    with 412 rather than approving what they did not see.
+    """
+    key = require_idempotency_key(idempotency_key)
+    replayed = replay_or_reserve(key, ctx, {"actionId": str(action_id), "action": "approve"})
+    if replayed is not None and replayed.body:
+        return RetentionOut.model_validate(replayed.body)
+
+    recorder = writing.writer()
+    entries = await recorder.read(
+        site_id=ctx.site_id,
+        actor=ctx.actor,
+        question=writing.entries_of(retention_record.CORPUS_SUBJECT),
+    )
+    proposal = next(
+        (item for item in retention_record.fold(entries or ()) if item.id == action_id), None
+    )
+    if proposal is None:
+        release(key, ctx)
+        raise ProblemError(
+            status=404,
+            code="retention-action-not-found",
+            title="No such retention action",
+            detail=(
+                f"no retention action {action_id} is recorded at this site. Actions are "
+                "proposed by the daily retention duty; read them at /v1/retention."
+            ),
+        )
+
+    try:
+        require(f"retention action {action_id}", proposal.version(), if_match)
+    except ConcurrencyError as error:
+        release(key, ctx)
+        raise as_problem(error) from error
+
+    if not proposal.approvable:
+        release(key, ctx)
+        raise ProblemError(
+            status=409,
+            code="retention-not-approvable",
+            title="This retention action is not awaiting approval",
+            detail=(
+                f"retention action {action_id} is {proposal.state}. An action is approved "
+                "once; a refused one may be approved again, and an executed one is done."
+            ),
+        )
+
+    moment = now()
+    if moment < proposal.due_at:
+        release(key, ctx)
+        raise ProblemError(
+            status=409,
+            code="retention-not-due",
+            title="This corpus is not yet due for deletion",
+            detail=str(
+                retention_record.NotDueError(
+                    proposal.artefact_uri or proposal.corpus_sha256, proposal.due_at, moment
+                )
+            ),
+        )
+
+    with telemetry.span("retention.approve", telemetry.EDGE, actionId=str(action_id)):
+        entry = await recorder.record(
+            site_id=ctx.site_id,
+            actor=ctx.actor,
+            subject_type=retention_record.CORPUS_SUBJECT,
+            subject_id=proposal.corpus_sha256,
+            transition=retention_record.APPROVED,
+            payload={
+                retention_record.ANSWERS: proposal.seq,
+                "corpusSha256": proposal.corpus_sha256,
+                "artefact": proposal.artefact_uri,
+                "releases": list(proposal.releases),
+                "approvedAt": moment.isoformat(),
+            },
+        )
+        telemetry.log(
+            "retention.approved",
+            actionId=str(action_id),
+            corpusSha256=proposal.corpus_sha256,
+            recorded=entry is not None,
+        )
+
+    approved = replace(
+        proposal,
+        state=retention_record.ProposalState.APPROVED,
+        approved_by=ctx.actor,
+        approved_seq=entry.seq if entry is not None else None,
+        reason=None,
+    )
+    out = retention_out(approved, now=moment)
+    response.headers["ETag"] = out.etag
+    complete(
+        key,
+        ctx,
+        status=status.HTTP_200_OK,
+        body=out.model_dump(mode="json", by_alias=True),
+    )
+    return out

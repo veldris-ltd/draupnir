@@ -52,6 +52,7 @@ from draupnir.core.domain.states import RUN_PHASE_STATES, RunState, Transition, 
 from draupnir.core.infrastructure.config import get_settings
 from draupnir.core.infrastructure.repositories import RunProjection
 from draupnir.hamarr import tiers
+from draupnir.hodd import retention as retention_record
 from draupnir.motsognir import arrays
 from draupnir.worker.accepted import ANSWERS
 
@@ -666,7 +667,9 @@ def build() -> dict[str, Any]:
         },
         entry_id=ids.next(clock[array_site]),
     )
-    for index, state, attempts, exit_code in ARRAY_OBSERVED:
+    # `element_state`, not `state`: the run loop above binds `state` to a
+    # `RunState`, and an element state is a different vocabulary (SAD 5.2).
+    for index, element_state, attempts, exit_code in ARRAY_OBSERVED:
         array_chain.append(
             ts=tick(array_site, 20, 240),
             actor="system:motsognir",
@@ -677,7 +680,7 @@ def build() -> dict[str, Any]:
                 "element": {
                     "index": index,
                     "subject": tiers.ALL[index],
-                    "state": state,
+                    "state": element_state,
                     "attempts": attempts,
                     "jobId": f"{ARRAY_JOB}_{index}",
                     "node": ARRAY_APPLIANCES[index % len(ARRAY_APPLIANCES)],
@@ -686,6 +689,36 @@ def build() -> dict[str, Any]:
             },
             entry_id=ids.next(clock[array_site]),
         )
+
+    # -- one raw corpus past retention, proposed and not yet approved -------
+    # S06's primary action approves a deletion (RF-27), and a seeded stack
+    # with nothing due would give the journey that performs it nothing to
+    # approve. Written as the daily duty writes a proposal: the corpus, its
+    # jurisdiction, the raw corpus a deletion removes and the released run built
+    # from it -- and past due on any clock the stack runs against.
+    released_run = next(run for run in runs if run["name"] == "cim-gbr-v0.1")
+    retention_site = str(released_run["site_id"])
+    corpus = fake_sha256(rng, "corpus:GBR:curated")
+    last_release = EPOCH - timedelta(days=800)
+    chains[retention_site].append(
+        ts=tick(retention_site, 10, 60),
+        actor="system:worker",
+        subject_type=retention_record.CORPUS_SUBJECT,
+        subject_id=corpus,
+        transition=retention_record.PROPOSED,
+        payload={
+            "corpusSha256": corpus,
+            "curatedBy": str(released_run["id"]),
+            "lastReleaseAt": last_release.isoformat(),
+            "dueAt": retention_record.due_at(last_release).isoformat(),
+            "releases": [str(released_run["id"])],
+            "policy": "raw-corpus",
+            "retentionMonths": retention_record.RETENTION_MONTHS,
+            "jurisdiction": "GBR",
+            "artefact": f"hodd://{retention_site}/corpora/GBR/raw",
+        },
+        entry_id=ids.next(clock[retention_site]),
+    )
 
     # -- pad the chains to exactly 400 entries ------------------------------
     written = sum(chain.seq for chain in chains.values())

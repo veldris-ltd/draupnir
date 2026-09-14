@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import type { Page } from '@playwright/test';
 import { test, expect } from '@playwright/test';
 
@@ -32,6 +33,38 @@ test.describe('S05, S06 — curation and retention', () => {
     await page.goto('/corpora/retention');
     await expect(page.getByRole('heading', { name: 'Retention', level: 1 })).toBeVisible();
     await expect(page.locator('.jg-state, table')).toBeVisible({ timeout: 15_000 });
+  });
+
+  test('approves a deletion that is due, as a recorded decision', async ({ page }) => {
+    // RF-27. The confirmation closed its dialog and did nothing else, on the
+    // one action in the console that cannot be undone.
+    await page.goto('/corpora/retention');
+    const table = page.getByRole('table');
+    await expect(table).toContainText('GBR raw corpus', { timeout: 15_000 });
+
+    const offered = page.getByRole('button', { name: 'Approve deletion', disabled: false });
+    if ((await offered.count()) === 0) {
+      // The seeded proposal is consumed by the first run against a stack, and
+      // the database outlives the run locally. What must then be true is that
+      // the approval was recorded, not that it can be recorded twice.
+      await expect(table).toContainText('approver');
+      return;
+    }
+
+    await offered.first().click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('cannot be recovered');
+
+    const approved = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname.endsWith('/approve'),
+    );
+    await dialog.getByRole('button', { name: 'Approve the deletion' }).click();
+
+    expect((await approved).status()).toBe(200);
+    // Approved rather than deleted: the retention duty carries it out.
+    await expect(page.getByTestId('retention-result')).toContainText('approved');
   });
 });
 
@@ -100,6 +133,25 @@ test.describe('S14, S17, S28 — model, release and attestation', () => {
     await expect(contents).toContainText('Copyright policy');
     await expect(contents).toContainText('Model card');
     await expect(contents).toContainText('SBOM');
+  });
+
+  test('a document of the package downloads as the file it names', async ({ page }) => {
+    // RF-27. S17 printed five addresses that nothing served. Each document is
+    // now a download, generated from the release record and dated by the
+    // release, so the same download is the same bytes.
+    const artefact = await releasedModel(page);
+    await page.goto(`/models/${artefact}/release`);
+    await expect(page.getByTestId('release-contents')).toBeVisible({ timeout: 15_000 });
+
+    const download = page.waitForEvent('download');
+    await page.getByTestId('download-model-card').click();
+    const file = await download;
+
+    expect(file.suggestedFilename()).toMatch(/model-card\.md$/);
+    const text = await readFile(await file.path(), 'utf-8');
+    expect(text).toMatch(/^# /);
+    // AC-S15: the sole approver exception is a disclosed fact on the card.
+    expect(text).toContain('soleApproverException');
   });
 
   test('an attestation is signed only when the chain is complete', async ({ page }) => {

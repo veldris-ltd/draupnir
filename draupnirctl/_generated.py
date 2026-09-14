@@ -278,6 +278,15 @@ OPERATIONS: tuple[Operation, ...] = (
         has_body=False,
     ),
     Operation(
+        operation_id="approveRetention",
+        command="approve-retention",
+        method="POST",
+        path="/v1/retention/{action_id}/approve",
+        summary="Approve the deletion a retention action proposes",
+        path_params=("action_id",),
+        has_body=False,
+    ),
+    Operation(
         operation_id="getRoles",
         command="get-roles",
         method="GET",

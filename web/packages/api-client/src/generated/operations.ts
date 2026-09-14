@@ -246,6 +246,14 @@ export const OPERATIONS = {
     pathParams: [],
     hasBody: false,
   },
+  approveRetention: {
+    operationId: "approveRetention",
+    method: "POST",
+    path: "/v1/retention/{action_id}/approve",
+    summary: "Approve the deletion a retention action proposes",
+    pathParams: ["action_id"],
+    hasBody: false,
+  },
   getRoles: {
     operationId: "getRoles",
     method: "GET",

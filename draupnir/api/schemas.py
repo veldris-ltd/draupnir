@@ -514,7 +514,11 @@ class RetentionOut(Wire):
     """One retention action, due or executed. S06, SAD 7.3."""
 
     id: UUID = Field(description="The action.")
-    subject_id: UUID = Field(description="What it applies to.")
+    subject_id: UUID = Field(
+        description=(
+            "The entry the action was proposed as. The corpus it applies to is `corpusSha256`."
+        )
+    )
     subject: str = Field(description="What that subject is, in words.")
     policy: str = Field(description="The retention policy that scheduled it.")
     due_at: datetime = Field(description="When the retention period expires.")
@@ -533,6 +537,26 @@ class RetentionOut(Wire):
         )
     )
     days_remaining: int = Field(description="Days until due. Negative when overdue.")
+    corpus_sha256: str | None = Field(
+        default=None, description="The curated corpus the retention clock is measured against."
+    )
+    jurisdiction: str | None = Field(default=None, description="Whose corpus, where known.")
+    releases: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The runs whose released models were built from this corpus: what a deletion "
+            "must not orphan (AC-F20)."
+        ),
+    )
+    state: str = Field(
+        default="PROPOSED", description="`PROPOSED`, `APPROVED`, `EXECUTED` or `REFUSED`."
+    )
+    refusal: str | None = Field(
+        default=None, description="Why the worker did not delete it, where it did not."
+    )
+    etag: str = Field(
+        default="", description="The entity tag an approval is conditional on (SAD 11E.2)."
+    )
 
 
 class RetentionPage(Wire):
