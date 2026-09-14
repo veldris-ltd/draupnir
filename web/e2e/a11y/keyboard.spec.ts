@@ -24,6 +24,13 @@ import { dirname, join } from 'node:path';
  * below do not catch.
  */
 
+/**
+ * The approval screen for whichever artefact the seeded stack has pending,
+ * resolved when the walk reaches it. `/gates` is the queue; the decision
+ * controls K-1 was about are on the approval itself.
+ */
+const GATE_DETAIL = '/gates/:pending';
+
 const ROUTES = [
   '/',
   '/corpora',
@@ -32,11 +39,30 @@ const ROUTES = [
   '/runs/compose',
   '/models',
   '/gates',
+  GATE_DETAIL,
   '/audit',
   '/sites',
   '/admin/policy',
   '/signin',
 ];
+
+/**
+ * Controls the walk has to reach. K-1 (RF-29): while an unavailable control
+ * was `disabled` it was not a focus stop, and the walk on these two screens
+ * never met the wizard's navigation or the approval decision.
+ */
+const MUST_REACH: Record<string, RegExp[]> = {
+  '/corpora/register': [/^Back\b/, /^Continue\b/],
+  [GATE_DETAIL]: [/^Sign and approve\b/, /^Reject\b/],
+};
+
+async function pendingApproval(page: Page): Promise<string> {
+  const response = await page.request.get('/v1/gates?limit=1&state=pending');
+  const body = (await response.json()) as { items: { id: string }[] };
+  const gate = body.items[0];
+  if (gate === undefined) throw new Error('the seeded stack has nothing awaiting approval');
+  return `/gates/${gate.id}`;
+}
 
 /** How far to walk. Longer than any screen's control count, short of a loop. */
 const STOPS = 60;
@@ -51,6 +77,12 @@ interface Stop {
   /** Whether anything paints a focus indicator: an outline or a box shadow. */
   focusVisible: boolean;
   disabled: boolean;
+  /**
+   * What the control says beyond its name: its title, the text it is described
+   * by, and the title of a wrapping label. An unavailable control has to say
+   * why here, or it is the dead end K-1 recorded.
+   */
+  explanation: string;
 }
 
 interface RouteReport {
@@ -104,15 +136,33 @@ async function readFocus(page: Page): Promise<Stop | null> {
         ? ''
         : text(document.querySelector(`label[for="${CSS.escape(identifier)}"]`));
     const wrapping = text(element.closest('label'));
+    // Content before `title`, as the accessible name computation has it: a
+    // title is the last resort. With the order reversed, an unavailable
+    // button -- which carries its reason in a title -- was named by its reason,
+    // and "Continue" was nowhere in the record (RF-29).
     const candidates = [
       (element.getAttribute('aria-label') ?? '').trim(),
       fromLabelledBy,
       fromLabel,
       wrapping,
-      (element.getAttribute('title') ?? '').trim(),
       ((element as HTMLElement).innerText || '').trim(),
+      (element.getAttribute('title') ?? '').trim(),
     ];
     const name = candidates.find((candidate) => candidate !== '') ?? '';
+
+    const describedBy = (element.getAttribute('aria-describedby') ?? '')
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((reference) => text(document.getElementById(reference)))
+      .join(' ');
+    const explanation = [
+      element.getAttribute('title') ?? '',
+      describedBy,
+      element.closest('label')?.getAttribute('title') ?? '',
+    ]
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
 
     return {
       index: 0,
@@ -126,6 +176,7 @@ async function readFocus(page: Page): Promise<Stop | null> {
       focusVisible: outline || shadow,
       disabled:
         element.hasAttribute('disabled') || element.getAttribute('aria-disabled') === 'true',
+      explanation: explanation.slice(0, 160),
     };
   });
 }
@@ -139,7 +190,7 @@ test.describe.configure({ mode: 'serial' });
 test.describe('keyboard pass', () => {
   for (const route of ROUTES) {
     test(`every stop on ${route} is named and shows focus`, async ({ page }) => {
-      await page.goto(route);
+      await page.goto(route === GATE_DETAIL ? await pendingApproval(page) : route);
       await page.waitForLoadState('networkidle');
 
       const stops: Stop[] = [];
@@ -170,7 +221,9 @@ test.describe('keyboard pass', () => {
 
       // A stop with no accessible name is a stop a screen reader announces as
       // its tag. Buttons carrying only a glyph are the usual cause.
-      const unnamed = stops.filter((stop) => !stop.name.trim() && !stop.disabled);
+      // Unavailable stops included: since K-1 they are real stops, and one a
+      // screen reader announces as its tag is no better for being inert.
+      const unnamed = stops.filter((stop) => !stop.name.trim());
       expect(unnamed, `unnamed focus stops on ${route}: ${JSON.stringify(unnamed)}`).toEqual([]);
 
       // A placeholder is not a name (WCAG 2.4.6, 3.3.2): it disappears the
@@ -183,11 +236,26 @@ test.describe('keyboard pass', () => {
 
       // WCAG 2.4.7. A stop a sighted keyboard user cannot locate is a stop
       // they have to guess at.
-      const invisible = stops.filter((stop) => !stop.focusVisible && !stop.disabled);
+      const invisible = stops.filter((stop) => !stop.focusVisible);
       expect(
         invisible,
         `focus stops with no visible indicator on ${route}: ${JSON.stringify(invisible)}`,
       ).toEqual([]);
+
+      // K-1. An unavailable control is reachable so that its reason can be
+      // heard; one that is reachable and silent about why is still a dead end.
+      const unexplained = stops.filter((stop) => stop.disabled && stop.explanation === '');
+      expect(
+        unexplained,
+        `unavailable controls that do not say why on ${route}: ${JSON.stringify(unexplained)}`,
+      ).toEqual([]);
+
+      for (const wanted of MUST_REACH[route] ?? []) {
+        expect(
+          stops.some((stop) => wanted.test(stop.name)),
+          `the walk on ${route} never reached a control named ${String(wanted)}`,
+        ).toBe(true);
+      }
 
       // WCAG 2.1.2. A trap is Tab returning to somewhere it has been while the
       // ring has not closed -- not simply a screen with more controls than the

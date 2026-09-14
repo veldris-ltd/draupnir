@@ -46,8 +46,16 @@ test.describe('S05, S06 — curation and retention', () => {
     if ((await offered.count()) === 0) {
       // The seeded proposal is consumed by the first run against a stack, and
       // the database outlives the run locally. What must then be true is that
-      // the approval was recorded, not that it can be recorded twice.
-      await expect(table).toContainText('approver');
+      // the approval was recorded, not that it can be recorded twice. The
+      // approval column names the approver, so what is asserted is that it no
+      // longer says nobody has, and that the action is not offered again.
+      // (It asserted the word "approver", which the column never renders, and
+      // failed on every run after the first.)
+      await expect(table).not.toContainText('not approved');
+      await expect(page.getByRole('button', { name: 'Approve deletion' })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      );
       return;
     }
 

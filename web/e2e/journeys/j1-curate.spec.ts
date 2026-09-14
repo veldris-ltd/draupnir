@@ -42,14 +42,22 @@ test.describe('J1 Curate', () => {
     await expect(panel).toContainText('dense with named individuals');
 
     // The gate holds: Continue is unavailable until a reference is supplied.
+    // Unavailable rather than removed from the tab ring, so a keyboard user
+    // reaches it and hears why (K-1) -- which means pressing it has to be shown
+    // to do nothing, rather than assumed.
     const advance = page.getByRole('button', { name: 'Continue' });
-    await expect(advance).toBeDisabled();
+    await expect(advance).toHaveAttribute('aria-disabled', 'true');
+    await advance.press('Enter');
+    await advance.press('Space');
+    await expect(advance).toBeFocused();
+    await expect(panel).toBeVisible();
+    await expect(page.getByLabel('Residency constraint')).toHaveCount(0);
 
     // By role, not by label: the panel's own heading is "A DPIA reference is
     // required", so it is labelled with a string that contains the field's
     // label and `getByLabel` matches both.
     await page.getByRole('textbox', { name: /DPIA reference/ }).fill('DPIA-2026-031');
-    await expect(advance).toBeEnabled();
+    await expect(advance).not.toHaveAttribute('aria-disabled', 'true');
     await advance.click();
 
     // -- step 3, residency ---------------------------------------------------
@@ -78,7 +86,10 @@ test.describe('J1 Curate', () => {
     await page.getByRole('button', { name: 'Continue' }).click();
 
     await expect(page.getByTestId('dpia-panel')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Continue' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
   });
 
   test('the register states which site it is showing', async ({ page }) => {

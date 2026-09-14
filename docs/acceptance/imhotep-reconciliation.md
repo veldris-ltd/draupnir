@@ -306,7 +306,8 @@ comment (Decision S13). 175 Storybook stories at zero serious or critical axe
 violations, and 23 routes likewise.
 
 The manual keyboard pass of AC-U5 is in `keyboard-pass.md`, with three findings,
-one of which is open with a recommendation.
+none of them open. K-1, unavailable controls leaving the tab ring, was closed
+by RF-29.
 
 ## 11G Development skills
 

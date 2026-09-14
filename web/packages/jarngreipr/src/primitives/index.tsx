@@ -1,4 +1,10 @@
-import type { ChangeEvent, JSX, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
+import type {
+  ChangeEvent,
+  JSX,
+  KeyboardEvent as ReactKeyboardEvent,
+  ReactNode,
+  SyntheticEvent,
+} from 'react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { StateSurface, isInert, type StateProps } from '../state/states';
 import { RUN_STATE_ATTRIBUTE, type RunState } from '../tokens';
@@ -182,8 +188,9 @@ export function Button({
 }: ButtonProps): JSX.Element {
   const inert = isInert(state) && !dismiss;
   // A disabled control with no explanation is a dead end. The title and the
-  // accessible description carry the reason, so a keyboard or screen reader
-  // user gets it without hovering.
+  // accessible description carry the reason, and `aria-disabled` rather than
+  // `disabled` keeps the button in the tab ring, so a keyboard or screen reader
+  // user reaches it and hears why (K-1).
   const reason = inert ? (stateMessage ?? DISABLED_REASON[state]) : undefined;
 
   return (
@@ -195,10 +202,9 @@ export function Button({
       data-jg-state={state}
       data-jg-dismiss={dismiss ? 'true' : undefined}
       data-jg-icon-only={iconOnly ? 'true' : undefined}
-      disabled={inert}
       aria-disabled={inert || undefined}
       title={iconOnly ? (reason ?? (children as string)) : reason}
-      onClick={inert ? undefined : onClick}
+      onClick={inert ? refuse : onClick}
     >
       {state === 'loading' ? <span className="jg-button__spinner" aria-hidden="true" /> : null}
       {icon === undefined ? null : (
@@ -241,6 +247,25 @@ const DISABLED_REASON: Record<string, string | undefined> = {
   readOnly: 'Read only: you can see this and not change it.',
   partitioned: 'Unavailable: the site is partitioned from the federation.',
 };
+
+/**
+ * What an unavailable control does when it is activated: nothing. K-1.
+ *
+ * An unavailable control is `aria-disabled` rather than `disabled`, so that it
+ * stays in the tab ring and its reason reaches a keyboard or screen reader
+ * user. The price is that the browser will still activate it, so the
+ * activation is cancelled here. Cancelling the click is what stops a submit
+ * button submitting its form. A checkbox and a radio are the exception, held
+ * by their controlled value instead; see `Checkbox`.
+ */
+function refuse(event: SyntheticEvent): void {
+  event.preventDefault();
+}
+
+/** The same, for a control the keyboard would change: every key but Tab. */
+function refuseKeys(event: ReactKeyboardEvent): void {
+  if (event.key !== 'Tab') event.preventDefault();
+}
 
 // ---------------------------------------------------------------------------
 // Field shell, input, select
@@ -319,7 +344,8 @@ export function Input({
         type="text"
         value={value}
         placeholder={state === 'loading' ? 'Loading…' : placeholder}
-        disabled={inert}
+        readOnly={inert}
+        aria-disabled={inert || undefined}
         required={required}
         aria-invalid={error === undefined ? undefined : true}
         aria-describedby={
@@ -328,7 +354,7 @@ export function Input({
             .join(' ') || undefined
         }
         onChange={(event: ChangeEvent<HTMLInputElement>) => {
-          onChange?.(event.target.value);
+          if (!inert) onChange?.(event.target.value);
         }}
       />
     </FieldShell>
@@ -373,7 +399,7 @@ export function Select({
         id={id}
         className="jg-select"
         value={value}
-        disabled={inert}
+        aria-disabled={inert || undefined}
         required={required}
         aria-invalid={error === undefined ? undefined : true}
         aria-describedby={
@@ -381,8 +407,12 @@ export function Select({
             .filter(Boolean)
             .join(' ') || undefined
         }
+        // A select has no read-only attribute, so an unavailable one refuses
+        // the pointer that would open it and the keys that would change it.
+        onMouseDown={inert ? refuse : undefined}
+        onKeyDown={inert ? refuseKeys : undefined}
         onChange={(event: ChangeEvent<HTMLSelectElement>) => {
-          onChange?.(event.target.value);
+          if (!inert) onChange?.(event.target.value);
         }}
       >
         {shown.length === 0 ? (
@@ -447,7 +477,8 @@ export function TextArea({
         rows={rows}
         value={value}
         placeholder={state === 'loading' ? 'Loading…' : placeholder}
-        disabled={inert}
+        readOnly={inert}
+        aria-disabled={inert || undefined}
         required={required}
         aria-invalid={error === undefined ? undefined : true}
         aria-describedby={
@@ -456,7 +487,7 @@ export function TextArea({
             .join(' ') || undefined
         }
         onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
-          onChange?.(event.target.value);
+          if (!inert) onChange?.(event.target.value);
         }}
       />
     </FieldShell>
@@ -592,7 +623,8 @@ export function Combobox({
           autoComplete="off"
           value={state === 'loading' ? '' : query}
           placeholder={state === 'loading' ? 'Loading…' : placeholder}
-          disabled={inert}
+          readOnly={inert}
+          aria-disabled={inert || undefined}
           required={required}
           aria-expanded={open}
           aria-controls={`${id}-listbox`}
@@ -605,6 +637,7 @@ export function Combobox({
               .join(' ') || undefined
           }
           onChange={(event: ChangeEvent<HTMLInputElement>) => {
+            if (inert) return;
             setQuery(event.target.value);
             // Typing re-filters, so whatever was highlighted is a row that may
             // no longer be there. Cleared rather than clamped to zero.
@@ -686,9 +719,14 @@ export function Checkbox({
       <input
         type="checkbox"
         checked={checked}
-        disabled={inert}
+        aria-disabled={inert || undefined}
+        // No `refuse` on click. React drives a checkbox's change from its click
+        // and puts the controlled value back during that event; cancelling the
+        // click as well makes the browser restore its own earlier value over
+        // React's, and the box shows a tick nothing recorded. Controlled
+        // `checked` and the guarded handler are what hold it still.
         onChange={(event) => {
-          onChange?.(event.target.checked);
+          if (!inert) onChange?.(event.target.checked);
         }}
       />
       <span>{label}</span>
@@ -723,9 +761,10 @@ export function Radio({
         name={name}
         value={value}
         checked={checked}
-        disabled={inert}
+        aria-disabled={inert || undefined}
+        // Held by controlled `checked`, as the checkbox is, and for its reason.
         onChange={() => {
-          onChange?.(value);
+          if (!inert) onChange?.(value);
         }}
       />
       <span>{label}</span>
@@ -764,9 +803,9 @@ export function Toggle({
       role="switch"
       className="jg-toggle"
       aria-checked={checked}
-      disabled={inert}
+      aria-disabled={inert || undefined}
       title={reason}
-      onClick={inert ? undefined : () => onChange?.(!checked)}
+      onClick={inert ? refuse : () => onChange?.(!checked)}
     >
       <span className="jg-toggle__track">
         <span className="jg-toggle__thumb" />
@@ -1138,9 +1177,10 @@ export function Tag({ children, onRemove, removeLabel, state = 'ready' }: TagPro
         <button
           type="button"
           className="jg-tag__remove"
-          disabled={inert}
+          aria-disabled={inert || undefined}
           aria-label={removeLabel ?? 'Remove'}
-          onClick={inert ? undefined : onRemove}
+          title={DISABLED_REASON[state]}
+          onClick={inert ? refuse : onRemove}
         >
           ×
         </button>
@@ -1492,11 +1532,16 @@ export function Tabs({
             aria-selected={item.id === active}
             aria-controls={`panel-${item.id}`}
             tabIndex={item.id === active ? 0 : -1}
-            disabled={inert}
-            onKeyDown={onKeyDown}
-            onClick={() => {
-              select(item.id);
-            }}
+            aria-disabled={inert || undefined}
+            title={inert ? (stateMessage ?? DISABLED_REASON[state]) : undefined}
+            onKeyDown={inert ? refuseKeys : onKeyDown}
+            onClick={
+              inert
+                ? refuse
+                : () => {
+                    select(item.id);
+                  }
+            }
           >
             {item.label}
           </button>

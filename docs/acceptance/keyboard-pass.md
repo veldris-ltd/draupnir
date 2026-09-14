@@ -6,14 +6,23 @@ the evidence pack."
 
 ## How it was performed
 
-Eleven console routes were walked using **key events only**. There is no
+Twelve console routes were walked using **key events only**. There is no
 `click()` and no `focus()` anywhere in `web/e2e/a11y/keyboard.spec.ts` — a walk
 that focused an element to prove it was reachable would be proving the
 opposite. Each Tab press was followed by a read of `document.activeElement`,
-recording the element's tag, its accessible name computed the way a screen
-reader computes it (`aria-label`, then `aria-labelledby`, then a `<label for>`,
-then a wrapping `<label>`, then `title`, then text), whether a focus indicator
-was painted, and whether the control was disabled.
+recording:
+- the element's tag;
+- its accessible name, computed the way a screen reader computes it:
+  `aria-label`, then `aria-labelledby`, then a `<label for>`, then a wrapping
+  `<label>`, then its text, then `title`;
+- whether a focus indicator was painted;
+- whether the control was unavailable;
+- what it says beyond its name — its title, the text it is described by, and
+  a wrapping label's title — which is where an unavailable control gives its
+  reason.
+
+Until RF-29 the name read `title` before text. That named an unavailable
+button by its reason, so the record could not show which control it was.
 
 The record is `docs/acceptance/evidence/keyboard-pass.json`, written by the
 walk itself. The findings below are read off that record; the assertions in the
@@ -34,20 +43,30 @@ make test-a11y     # includes the walk
 
 | Route | Focus stops | Tab escaped the page | Notes |
 |---|---:|---|---|
-| `/` | 14 | yes, to browser chrome | |
-| `/corpora` | 15 | yes | |
-| `/corpora/register` | 19 | yes | see K-1 |
-| `/runs` | 24 | yes | |
-| `/runs/compose` | 17 | yes | |
-| `/models` | 16 | yes | |
-| `/gates` | 12 | yes | see K-1 |
+| `/` | 15 | yes, to browser chrome | |
+| `/corpora` | 17 | yes | |
+| `/corpora/register` | 22 | yes | reaches Back and Continue, both unavailable; see K-1 |
+| `/runs` | 26 | yes | |
+| `/runs/compose` | 18 | yes | |
+| `/models` | 18 | yes | |
+| `/gates` | 14 | yes | the queue |
+| `/gates/:id` | 20 | yes | the first pending approval; reaches Sign and approve and Reject; see K-1 |
 | `/audit` | 60 (walk limit) | not within 60 | see K-2 |
-| `/sites` | 15 | yes | |
-| `/admin/policy` | 16 | yes | |
-| `/signin` | 12 | yes | |
+| `/sites` | 17 | yes | |
+| `/admin/policy` | 18 | yes | |
+| `/signin` | 13 | yes | |
+
+Walked on 14 September 2026, after RF-29. Most counts are one or two higher
+than the first walk's, because the console gained controls between the two.
+Only `/corpora/register`'s increase is K-1's: its two unavailable buttons are
+now stops.
 
 ## What passed
 
+- **Every unavailable stop says why.** Checked for every stop marked
+  `aria-disabled`, not read off by hand: the walk fails if one has no title
+  and no description. On `/corpora/register` both Back and Continue carry
+  "Read only: you can see this and not change it."
 - **Every focus stop has an accessible name.** Not one control on any route
   announces as its tag. The site switcher's links carry the anchor state in
   their name — `Sindri / Federation anchor state: anchored` — so a keyboard
@@ -72,7 +91,8 @@ make test-a11y     # includes the walk
 
 ### K-1 — An unavailable control leaves the tab ring, so a keyboard user cannot discover it
 
-**Open. Recommendation recorded; not changed in this build.**
+**Closed by RF-29.** The finding as first recorded is kept below, followed by
+what changed and the evidence.
 
 On `/corpora/register` the walk reaches the five fields of step 1 and then
 leaves the page. The wizard's **Back** and **Next** buttons are never focus
@@ -105,6 +125,46 @@ state` — and two journey specs assert `toBeDisabled()`. Changing it is a
 design-system decision with a cross-cutting test change behind it, and this is
 the integration prompt. It is recorded rather than done, and the record names
 the fix.
+
+**What changed.** The fix named above was made, across every acting control
+in JARNGREIPR: Button, Toggle, the tag's remove button, tabs, text input, text
+area, select, combobox, checkbox and radio. In any state but `ready` a control
+is `aria-disabled="true"` and never `disabled`, so it stays in the tab ring.
+Its explanation reaches assistive technology through the title and hidden
+text Button already had, and through the field description for the inputs.
+
+The browser no longer refuses activation, so the components do:
+- a click is cancelled, which is also what stops a submit button submitting;
+- a select refuses the pointer and every key but Tab;
+- text fields are read-only;
+- every change handler returns without acting.
+
+A checkbox and a radio are held by their controlled value alone, because
+cancelling their click as well let the browser restore a tick React had
+already cleared. The component test found that.
+
+**Evidence.**
+
+- **The walk reaches them.** On `/corpora/register` Back and Continue are
+  focus stops 21 and 22, both unavailable, each with its reason. The walk
+  now also covers the approval screen, `/gates/:id`, and reaches Sign and
+  approve and Reject. The walk fails if either screen stops reaching its
+  controls. On the approval screen the gate evidence is on screen as soon as
+  the page loads, so the controls were already available when the walk
+  reached them. That the unavailable state is reachable and does nothing is
+  shown by the wizard and the component tests, not by this screen.
+- **Activating one changes nothing — asserted.**
+  - `components.test.tsx` reaches each control by Tab in all six states that
+    are not `ready`. It then tries a click, Enter, Space, typing, arrow keys
+    and a direct change event, as each control takes them, and asserts no
+    handler ran and no value changed.
+  - For a submit button it also asserts the enclosing form did not submit.
+  - Journey J1 presses Enter and Space on the unavailable Continue and asserts
+    the wizard did not advance.
+- **The rule is enforced for every component.** The assertion "keeps every
+  acting control reachable and unavailable" checks `aria-disabled` and the
+  absence of `disabled` for every component in that test's table, in every
+  replacing state.
 
 ### K-2 — `/audit` does not close its tab ring within sixty presses
 

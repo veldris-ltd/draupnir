@@ -3453,6 +3453,75 @@ real cost, and it is the reason to do it deliberately rather than never.
 - `keyboard-pass.md` records K-1 as closed, with the evidence.
 - Gated in stages 2.6 and 2.8.
 
+> **Status: done.**
+>
+> **The change.** Every acting control in JARNGREIPR — Button, Toggle, the
+> tag's remove button, tabs, text input, text area, select, combobox, checkbox
+> and radio — is `aria-disabled="true"`, never `disabled`, in any state but
+> `ready`. That is wider than the four states the prompt names: `isInert`
+> treats all six the same, and a loading or empty control has the same dead
+> end. The explanation reaches assistive technology through the title and
+> hidden text Button already had, and through the field description for the
+> inputs. The styles select on the ARIA state, so the look is unchanged:
+> stage 2.9 compared every Storybook story against its baseline and all eight
+> shards passed.
+>
+> **Keeping it inert, asserted.** The browser no longer refuses activation, so
+> the component does:
+> - a click is cancelled, which also stops a submit button submitting;
+> - a select refuses the pointer and every key but Tab;
+> - text fields are read-only;
+> - every change handler returns without acting.
+>
+> A new block in `components.test.tsx` reaches each control by Tab in all six
+> non-ready states. It tries a click, Enter, Space, typing, arrow keys and a
+> direct change event, and asserts that no handler ran, no value changed and no
+> form submitted.
+>
+> That test found a defect in the first version. Cancelling a checkbox's click
+> as well as holding its controlled value let the browser restore a tick React
+> had already cleared, because React drives a checkbox's change from its click.
+> Checkbox and radio are now held by the controlled value alone.
+>
+> **The two journey specs.** J1 asserts `aria-disabled` rather than
+> `toBeDisabled`, and presses Enter and Space on the unavailable Continue to
+> show the wizard does not advance. J3 asserts the decision control is
+> available by the same attribute. Three component-test assertions were
+> tightened for the same reason: `toBeEnabled` reads only the attribute no
+> control now sets, so it would have passed for an unavailable one.
+>
+> **The keyboard walk**, re-run:
+> - It reaches Back and Continue on `/corpora/register`, both unavailable and
+>   each giving its reason.
+> - It now walks the approval screen, `/gates/:id`, which the first pass never
+>   did, and reaches Sign and approve and Reject. The gate evidence is on
+>   screen when that page loads, so those two were available when reached.
+>   The unavailable case is shown by the wizard and the component tests.
+> - It fails if either screen stops reaching those controls, or if an
+>   unavailable stop does not say why.
+> - Unavailable stops meet the same named and visible-focus checks as any
+>   other.
+> - It names a stop by its content before its title, as the accessible name
+>   computation does. The old order named an unavailable button by its reason,
+>   so the record could not say which control it was.
+>
+> `keyboard-pass.md` records K-1 as closed with this evidence, keeping the
+> original finding. The reconciliation no longer says a finding is open.
+>
+> **Found on the way, and fixed** because it was mine and one line: RF-27's S06
+> journey, on any run after the first against the same database, asserted the
+> word "approver", which the retention table never renders. It now asserts the
+> row no longer says "not approved" and that the action is unavailable.
+>
+> **Left for RF-30:** `keyboard-pass.md` and the reconciliation still say
+> "twenty-four components" where the test table has thirty. That is RF-30's
+> finding, so it is not corrected here, and the new text does not repeat it.
+>
+> Frontend: 1,055 Vitest tests. Stage 2.8: 73 of 73, including the walk and
+> the axe sweep over every story. Stage 2.9: 8 of 8. Journeys: 47 of 50.
+> The three that fail are the same three as before this change: J2's two,
+> RF-35, and sign-in, RF-36.
+
 ---
 
 ### RF-30 — P6 — Three documents state counts and controls the code does not have
@@ -3747,7 +3816,7 @@ since RF-03.
 | RF-26 | P5 | Two frontend advisories sit below the audit threshold — **done**; there were three, the third high, and all are fixed rather than accepted |
 | RF-27 | P6 | Nine screens have a primary action with no operation behind it — **done**; four built, five read only by proposal, and S06 and S15 were fabricating what they showed |
 | RF-28 | P6 | CON-B reports neither thermal nor fabric bandwidth — **done**; thermal was RF-E15's, and the fabric reading had no export and its baseline was read under the wrong name |
-| RF-29 | P6 | The open keyboard finding K-1 is still open |
+| RF-29 | P6 | The open keyboard finding K-1 is still open — **done**; unavailable controls stay in the tab ring, and activating one is shown to do nothing |
 | RF-30 | P6 | Three documents state counts and controls the code does not have |
 | RF-31 | P6 | Committed acceptance evidence is non-deterministic |
 | RF-32 | P2 | A conditional write is conditional on nothing; the console's four conditional actions cannot succeed |

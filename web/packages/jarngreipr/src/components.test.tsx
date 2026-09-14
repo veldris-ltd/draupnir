@@ -323,18 +323,32 @@ describe.each(COMPONENTS)('%s', (name, renderComponent) => {
    * changed. A control left live under `denied` or `partitioned` submits a
    * request that the server will refuse, having first told the operator it
    * would not.
+   *
+   * Unavailable, and still reachable (K-1, RF-29). `disabled` would take the
+   * control out of the tab ring and its explanation with it, so it is
+   * `aria-disabled`; that activating one does nothing is asserted below, in
+   * "an unavailable control is reachable and inert".
    */
-  it.each(REPLACING_STATES)('disables every acting control in the %s state', (state) => {
-    const { container } = render(renderComponent(state));
-    const controls = [
-      ...container.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(
-        'button, input, select',
-      ),
-    ].filter((control) => control.dataset.jgDismiss !== 'true');
-    for (const control of controls) {
-      expect(control.disabled, `${name} left a control live in ${state}`).toBe(true);
-    }
-  });
+  it.each(REPLACING_STATES)(
+    'keeps every acting control reachable and unavailable in the %s state',
+    (state) => {
+      const { container } = render(renderComponent(state));
+      const controls = [
+        ...container.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(
+          'button, input, select',
+        ),
+      ].filter((control) => control.dataset.jgDismiss !== 'true');
+      for (const control of controls) {
+        expect(
+          control.getAttribute('aria-disabled'),
+          `${name} left a control live in ${state}`,
+        ).toBe('true');
+        expect(control.disabled, `${name} took a control out of the tab ring in ${state}`).toBe(
+          false,
+        );
+      }
+    },
+  );
 
   it.each(REPLACING_STATES)('keeps its dismissal operable in the %s state', (state) => {
     // The one exception, and it is deliberate: a modal you cannot leave is a
@@ -344,6 +358,10 @@ describe.each(COMPONENTS)('%s', (name, renderComponent) => {
       '[data-jg-dismiss="true"]',
     )) {
       expect(control.disabled, `${name} disabled its dismissal in ${state}`).toBe(false);
+      expect(
+        control.getAttribute('aria-disabled'),
+        `${name} marked its dismissal unavailable in ${state}`,
+      ).toBeNull();
     }
   });
 
@@ -356,10 +374,11 @@ describe.each(COMPONENTS)('%s', (name, renderComponent) => {
 });
 
 describe('Button', () => {
-  it.each(REPLACING_STATES)('is disabled and says why in the %s state', (state) => {
+  it.each(REPLACING_STATES)('is unavailable, reachable, and says why in the %s state', (state) => {
     render(<Button state={state}>Submit run</Button>);
     const button = screen.getByRole('button', { name: /submit run/i });
-    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).not.toHaveAttribute('disabled');
     expect(button.textContent).toMatch(/wait|unavailable|not permitted|read only/i);
   });
 
@@ -376,6 +395,271 @@ describe('Button', () => {
     );
     await userEvent.click(screen.getByRole('button', { name: /submit run/i }));
     expect(clicked).toBe(1);
+  });
+});
+
+/**
+ * K-1 (RF-29). An unavailable control stays in the tab ring so that its reason
+ * reaches a keyboard or screen reader user. The browser therefore no longer
+ * refuses activation on the component's behalf, so every way a user activates
+ * each control is tried here and shown to change nothing: Tab to reach it,
+ * then a click, Enter, Space, typing or arrow keys as the control takes them.
+ * `readOnly` is included, because it is how the console marks the wizard's
+ * navigation and the gate decision unavailable.
+ */
+describe('an unavailable control is reachable and inert', () => {
+  const INERT_STATES = ALL_STATES.filter((state) => state !== 'ready');
+
+  it.each(INERT_STATES)('a %s submit button neither acts nor submits', async (state) => {
+    const user = userEvent.setup();
+    let clicked = 0;
+    let submitted = 0;
+    render(
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          submitted += 1;
+        }}
+      >
+        <Button
+          type="submit"
+          state={state}
+          onClick={() => {
+            clicked += 1;
+          }}
+        >
+          Submit run
+        </Button>
+      </form>,
+    );
+
+    await user.tab();
+    const button = screen.getByRole('button', { name: /submit run/i });
+    expect(button).toHaveFocus();
+    expect(button).toHaveAccessibleDescription(/wait|unavailable|not permitted|read only/i);
+
+    await user.keyboard('{Enter}');
+    await user.keyboard(' ');
+    await user.click(button);
+    expect(clicked).toBe(0);
+    expect(submitted).toBe(0);
+  });
+
+  it.each(INERT_STATES)('a %s toggle does not switch', async (state) => {
+    const user = userEvent.setup();
+    const changes: boolean[] = [];
+    render(
+      <Toggle
+        label="Continue while partitioned"
+        state={state}
+        onChange={(value) => {
+          changes.push(value);
+        }}
+      />,
+    );
+
+    await user.tab();
+    const toggle = screen.getByRole('switch');
+    expect(toggle).toHaveFocus();
+
+    await user.keyboard(' ');
+    await user.keyboard('{Enter}');
+    await user.click(toggle);
+    expect(changes).toEqual([]);
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it.each(INERT_STATES)('a %s checkbox does not tick', async (state) => {
+    const user = userEvent.setup();
+    const changes: boolean[] = [];
+    render(
+      <Checkbox
+        label="Publish the card"
+        state={state}
+        onChange={(value) => {
+          changes.push(value);
+        }}
+      />,
+    );
+
+    await user.tab();
+    const box = screen.getByRole('checkbox');
+    expect(box).toHaveFocus();
+
+    await user.keyboard(' ');
+    await user.click(box);
+    expect(changes).toEqual([]);
+    expect(box).not.toBeChecked();
+  });
+
+  it.each(INERT_STATES)('a %s radio is not selected', async (state) => {
+    const user = userEvent.setup();
+    const changes: string[] = [];
+    render(
+      <Radio
+        name="site"
+        value="edi"
+        label="Edinburgh"
+        state={state}
+        onChange={(value) => {
+          changes.push(value);
+        }}
+      />,
+    );
+
+    await user.tab();
+    const radio = screen.getByRole('radio');
+    expect(radio).toHaveFocus();
+
+    await user.keyboard(' ');
+    await user.click(radio);
+    expect(changes).toEqual([]);
+    expect(radio).not.toBeChecked();
+  });
+
+  it.each(INERT_STATES)('a %s text input does not take typing', async (state) => {
+    const user = userEvent.setup();
+    const changes: string[] = [];
+    render(
+      <Input
+        label="Run name"
+        value="cim-014"
+        state={state}
+        onChange={(value) => {
+          changes.push(value);
+        }}
+      />,
+    );
+
+    await user.tab();
+    const input = screen.getByRole('textbox', { name: /run name/i });
+    expect(input).toHaveFocus();
+
+    await user.keyboard('x{Backspace}{Backspace}');
+    fireEvent.change(input, { target: { value: 'typed' } });
+    expect(changes).toEqual([]);
+  });
+
+  it.each(INERT_STATES)('a %s text area does not take typing', async (state) => {
+    const user = userEvent.setup();
+    const changes: string[] = [];
+    render(
+      <TextArea
+        label="Requeue reason"
+        value="stalled"
+        state={state}
+        onChange={(value) => {
+          changes.push(value);
+        }}
+      />,
+    );
+
+    await user.tab();
+    const area = screen.getByRole('textbox', { name: /requeue reason/i });
+    expect(area).toHaveFocus();
+
+    await user.keyboard('x{Backspace}{Backspace}');
+    fireEvent.change(area, { target: { value: 'typed' } });
+    expect(changes).toEqual([]);
+  });
+
+  it.each(INERT_STATES)('a %s select does not change', async (state) => {
+    const user = userEvent.setup();
+    const changes: string[] = [];
+    render(
+      <Select
+        label="Tier"
+        options={[
+          { value: 'a', label: 'Tier A' },
+          { value: 'b', label: 'Tier B' },
+        ]}
+        value="a"
+        state={state}
+        onChange={(value) => {
+          changes.push(value);
+        }}
+      />,
+    );
+
+    await user.tab();
+    const select = screen.getByRole('combobox', { name: /tier/i });
+    expect(select).toHaveFocus();
+
+    await user.keyboard('{ArrowDown}');
+    fireEvent.change(select, { target: { value: 'b' } });
+    expect(changes).toEqual([]);
+  });
+
+  it.each(INERT_STATES)('a %s combobox neither opens nor chooses', async (state) => {
+    const user = userEvent.setup();
+    const changes: string[] = [];
+    render(
+      <Combobox
+        label="Jurisdiction"
+        options={[{ value: 'gbr', label: 'United Kingdom' }]}
+        state={state}
+        onChange={(value) => {
+          changes.push(value);
+        }}
+      />,
+    );
+
+    await user.tab();
+    const input = screen.getByRole('combobox', { name: /jurisdiction/i });
+    expect(input).toHaveFocus();
+
+    await user.keyboard('Uni{ArrowDown}{Enter}');
+    expect(changes).toEqual([]);
+    expect(input).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it.each(INERT_STATES)('a %s tag is not removed', async (state) => {
+    const user = userEvent.setup();
+    let removed = 0;
+    render(
+      <Tag
+        state={state}
+        onRemove={() => {
+          removed += 1;
+        }}
+      >
+        tier-a
+      </Tag>,
+    );
+
+    await user.tab();
+    const remove = screen.getByRole('button', { name: 'Remove' });
+    expect(remove).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+    await user.click(remove);
+    expect(removed).toBe(0);
+  });
+
+  it.each(INERT_STATES)('a %s tab set does not switch', async (state) => {
+    const user = userEvent.setup();
+    const selected: string[] = [];
+    render(
+      <Tabs
+        label="Run detail"
+        items={[
+          { id: 'a', label: 'Overview', content: <p>Overview</p> },
+          { id: 'b', label: 'Evidence', content: <p>Evidence</p> },
+        ]}
+        activeId="a"
+        state={state}
+        onSelect={(id) => {
+          selected.push(id);
+        }}
+      />,
+    );
+
+    await user.tab();
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveFocus();
+
+    await user.keyboard('{ArrowRight}');
+    await user.click(screen.getByRole('tab', { name: 'Evidence' }));
+    expect(selected).toEqual([]);
   });
 });
 
@@ -1319,7 +1603,11 @@ describe('LogViewer follow (AC-X8)', () => {
     const { container } = render(<LogViewer label="Training log" lines={LINES} streaming />);
     scrolledBack(container);
 
-    expect(screen.getByRole('button', { name: /follow the tail/i })).toBeEnabled();
+    // Not `toBeEnabled`: that reads the `disabled` attribute, which no
+    // JARNGREIPR control sets, so it would pass for an unavailable one (K-1).
+    expect(screen.getByRole('button', { name: /follow the tail/i })).not.toHaveAttribute(
+      'aria-disabled',
+    );
   });
 
   it('renders a window rather than every one of 200,000 lines (AC-X7)', () => {
@@ -1412,10 +1700,10 @@ describe('SpecEditor (section 5.2)', () => {
 
     expect(dryRun).toHaveAttribute('data-jg-variant', 'primary');
     expect(submit).toHaveAttribute('data-jg-variant', 'secondary');
-    expect(submit).toBeDisabled();
+    expect(submit).toHaveAttribute('aria-disabled', 'true');
 
     await user.click(dryRun);
-    expect(screen.getByRole('button', { name: 'Submit' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Submit' })).not.toHaveAttribute('aria-disabled');
   });
 
   it('refuses to run a specification that does not validate', () => {
@@ -1426,6 +1714,9 @@ describe('SpecEditor (section 5.2)', () => {
         validate={() => [{ pointer: '', message: 'no.' }]}
       />,
     );
-    expect(screen.getByRole('button', { name: /^Dry run/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^Dry run/ })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
   });
 });

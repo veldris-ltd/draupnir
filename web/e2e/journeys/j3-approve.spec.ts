@@ -158,7 +158,7 @@ test.describe('J3 Approve', () => {
 
     // The evidence has been on screen, so the control is available.
     const approve = page.getByRole('button', { name: 'Sign and approve' });
-    await expect(approve).toBeEnabled();
+    await expect(approve).not.toHaveAttribute('aria-disabled', 'true');
     await approve.click();
 
     const dialog = page.getByRole('dialog');

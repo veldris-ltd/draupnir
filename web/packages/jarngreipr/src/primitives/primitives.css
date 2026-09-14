@@ -6,6 +6,11 @@
  * than fading toward the background: a disabled control still has to be
  * readable, and "greyed out" is the most common way a component library fails
  * that criterion.
+ *
+ * "Disabled" here is `aria-disabled="true"`, never the `disabled` attribute.
+ * An unavailable control stays in the tab ring so its reason reaches a
+ * keyboard or screen reader user (K-1, RF-29), so these rules select on the
+ * ARIA state; `:disabled` would match nothing.
  */
 
 /* --------------------------------------------------------------------------
@@ -35,7 +40,7 @@
   color: var(--jg-text-on-accent);
 }
 
-.jg-button[data-jg-variant='primary']:hover:not(:disabled) {
+.jg-button[data-jg-variant='primary']:hover:not([aria-disabled='true']) {
   background: var(--jg-accent-hover);
 }
 
@@ -45,7 +50,7 @@
   border-color: var(--jg-border-strong);
 }
 
-.jg-button[data-jg-variant='secondary']:hover:not(:disabled) {
+.jg-button[data-jg-variant='secondary']:hover:not([aria-disabled='true']) {
   background: var(--jg-surface-raised);
 }
 
@@ -54,7 +59,7 @@
   color: var(--jg-text-on-accent);
 }
 
-.jg-button[data-jg-variant='danger']:hover:not(:disabled) {
+.jg-button[data-jg-variant='danger']:hover:not([aria-disabled='true']) {
   background: var(--jg-danger-hover);
 }
 
@@ -63,11 +68,11 @@
   color: var(--jg-accent);
 }
 
-.jg-button[data-jg-variant='ghost']:hover:not(:disabled) {
+.jg-button[data-jg-variant='ghost']:hover:not([aria-disabled='true']) {
   background: var(--jg-accent-subtle);
 }
 
-.jg-button:disabled {
+.jg-button[aria-disabled='true'] {
   cursor: not-allowed;
   background: var(--jg-surface-sunken);
   color: var(--jg-text-subtle);
@@ -140,8 +145,8 @@
   color: var(--jg-text-subtle);
 }
 
-.jg-input:disabled,
-.jg-select:disabled {
+.jg-input[aria-disabled='true'],
+.jg-select[aria-disabled='true'] {
   background: var(--jg-surface-sunken);
   color: var(--jg-text-subtle);
   cursor: not-allowed;
@@ -172,7 +177,14 @@
   flex-shrink: 0;
 }
 
-.jg-choice input:disabled + span {
+.jg-choice input[aria-disabled='true'] {
+  /* The browser greys a `disabled` box itself and does nothing for an
+     `aria-disabled` one, so the subdued mark is painted here. */
+  accent-color: var(--jg-text-subtle);
+  cursor: not-allowed;
+}
+
+.jg-choice input[aria-disabled='true'] + span {
   color: var(--jg-text-subtle);
 }
 
@@ -213,11 +225,11 @@
   transform: translateX(var(--jg-space-5));
 }
 
-.jg-toggle:disabled {
+.jg-toggle[aria-disabled='true'] {
   cursor: not-allowed;
 }
 
-.jg-toggle:disabled .jg-toggle__track {
+.jg-toggle[aria-disabled='true'] .jg-toggle__track {
   background: var(--jg-border);
 }
 
@@ -351,7 +363,7 @@
   line-height: 1;
 }
 
-.jg-tag__remove:disabled {
+.jg-tag__remove[aria-disabled='true'] {
   cursor: not-allowed;
   color: var(--jg-text-subtle);
 }
@@ -561,7 +573,7 @@
   border-bottom-color: var(--jg-accent);
 }
 
-.jg-tabs__tab:disabled {
+.jg-tabs__tab[aria-disabled='true'] {
   color: var(--jg-text-subtle);
   cursor: not-allowed;
 }
