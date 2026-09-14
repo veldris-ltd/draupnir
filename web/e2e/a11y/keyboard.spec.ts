@@ -302,6 +302,11 @@ test.describe('keyboard pass', () => {
     // belongs in the evidence pack at the repository root, and the first
     // version of this resolved to the repository's parent and wrote nothing
     // anybody found.
+    //
+    // Not committed (RF-31). It carries this run's clock and database, so a
+    // committed copy was rewritten by every run. `evidence/` is ignored by git,
+    // the pipeline uploads it, and `test-a11y` fails if this write ever shows
+    // up as a change.
     const target = join(
       dirname(test.info().file),
       '..',

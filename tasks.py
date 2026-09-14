@@ -1159,6 +1159,27 @@ def seed() -> int:
     return 0
 
 
+#: Where runs write their records. Ignored by git and uploaded by the pipeline.
+EVIDENCE_RECORDS = "docs/acceptance/evidence"
+
+
+def records_left_the_tree_clean() -> None:
+    """Fail if writing a run record changed what git sees. RF-31.
+
+    The keyboard walk's record was committed, and every a11y run rewrote it
+    with that run's clock and database, so the tree was dirty after every
+    routine test run. The directory is ignored now; this is what notices if a
+    record is ever committed again or the ignore rule stops covering it.
+    """
+    if not git_is_clean([EVIDENCE_RECORDS]):
+        raise Failure(
+            f"Writing a run record changed the working tree under {EVIDENCE_RECORDS}.\n"
+            "Run records are not committed: each carries its own clock and database\n"
+            "state, so a committed copy is rewritten by every run (RF-31). Untrack\n"
+            "the file above, or restore the ignore rule that covers it."
+        )
+
+
 @task("procedure", "AC-F12: run Procedures M1 to M10 end to end, in one command")
 def procedure() -> int:
     # The database has to be there and migrated; the procedure writes its own
@@ -1169,6 +1190,7 @@ def procedure() -> int:
     # would record every driver as refused and render no plan. The flag names
     # itself in the log on every load it permits, which is the point of it.
     uv_run("python", "scripts/procedure.py", env={"DRAUPNIR_DEV": "1"})
+    records_left_the_tree_clean()
     return 0
 
 
@@ -1368,6 +1390,8 @@ def test_a11y() -> int:
     # the journeys do.
     seeded_stack()
     pnpm("run", "test:a11y", env={"DRAUPNIR_API_COMMAND": api_command()})
+    # The keyboard walk writes its record as it finishes (RF-31).
+    records_left_the_tree_clean()
     return 0
 
 
@@ -1650,6 +1674,7 @@ PIPELINE: tuple[str, ...] = (
     "test-frontend",
     "test-e2e",
     "test-a11y",
+    "procedure",
     "test-visual",
     # 3 BUILD
     "build-web",

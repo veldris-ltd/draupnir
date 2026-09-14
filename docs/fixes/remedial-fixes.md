@@ -3698,6 +3698,66 @@ diff of.
 - One rule applies to every file in `docs/acceptance/evidence/`.
 - Gated in stage 2.8.
 
+> **Status: done, by the second option, applied to both files.**
+>
+> **Why not freeze.** The keyboard record reads a live console over a
+> database that the journeys mutate: ledger rows, dates and digests on
+> `/audit`, alert counts, run names. Reproducing its bytes would mean
+> freezing the clock, the seed *and* every run before it, and a frozen
+> record of a fixed fixture is weaker evidence than a fresh record of the
+> real stack.
+>
+> **The audit.** `docs/acceptance/evidence/` held two files, and both are run
+> records, not generator output:
+> - `keyboard-pass.json`, written by the keyboard walk;
+> - `procedure-m1-m10.json`, written by `make procedure`, with its own start
+>   and end times, run identity and approval identity.
+>
+> The second never churned only because nobody re-ran it — which is also why
+> nothing in the pipeline produced it at all.
+>
+> **The rule:** nothing under `docs/acceptance/evidence/` is committed. Git
+> ignores the directory, and both files are untracked.
+> - **The pipeline writes both on every build.** The keyboard walk already ran
+>   at stage 2.8. `tasks.py procedure` is new in the workflow, after it,
+>   against the stack stages 2.7 and 2.8 bring up, and in `tasks.PIPELINE`,
+>   which RF-24's test requires to match.
+> - **They're uploaded** in the `acceptance-evidence-<commit>` artefact beside
+>   the SBOM and the Playwright report.
+> - **The documents say where to look.** `docs/acceptance/README.md`, which is
+>   generated, `keyboard-pass.md` and the runbook all say where the records
+>   are. So does `scripts/procedure.py`, whose docstring had also claimed that
+>   `AC-F12.md` quotes the record; it does not.
+>
+> **Gates.**
+> - `test-a11y` and `procedure` check, after writing, that git sees no change
+>   under the directory, and fail naming the file if it does — so a record
+>   committed again, or an ignore rule that stops covering it, fails stage
+>   2.8.
+> - `tests/unit/test_evidence_records.py` asserts nothing there is tracked,
+>   that the two records and an invented third are ignored, that the workflow
+>   writes and uploads them, and that the README says where they are.
+>
+> **Verified.** Before committing, the untracking showed as two staged
+> deletions, which the new check would itself report. So the runs were checked
+> directly:
+> - after two keyboard walks, each of which rewrote its record, git showed
+>   nothing under the directory beyond those deletions — the second run
+>   passed all 73 a11y tests;
+> - after a procedure run that rewrote its record, git showed nothing under
+>   the directory beyond those deletions.
+>
+> **Found on the way, not fixed here:** one a11y run failed a Storybook axe
+> shard with "Axe is already running". Storybook's own a11y addon runs axe
+> inside the preview, and `AxeBuilder` started its own run on the same frame.
+> It is intermittent — the next run passed that shard — and it has nothing to
+> do with the evidence. But a gate that can fail on a race is one that gets
+> re-run until green, which is how real failures get waved through.
+>
+> Python: 2,106 unit and contract tests pass, including the pipeline
+> consistency tests `procedure` now has to satisfy. The acceptance pack
+> checks: 90 criteria.
+
 ---
 
 ### RF-32 — P2 — A conditional write is conditional on nothing
@@ -3945,7 +4005,7 @@ transport itself is this finding.
 | RF-28 | P6 | CON-B reports neither thermal nor fabric bandwidth — **done**; thermal was RF-E15's, and the fabric reading had no export and its baseline was read under the wrong name |
 | RF-29 | P6 | The open keyboard finding K-1 is still open — **done**; unavailable controls stay in the tab ring, and activating one is shown to do nothing |
 | RF-30 | P6 | Three documents state counts and controls the code does not have — **done**; figures and reachability are now derived and tested, and transport security is marked NOT BUILT (RF-37) |
-| RF-31 | P6 | Committed acceptance evidence is non-deterministic |
+| RF-31 | P6 | Committed acceptance evidence is non-deterministic — **done**; run records are not committed, the pipeline writes and uploads both, and stage 2.8 fails if one shows up as a change |
 | RF-32 | P2 | A conditional write is conditional on nothing; the console's four conditional actions cannot succeed |
 | RF-33 | P3 | The release package is read from a table only the seed writes |
 | RF-34 | P3 | A release does not record the licence policy it was judged under |

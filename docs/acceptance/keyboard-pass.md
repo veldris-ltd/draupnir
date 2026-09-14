@@ -28,6 +28,13 @@ The record is `docs/acceptance/evidence/keyboard-pass.json`, written by the
 walk itself. The findings below are read off that record; the assertions in the
 spec cover what can be asserted, and the findings cover what cannot.
 
+The record is not committed (RF-31). It holds the wall-clock time and whatever
+the seeded database held on the day, so every run rewrote it, and a committed
+file whose diff changes on every run is one nobody reads. The pipeline writes a
+fresh record on every build and uploads it in the workflow artefact
+`acceptance-evidence-<commit>`. `make test-a11y` writes one locally. The
+figures below are from the walk of 14 September 2026.
+
 **What this is and is not.** It is a keyboard-only traversal, driven and
 recorded rather than performed by a person at a keyboard, and reviewed by hand
 afterwards. It is not a screen-reader pass: nothing here was listened to with

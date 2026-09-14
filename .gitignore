@@ -39,6 +39,11 @@ artefacts/
 # Generated evidence, rebuilt by the pipeline
 sbom/
 
+# Run records: the keyboard walk and Procedures M1 to M10 write here, each with
+# its own clock and database state, so a committed copy was rewritten by every
+# run (RF-31). The pipeline writes them on every build and uploads them.
+docs/acceptance/evidence/
+
 # Playwright output. Recorded visual baselines are committed; failures are not.
 web/**/*-actual.png
 web/**/*-diff.png

@@ -162,6 +162,14 @@ jobs:
       - name: "2.8 a11y (axe on every route)"
         run: python tasks.py test-a11y
 
+      # AC-F12's record. The integration stage proves the procedure runs; this
+      # is the run whose record the evidence pack carries. It was written only
+      # by somebody running `make procedure` and then committed, and a
+      # committed run record is rewritten by every run (RF-31). Against the
+      # stack stages 2.7 and 2.8 already brought up.
+      - name: "2.8 procedure record (AC-F12, M1 to M10)"
+        run: python tasks.py procedure
+
       - name: "2.9 visual regression (Storybook snapshots)"
         run: python tasks.py test-visual
 
@@ -315,6 +323,7 @@ jobs:
             coverage-integration.xml
             docs/api/openapi.json
             docs/egress-policy.md
+            docs/acceptance/evidence/
             web/playwright-report/
           retention-days: 30
           if-no-files-found: warn

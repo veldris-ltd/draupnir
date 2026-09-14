@@ -8,7 +8,10 @@ development stack; it takes no input between steps, asks no question, and stops
 at the first refusal with the refusal's own words.
 
 It writes an evidence file, because a demonstration nobody can read afterwards
-is a demonstration that happened once. `docs/acceptance/AC-F12.md` quotes it.
+is a demonstration that happened once. The file is the record of this run, with
+its own clock and run identity, so it is not committed (RF-31): git ignores
+`docs/acceptance/evidence/`, and the pipeline runs this on every build and
+uploads the record with the rest of its evidence.
 """
 
 from __future__ import annotations

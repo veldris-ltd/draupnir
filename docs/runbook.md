@@ -557,7 +557,9 @@ python scripts/procedure.py --jurisdiction IRL  # any Tier A jurisdiction
 
 It stops at the first refusal, prints the refusal's own words, and rolls back —
 so a procedure that stopped at M6 leaves the chain exactly as M5 left it. The
-evidence is written to `docs/acceptance/evidence/procedure-m1-m10.json`.
+evidence is written to `docs/acceptance/evidence/procedure-m1-m10.json`, which
+git ignores: it is the record of one run. The pipeline runs the procedure on
+every build and uploads that record in `acceptance-evidence-<commit>`.
 
 ## What to read when something is wrong
 

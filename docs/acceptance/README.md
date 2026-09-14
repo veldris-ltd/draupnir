@@ -25,6 +25,17 @@ end to end rather than looked up:
 - [`imhotep-reconciliation.md`](imhotep-reconciliation.md) — the SAD reconciled
   against the delivered repository (AC-D4).
 
+**Run records are not in the repository.** `evidence/` holds what a run
+recorded: the keyboard walk (`keyboard-pass.json`, written by `make test-a11y`)
+and Procedures M1 to M10 (`procedure-m1-m10.json`, written by
+`make procedure`). Each carries its own timestamps and whatever the database
+held, so a committed copy would be rewritten by every run and read by nobody.
+The pipeline writes both on every build and uploads them with the rest of its
+evidence, as the workflow artefact `acceptance-evidence-<commit>`; locally they
+are written to `evidence/` and ignored by git. Everything else in this
+directory is generated and reproducible, and `make acceptance` rewrites it
+identically.
+
 ```bash
 make acceptance     # regenerate this pack
 ```
