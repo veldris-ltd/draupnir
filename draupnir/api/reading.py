@@ -26,7 +26,6 @@ that at the wrong moment.
 
 from __future__ import annotations
 
-import re
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -70,18 +69,10 @@ from draupnir.api.schemas import (
 )
 from draupnir.core.domain.ledger import compute_entry_hash
 
-#: Run names in this estate are `cim-<iso3>-v<n>`. The projection carries no
-#: jurisdiction column -- it is a projection of the ledger, and the ledger
-#: records the specification's name -- so the board's first column is parsed
-#: from the name and is `null` when the name does not encode one. Returning a
-#: guess would put a wrong flag beside a run.
-_JURISDICTION = re.compile(r"^cim-([a-z]{3})-", re.IGNORECASE)
-
-
-def jurisdiction_of(name: str) -> str | None:
-    """The ISO 3166-1 alpha-3 code a run name encodes, where it encodes one."""
-    match = _JURISDICTION.match(name)
-    return match.group(1).upper() if match else None
+# The board's first column, and the corpus a source belongs to (RF-42), are
+# parsed from a run's name by the same function; it moved to the domain so the
+# register's fold could use it.
+from draupnir.core.domain.sources import jurisdiction_of
 
 
 def retention_out(proposal: Any, *, now: datetime) -> RetentionOut:

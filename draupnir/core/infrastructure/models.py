@@ -87,9 +87,12 @@ class Source(Base):
             name="ck_source_corpus_states_only",
         ),
         Index("ix_source_jurisdiction", "jurisdiction"),
+        Index("ix_source_site_id", "site_id"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
+    #: The site whose chain registered this source (RF-42, migration 0007).
+    site_id: Mapped[str | None] = mapped_column(Text, ForeignKey("site.id"))
     jurisdiction: Mapped[str] = mapped_column(Text, nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)
     licence_spdx: Mapped[str] = mapped_column(Text, nullable=False)

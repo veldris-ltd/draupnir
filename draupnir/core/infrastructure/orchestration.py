@@ -26,6 +26,7 @@ from draupnir.core.infrastructure.repositories import (
     LedgerRepository,
     ReleaseProjection,
     RunProjection,
+    SourceProjection,
     set_site_scope,
 )
 
@@ -54,6 +55,9 @@ def for_connection(
             RunProjection(connection, scope),
             ReleaseProjection(connection, scope),
             GateResultProjection(connection, scope),
+            # The licence register (RF-42), from the registrations and the
+            # corpus transitions of the same chain.
+            SourceProjection(connection, scope),
         ),
         site_id=scope.site_id,
         actor=actor,

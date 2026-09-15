@@ -141,6 +141,10 @@ async def register_source(
                 "dpia_ref": record.dpia_ref,
                 "sha256": record.sha256,
                 "retrieved_at": record.retrieved_at.isoformat(),
+                # SAD 11C: where the corpus may be held. Accepted and never
+                # recorded, so the register folded from the chain (RF-42) would
+                # have shown every source unconstrained.
+                "residency_constraint": list(body.residency_constraint),
             },
         )
         telemetry.log(

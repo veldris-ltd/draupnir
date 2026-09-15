@@ -8,7 +8,7 @@ by a developer whose screenshots stopped matching everyone else's.
 from __future__ import annotations
 
 from draupnir.core.domain.ledger import GENESIS_HASH, compute_entry_hash
-from draupnir.core.domain.states import RUN_PHASE_STATES
+from draupnir.core.domain.states import RUN_PHASE_STATES, RunState
 from scripts.seed import (
     TARGET_LEDGER_ENTRIES,
     TARGET_RELEASES,
@@ -16,13 +16,14 @@ from scripts.seed import (
     TARGET_SOURCES,
     build,
     projected,
+    projected_sources,
 )
 
 
 def test_the_dataset_has_the_specified_shape() -> None:
     dataset = build()
     assert len(dataset["sites"]) == 2
-    assert len(dataset["sources"]) == TARGET_SOURCES == 6
+    assert len(projected_sources(dataset)) == TARGET_SOURCES == 6
     assert len(dataset["runs"]) == TARGET_RUNS == 14
     assert len(projected(dataset).releases) == TARGET_RELEASES == 1
     assert sum(chain.seq for chain in dataset["chains"].values()) == TARGET_LEDGER_ENTRIES == 400
@@ -35,7 +36,7 @@ def test_the_runs_cover_every_run_state() -> None:
 
 def test_the_dataset_is_reproducible() -> None:
     first, second = build(), build()
-    for key in ("sites", "sources", "runs"):
+    for key in ("sites", "runs"):
         assert first[key] == second[key], f"{key} is not deterministic"
     assert projected(first) == projected(second), "the projected releases are not deterministic"
     for site_id, chain in first["chains"].items():
@@ -64,7 +65,9 @@ def test_the_gates_are_folded_from_evaluations_recorded_in_the_worker_s_shape() 
     past_evaluation = {
         run["id"]
         for run in dataset["runs"]
-        if run["state"] in {"MERGED", "QUANTISED", "AWAITING_APPROVAL", "RELEASED", "QUARANTINED"}
+        # Not QUARANTINED: the seeded quarantine is a licence refusal (RF-42),
+        # and a corpus refused its licence is never evaluated.
+        if run["state"] in {"MERGED", "QUANTISED", "AWAITING_APPROVAL", "RELEASED"}
     }
     assert {row.run_id for row in rows} == past_evaluation
     assert all(row.baseline_value is not None and row.margin is not None for row in rows)
@@ -112,9 +115,30 @@ def test_every_release_names_an_approval_and_an_artefact() -> None:
 
 
 def test_a_source_carrying_personal_data_names_its_dpia() -> None:
-    for source in build()["sources"]:
-        if source["personal_data"]:
-            assert source["dpia_ref"], source["url"]
+    for source in projected_sources(build()):
+        if source.personal_data:
+            assert source.dpia_ref, source.url
+
+
+def test_the_register_is_folded_from_registrations_and_the_corpus_transitions() -> None:
+    """RF-42. The seed inserts no source row; each is registered as the API registers one.
+
+    Every source is projected, and its state is the chain's: the refused FRA
+    corpus quarantines its source, a released jurisdiction's source is curated,
+    and a source whose site holds no run of its jurisdiction is still a draft.
+    """
+    dataset = build()
+    assert "sources" not in dataset, "the seed still carries source rows beside the chain"
+
+    register = {source.url: source for source in projected_sources(dataset)}
+    assert len(register) == TARGET_SOURCES
+    assert register["https://www.legislation.gov.uk/ukpga"].state is RunState.CURATED
+    assert register["https://example-aggregator.invalid/fr-corpus"].state is RunState.QUARANTINED
+    assert register["https://www.govinfo.gov/bulkdata/USCODE"].state is RunState.DRAFT
+    assert register["https://www.legislation.gov.uk/ukpga"].residency_constraint == (
+        "sindri",
+        "brokkr",
+    )
 
 
 def test_identifiers_are_uuid_v7() -> None:

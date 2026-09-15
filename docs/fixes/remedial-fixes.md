@@ -4880,6 +4880,95 @@ found `gate_result` in.
   `listSources` and from a lineage, with no row inserted.
 - Gated in stage 2.4.
 
+> **Status — done.**
+>
+> **The fold.** `draupnir/core/domain/sources.py` folds the register from the
+> `registered` entries `registerSource` records, beside RF-33's releases and
+> RF-41's gate results, and like them never reads the table it produces. A row
+> is a registration that recorded the facts HODD holds: a jurisdiction, an
+> address, a declared licence, the attribution and personal data
+> determinations, a digest, and an offset-aware retrieval time. A personal
+> data determination without its DPIA reference is not a row. The table and the
+> API both refuse one, so an entry carrying it is skipped rather than allowed
+> to stop the fold.
+>
+> **What state a source holds.** Registered as DRAFT, a source follows its
+> corpus. SAD 6.1 records a corpus's progress as transitions of the runs that
+> consume it, and a run's corpus is the jurisdiction its name encodes. Each of
+> these transitions, on a run of the source's jurisdiction at the source's
+> site, moves the source to the same state:
+> - DRAFT→CORPUS_REGISTERED;
+> - CORPUS_REGISTERED→LICENCE_CLEARED;
+> - CORPUS_REGISTERED→QUARANTINED;
+> - LICENCE_CLEARED→CURATED.
+>
+> The latest wins. Only transitions recorded after the registration count: a
+> licence decision taken before a source existed did not judge it.
+>
+> On an estate the procedure is still the only thing that takes a licence
+> decision, which is RF-43. Until that is fixed a source registered there stays
+> DRAFT, and that is what the chain says.
+>
+> **The projection.** `SourceProjection` advances on every append, after the
+> gate results, so a source is in the register when `registerSource` returns.
+> `source` has no row level security. Migration 0007 therefore adds a nullable
+> `site_id`, and a rebuild clears only its own site's rows.
+>
+> **What the API records.** `registerSource` accepted `residencyConstraint` and
+> recorded nothing of it, so a register folded from the chain would have shown
+> every source unconstrained. It now records it. `jurisdiction_of` moved from
+> `api.reading` to the domain so the fold can use it; the worker's retention
+> duty imports it from there.
+>
+> **The seed.** It registers its sources as the API does, inserts no row, and
+> rebuilds the projection. The seeded states are now the chain's rather than
+> ones chosen beside it. `cim-fra-v0.1` is recorded as the licence refusal its
+> record always described (CORPUS_REGISTERED→QUARANTINED, naming the failing
+> source), instead of an approval rejected for one. Its source is therefore
+> quarantined, and the seed holds 13 artefacts, 36 gate results and 1 approval.
+> J3 still rejects an approval of its own at run time.
+>
+> **Tests.**
+> - `tests/unit/test_source_projection.py`:
+>   - a registration becomes a DRAFT row holding what it recorded;
+>   - a source follows its corpus through the licence decision and curation,
+>     and a refusal quarantines it;
+>   - only its own jurisdiction's corpus moves it, and a decision recorded
+>     before its registration does not;
+>   - a run whose name encodes no jurisdiction moves nothing;
+>   - each registration recording less than the facts is not a row;
+>   - the seed's former `DRAFT->…` source entries are not registrations.
+> - `tests/unit/test_seed.py`: the dataset carries no source rows, and folding
+>   its chains yields all six with the chain's states.
+> - `tests/integration/test_source_projection.py` (stage 2.4) registers two
+>   sources through a real API process, with a run of their jurisdiction walked
+>   through the orchestrator between the two registrations, and inserts no
+>   row. It reads both from:
+>   - `listSources`, where the earlier source is CURATED and the later DRAFT;
+>   - the lineage of the artefact the run stored.
+>
+>   It also checks that the rows carry their site and residency, that a
+>   rebuild reproduces them, and that the append itself projects a
+>   registration.
+>
+> **Results.**
+> - On a reset and reseeded development database, migrated through 0007
+>   (6 sources, all projected: 3 curated, 2 draft, 1 quarantined; 14 runs,
+>   13 artefacts, 36 gate results, 1 approval, 1 release):
+>   - journeys: 53 of 53;
+>   - a11y: 73 of 73.
+> - The coverage-gated stages, each above its floor:
+>   - unit: 1,706 tests at 90.08% (floor 90);
+>   - contract: 529 tests at 89.15% (floor 87);
+>   - integration: 230 tests at 77.57% (floor 77).
+> - Vitest: 1,128. mypy across `draupnir`, `scripts` and `draupnirctl` is
+>   clean, and the import contracts hold (7 kept). The acceptance pack is
+>   regenerated, AC-Q6 now naming migration 0007.
+> - A first integration run of a hand-picked subset of files, in an order the
+>   stage does not use, failed `test_schema_constraints` on a ledger sequence
+>   an earlier file had written at the same site. In the stage's own order,
+>   all 230 pass.
+
 ---
 
 ### RF-43 — P1 — Nothing but the demonstration procedure takes a run's licence decision
@@ -5014,7 +5103,7 @@ says the deployed upstream is not the address it uses.
 | RF-39 | P4 | `draupnirctl` cannot perform a conditional write: it never sends `If-Match` — **done**; all six conditional commands take `--if-match`, or read the tag from the read the OpenAPI document declares for them |
 | RF-40 | P3 | The console's approval can never be accepted: no `decidedAt`, and a placeholder signature — **done**; the approver's local signing agent signs the payload the API verifies, S13 says before the dialog when no key is reachable, and J3 approves end to end |
 | RF-41 | P3 | Gate results are read from a table only the seed writes, so an estate's approval queue shows no evidence — **done**; `gate_result` is projected from the outcomes the chain records, the seed inserts no row, and S13 offers no decision on an empty evidence table |
-| RF-42 | P3 | The licence register is read from a table only the seed writes, so a registered source appears nowhere |
+| RF-42 | P3 | The licence register is read from a table only the seed writes, so a registered source appears nowhere — **done**; `source` is projected from the registrations and the corpus transitions the chain records, the seed inserts no row, and `registerSource` records its residency constraint |
 | RF-43 | P1 | Nothing but the demonstration procedure takes a run's licence decision, so a submitted run stays at DRAFT |
 | RF-44 | P1 | The console proxy cannot reach the API on a commissioned host: its upstream 127.0.0.1 is its own container's loopback |
 

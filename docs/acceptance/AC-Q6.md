@@ -23,6 +23,7 @@ make test-skills
 - `migrations/versions/0004_ledger_notify.py`
 - `migrations/versions/0005_duty_measurement.py`
 - `migrations/versions/0006_release_licence_policy_version.py`
+- `migrations/versions/0007_source_site.py`
 - `skills/draupnir-migration/scripts/new_migration.py`
 - `tasks.py`
 - `tests/unit/test_projector.py`

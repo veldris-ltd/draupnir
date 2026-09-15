@@ -28,7 +28,7 @@ from uuid import UUID
 
 from sqlalchemy import Connection, text
 
-from draupnir.core.domain import gate_results, releases
+from draupnir.core.domain import gate_results, releases, sources
 from draupnir.core.domain.federation import ANCHOR_SUBMITTED
 from draupnir.core.domain.ledger import (
     GENESIS_HASH,
@@ -707,13 +707,124 @@ class GateResultProjection(ScopedRepository):
         return len(rows)
 
 
+class SourceProjection(ScopedRepository):
+    """Maintains the licence register, `source`, from the chain. RF-42.
+
+    `registerSource` recorded a `source` entry and wrote no row, and the seed
+    was the only writer, so a source registered on an estate appeared in
+    neither the register nor a release's lineage. Folded by `sources.fold`,
+    which never reads the table, and advanced on every append beside the other
+    projections.
+
+    `source` has no row level security, so a rebuild names its site in every
+    statement: migration 0007 records which site's chain registered each row.
+    """
+
+    NAME = "source"
+
+    def checkpoint(self) -> int:
+        """Return the last sequence number this projection consumed."""
+        value = self._connection.execute(
+            text(
+                "SELECT last_seq FROM projection_checkpoint "
+                "WHERE site_id = :site_id AND projection = :projection"
+            ),
+            {"site_id": self.site_id, "projection": self.NAME},
+        ).scalar_one_or_none()
+        return int(value or 0)
+
+    def _record_checkpoint(self, last_seq: int, *, rebuilt: bool) -> None:
+        self._connection.execute(
+            text(
+                "INSERT INTO projection_checkpoint (site_id, projection, last_seq, rebuilt_at) "
+                "VALUES (:site_id, :projection, :last_seq, :rebuilt_at) "
+                "ON CONFLICT (site_id, projection) DO UPDATE SET "
+                "last_seq = EXCLUDED.last_seq, "
+                "rebuilt_at = COALESCE(EXCLUDED.rebuilt_at, projection_checkpoint.rebuilt_at)"
+            ),
+            {
+                "site_id": self.site_id,
+                "projection": self.NAME,
+                "last_seq": last_seq,
+                "rebuilt_at": datetime.now(tz=UTC) if rebuilt else None,
+            },
+        )
+
+    def rebuild(self) -> ProjectionReport:
+        """Discard this site's register and fold the chain from sequence 1."""
+        entries = list(self._ledger().stream(1))
+        self._connection.execute(
+            text("DELETE FROM source WHERE site_id = :site_id"), {"site_id": self.site_id}
+        )
+        written = self._write(sources.fold(entries))
+        last_seq = entries[-1].seq if entries else 0
+        self._record_checkpoint(last_seq, rebuilt=True)
+        return ProjectionReport(self.NAME, self.site_id, len(entries), written, last_seq, True)
+
+    def catch_up(self) -> ProjectionReport:
+        """Fold the chain again when an entry since the checkpoint moved the register."""
+        checkpoint = self.checkpoint()
+        pending = list(self._ledger().stream(checkpoint + 1))
+        if not pending:
+            return ProjectionReport(self.NAME, self.site_id, 0, 0, checkpoint, False)
+        last_seq = pending[-1].seq
+        written = 0
+        if any(sources.concerns(entry) for entry in pending):
+            written = self._write(sources.fold(self._ledger().stream(1)))
+        self._record_checkpoint(last_seq, rebuilt=False)
+        return ProjectionReport(self.NAME, self.site_id, len(pending), written, last_seq, False)
+
+    def _ledger(self) -> LedgerRepository:
+        return LedgerRepository(self._connection, self._scope)
+
+    def _write(self, rows: Sequence[sources.ProjectedSource]) -> int:
+        """Upsert every folded source, keyed by its identifier."""
+        if not rows:
+            return 0
+        self._connection.execute(
+            text(
+                "INSERT INTO source (id, site_id, jurisdiction, url, licence_spdx, "
+                " attribution_required, retrieved_at, sha256, personal_data, dpia_ref, "
+                " residency_constraint, state) "
+                "VALUES (:id, :site_id, :jurisdiction, :url, :licence_spdx, "
+                " :attribution_required, :retrieved_at, :sha256, :personal_data, :dpia_ref, "
+                " :residency_constraint, :state) "
+                "ON CONFLICT (id) DO UPDATE SET "
+                "site_id = EXCLUDED.site_id, jurisdiction = EXCLUDED.jurisdiction, "
+                "url = EXCLUDED.url, licence_spdx = EXCLUDED.licence_spdx, "
+                "attribution_required = EXCLUDED.attribution_required, "
+                "retrieved_at = EXCLUDED.retrieved_at, sha256 = EXCLUDED.sha256, "
+                "personal_data = EXCLUDED.personal_data, dpia_ref = EXCLUDED.dpia_ref, "
+                "residency_constraint = EXCLUDED.residency_constraint, state = EXCLUDED.state"
+            ),
+            [
+                {
+                    "id": row.id,
+                    "site_id": row.site_id,
+                    "jurisdiction": row.jurisdiction,
+                    "url": row.url,
+                    "licence_spdx": row.licence_spdx,
+                    "attribution_required": row.attribution_required,
+                    "retrieved_at": row.retrieved_at,
+                    "sha256": row.sha256,
+                    "personal_data": row.personal_data,
+                    "dpia_ref": row.dpia_ref,
+                    "residency_constraint": list(row.residency_constraint),
+                    "state": str(row.state),
+                }
+                for row in rows
+            ],
+        )
+        return len(rows)
+
+
 class ChainProjections:
     """Every projection an append advances, behind the one port the orchestrator knows.
 
     The orchestrator asks one projection to catch up and reads runs from it.
-    This keeps that shape while adding the release projection (RF-33) and the
-    gate results (RF-41): runs first, because an artefact row and a gate result
-    both name the run they belong to.
+    This keeps that shape while adding the release projection (RF-33), the gate
+    results (RF-41) and the licence register (RF-42): runs first, because an
+    artefact row and a gate result both name the run they belong to.
     """
 
     def __init__(
@@ -721,15 +832,24 @@ class ChainProjections:
         runs: RunProjection,
         release_rows: ReleaseProjection,
         gate_rows: GateResultProjection,
+        source_rows: SourceProjection,
     ) -> None:
         """Hold the projections, in the order they are advanced."""
         self._runs = runs
         self._releases = release_rows
         self._gates = gate_rows
+        self._sources = source_rows
 
-    def catch_up(self) -> tuple[ProjectionReport, ProjectionReport, ProjectionReport]:
-        """Advance the run registry, then the releases, then the gate results."""
-        return self._runs.catch_up(), self._releases.catch_up(), self._gates.catch_up()
+    def catch_up(
+        self,
+    ) -> tuple[ProjectionReport, ProjectionReport, ProjectionReport, ProjectionReport]:
+        """Advance the run registry, the releases, the gate results, then the register."""
+        return (
+            self._runs.catch_up(),
+            self._releases.catch_up(),
+            self._gates.catch_up(),
+            self._sources.catch_up(),
+        )
 
     def read(self) -> tuple[ProjectedRun, ...]:
         """The projected runs, which is all the orchestrator reads."""

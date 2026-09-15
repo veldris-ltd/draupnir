@@ -19,10 +19,12 @@ that seeds is a dataset the projector can rebuild.
 Two modelling notes, because the seed is where they first bite.
 
   * SAD 6.1 tabulates fourteen states. Every run traverses the machine from
-    DRAFT, so every run passes through CORPUS_REGISTERED and LICENCE_CLEARED;
-    but no run *rests* there, because those two describe a corpus awaiting a
-    judgement rather than work in progress. `source.state` carries them, and
-    the twelve runs below rest in the twelve remaining states, one each.
+    DRAFT, so every run past DRAFT passes through CORPUS_REGISTERED, and every
+    run its corpus's licence did not refuse through LICENCE_CLEARED; but no run
+    *rests* there, because those two describe a corpus awaiting a judgement
+    rather than work in progress. `source.state` carries them, folded from
+    those transitions (RF-42), and the twelve runs below rest in the twelve
+    remaining states, one each.
   * SAD 11C constraint 3 puts row level security on the site scoped tables, so
     the seed sets `draupnir.site_id` per site and writes each site's rows in
     its own transaction. If that variable were not set, every insert below
@@ -47,6 +49,7 @@ from sqlalchemy.engine import Connection
 from draupnir.brisingamen import sweep as sweeps
 from draupnir.core.domain import gate_results as gate_record
 from draupnir.core.domain import releases as release_record
+from draupnir.core.domain import sources as source_record
 from draupnir.core.domain.evidence import Evidence
 from draupnir.core.domain.federation import ANCHOR_SUBMITTED
 from draupnir.core.domain.identifiers import id_at
@@ -59,6 +62,7 @@ from draupnir.core.infrastructure.repositories import (
     GateResultProjection,
     ReleaseProjection,
     RunProjection,
+    SourceProjection,
 )
 from draupnir.gleipnir import licence as licence_policy
 from draupnir.hamarr import tiers
@@ -115,7 +119,6 @@ SOURCES: tuple[dict[str, Any], ...] = (
         "personal_data": False,
         "dpia_ref": None,
         "residency_constraint": ["sindri", "brokkr"],
-        "state": RunState.CURATED,
     },
     {
         "jurisdiction": "GBR",
@@ -125,7 +128,6 @@ SOURCES: tuple[dict[str, Any], ...] = (
         "personal_data": True,
         "dpia_ref": "DPIA-2026-014",
         "residency_constraint": ["sindri"],
-        "state": RunState.CURATED,
     },
     {
         "jurisdiction": "IRL",
@@ -135,7 +137,6 @@ SOURCES: tuple[dict[str, Any], ...] = (
         "personal_data": False,
         "dpia_ref": None,
         "residency_constraint": [],
-        "state": RunState.LICENCE_CLEARED,
     },
     {
         "jurisdiction": "DEU",
@@ -145,7 +146,6 @@ SOURCES: tuple[dict[str, Any], ...] = (
         "personal_data": False,
         "dpia_ref": None,
         "residency_constraint": [],
-        "state": RunState.CORPUS_REGISTERED,
     },
     {
         "jurisdiction": "USA",
@@ -155,7 +155,6 @@ SOURCES: tuple[dict[str, Any], ...] = (
         "personal_data": False,
         "dpia_ref": None,
         "residency_constraint": [],
-        "state": RunState.DRAFT,
     },
     {
         # Refused by GLEIPNIR licence policy, retained with its history.
@@ -166,7 +165,6 @@ SOURCES: tuple[dict[str, Any], ...] = (
         "personal_data": True,
         "dpia_ref": "DPIA-2026-021",
         "residency_constraint": ["sindri"],
-        "state": RunState.QUARANTINED,
     },
 )
 
@@ -236,7 +234,7 @@ ACTOR_BY_TARGET = {
     RunState.QUANTISED: "system:skidbladnir",
     RunState.AWAITING_APPROVAL: "system:gleipnir",
     RunState.RELEASED: "approver@veldris.internal",
-    RunState.QUARANTINED: "approver@veldris.internal",
+    RunState.QUARANTINED: "system:gleipnir",
 }
 
 #: Operational entries used to bring each chain up to its share of the 400.
@@ -362,7 +360,12 @@ def lifecycle(state: RunState) -> tuple[RunState, ...]:
     if state is RunState.FAILED:
         return (*SPINE[: SPINE.index(RunState.TRAINING) + 1], RunState.FAILED)
     if state is RunState.QUARANTINED:
-        return (*SPINE[: SPINE.index(RunState.AWAITING_APPROVAL) + 1], RunState.QUARANTINED)
+        # Refused by licence policy, which is what its record always said
+        # ("Licence policy refusal on a constituent source") while its chain
+        # walked it to an approval and rejected it there. RF-42 folds a source's
+        # state from its corpus's transitions, so the refusal is recorded where
+        # SAD 6.1 puts it; J3 rejects an approval of its own at run time.
+        return (RunState.DRAFT, RunState.CORPUS_REGISTERED, RunState.QUARANTINED)
     return SPINE[: SPINE.index(state) + 1]
 
 
@@ -436,6 +439,11 @@ def transition_payload(
             "approver": "approver@veldris.internal",
             "signature": fake_sha256(rng, f"sig:{name}"),
             "decided_at": decided_at.isoformat(),
+        },
+        "CORPUS_REGISTERED->QUARANTINED": {
+            "failing_source": "https://example-aggregator.invalid/fr-corpus",
+            "rule": "licence-policy",
+            "actor": "system:gleipnir",
         },
         "AWAITING_APPROVAL->QUARANTINED": {
             "rejection_reason": "Licence policy refusal on a constituent source",
@@ -586,39 +594,32 @@ def build() -> dict[str, Any]:
         return clock[site_id]
 
     # -- sources ------------------------------------------------------------
-    sources: list[dict[str, Any]] = []
+    # Registered as `registerSource` registers one, and nothing else (RF-42).
+    # The seed inserted a row per source beside an entry recording a state it
+    # had chosen, so the register said what the seed said rather than what the
+    # chain did. The row is now projected, and the state is where the source's
+    # corpus has reached in the runs recorded after it.
     for index, spec in enumerate(SOURCES):
         moment = EPOCH + timedelta(hours=index)
         source_id = ids.next(moment)
         digest = fake_sha256(rng, str(spec["url"]))
-        sources.append(
-            {
-                "id": source_id,
-                "jurisdiction": spec["jurisdiction"],
-                "url": spec["url"],
-                "licence_spdx": spec["licence_spdx"],
-                "attribution_required": spec["attribution_required"],
-                "retrieved_at": moment,
-                "sha256": digest,
-                "personal_data": spec["personal_data"],
-                "dpia_ref": spec["dpia_ref"],
-                "residency_constraint": spec["residency_constraint"],
-                "state": str(spec["state"]),
-            }
-        )
         site_id = "sindri" if index % 2 == 0 else "brokkr"
         chains[site_id].append(
             ts=tick(site_id, 5, 45),
             actor="curator@veldris.internal",
-            subject_type="source",
+            subject_type=source_record.SOURCE_SUBJECT,
             subject_id=str(source_id),
-            transition=f"DRAFT->{spec['state']}",
+            transition=source_record.REGISTERED,
             payload={
+                "jurisdiction": spec["jurisdiction"],
                 "url": spec["url"],
                 "licence_spdx": spec["licence_spdx"],
-                "sha256": digest,
+                "attribution_required": spec["attribution_required"],
                 "personal_data": spec["personal_data"],
-                "jurisdiction": spec["jurisdiction"],
+                "dpia_ref": spec["dpia_ref"],
+                "sha256": digest,
+                "retrieved_at": moment.isoformat(),
+                "residency_constraint": list(spec["residency_constraint"]),
             },
             entry_id=ids.next(clock[site_id]),
         )
@@ -912,7 +913,6 @@ def build() -> dict[str, Any]:
 
     return {
         "sites": sites,
-        "sources": sources,
         "runs": runs,
         "plugins": plugins,
         "chains": chains,
@@ -960,7 +960,6 @@ def write(dataset: dict[str, Any], url: str) -> None:
             msg = "the database already holds sites; seed against an empty schema"
             raise SystemExit(msg)
         _insert(connection, "site", dataset["sites"])
-        _insert(connection, "source", dataset["sources"])
         _insert(connection, "plugin", dataset["plugins"])
 
     for site_id, chain in chains.items():
@@ -974,6 +973,9 @@ def write(dataset: dict[str, Any], url: str) -> None:
             # And the gate results, from the evaluations the chain records
             # (RF-41), rather than inserted beside it.
             GateResultProjection(connection, SiteScope(site_id)).rebuild()
+            # And the licence register, from the registrations and the corpus
+            # transitions (RF-42), rather than inserted beside it.
+            SourceProjection(connection, SiteScope(site_id)).rebuild()
 
     engine.dispose()
 
@@ -1031,6 +1033,23 @@ def projected_gate_results(dataset: dict[str, Any]) -> tuple[Any, ...]:
     return tuple(rows)
 
 
+def projected_sources(dataset: dict[str, Any]) -> tuple[Any, ...]:
+    """The licence register the seeded chains project to. RF-42.
+
+    Folded per site by the function `SourceProjection` uses, so the count and
+    the states describe the rows the database will hold.
+    """
+    rows: list[Any] = []
+    for chain in dataset["chains"].values():
+        rows.extend(
+            source_record.fold(
+                LedgerEntry(**{**row, "payload": json.loads(row["payload"])})
+                for row in chain.rows or []
+            )
+        )
+    return tuple(rows)
+
+
 def summarise(dataset: dict[str, Any]) -> str:
     """Return the one-line-per-entity summary printed after a seed."""
     chains: dict[str, Chain] = dataset["chains"]
@@ -1039,7 +1058,8 @@ def summarise(dataset: dict[str, Any]) -> str:
     missing = {str(state) for state in RUN_PHASE_STATES} - states
     lines = [
         f"  sites          {len(dataset['sites']):>4}",
-        f"  sources        {len(dataset['sources']):>4}",
+        # Folded from the registrations, as `SourceProjection` folds them (RF-42).
+        f"  sources        {len(projected_sources(dataset)):>4}",
         f"  runs           {len(dataset['runs']):>4}  resting in {len(states)} of "
         f"{len(RUN_PHASE_STATES)} run states",
         f"  artefacts      {len(folded.artefacts):>4}",

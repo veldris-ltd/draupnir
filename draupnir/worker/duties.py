@@ -37,9 +37,9 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
 
-from draupnir.api.reading import jurisdiction_of
 from draupnir.core.domain.ledger import LedgerEntry
 from draupnir.core.domain.projector import REGISTRATION
+from draupnir.core.domain.sources import jurisdiction_of
 from draupnir.core.domain.states import RunState
 from draupnir.gullinbursti.agent import ANCHOR_INTERVAL
 from draupnir.hodd import retention
