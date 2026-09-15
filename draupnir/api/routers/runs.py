@@ -23,7 +23,12 @@ from fastapi.responses import StreamingResponse
 
 from draupnir.api import events as event_stream
 from draupnir.api import telemetry, writing
-from draupnir.api.concurrency import ConcurrencyError, require, run_version
+from draupnir.api.concurrency import (
+    ConcurrencyError,
+    precondition_read,
+    require,
+    run_version,
+)
 from draupnir.api.context import RequestContext
 from draupnir.api.deps import (
     Cursor,
@@ -532,6 +537,7 @@ async def get_run(run_id: RunId, ctx: Guarded, reading: Reading, response: Respo
     operation_id="cancelRun",
     status_code=status.HTTP_202_ACCEPTED,
     response_model=Accepted,
+    openapi_extra=precondition_read("getRun"),
 )
 @needs(Permission.CANCEL_RUN)
 async def cancel(
@@ -602,6 +608,7 @@ async def cancel(
     operation_id="retryRun",
     status_code=status.HTTP_202_ACCEPTED,
     response_model=Accepted,
+    openapi_extra=precondition_read("getRun"),
 )
 @needs(Permission.SUBMIT_RUN)
 async def retry(

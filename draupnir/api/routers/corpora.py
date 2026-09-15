@@ -17,7 +17,7 @@ from uuid import UUID
 from fastapi import APIRouter, Path, Response, status
 
 from draupnir.api import telemetry, writing
-from draupnir.api.concurrency import ConcurrencyError, require
+from draupnir.api.concurrency import ConcurrencyError, precondition_read, require
 from draupnir.api.deps import (
     Cursor,
     Guarded,
@@ -308,6 +308,10 @@ async def list_retention(ctx: Guarded, reading: Reading) -> RetentionPage:
     summary="Approve the deletion a retention action proposes",
     operation_id="approveRetention",
     response_model=RetentionOut,
+    # No read returns one action, so the tag is the entry's in the list.
+    openapi_extra=precondition_read(
+        "listRetention", item={"collection": "items", "key": "id", "parameter": "action_id"}
+    ),
 )
 @needs(Permission.APPROVE_RETENTION)
 async def approve_retention(

@@ -19,7 +19,13 @@ from uuid import UUID
 from fastapi import APIRouter, Path, Query, status
 
 from draupnir.api import telemetry, writing
-from draupnir.api.concurrency import ConcurrencyError, release_version, require, run_version
+from draupnir.api.concurrency import (
+    ConcurrencyError,
+    precondition_read,
+    release_version,
+    require,
+    run_version,
+)
 from draupnir.api.deps import (
     Cursor,
     Guarded,
@@ -103,6 +109,9 @@ async def list_gates(
     operation_id="decideGate",
     status_code=status.HTTP_201_CREATED,
     response_model=DecisionOut,
+    # A gate is a run awaiting a decision, and the tag checked here is the
+    # run's (`run_version`), so the run read is where a client finds it.
+    openapi_extra=precondition_read("getRun", parameters={"run_id": "gate_id"}),
 )
 @needs(Permission.DECIDE_GATE)
 async def decide_gate(
@@ -272,6 +281,7 @@ async def decide_gate(
     operation_id="publishRelease",
     status_code=status.HTTP_202_ACCEPTED,
     response_model=PublishOut,
+    openapi_extra=precondition_read("getLineage"),
 )
 @needs(Permission.PUBLISH_RELEASE)
 async def publish(

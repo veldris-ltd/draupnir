@@ -174,3 +174,37 @@ def require(resource: str, state: Mapping[str, Any], header: str | None) -> str:
 def unchanged(state: Mapping[str, Any], header: str | None) -> bool:
     """Whether a read may be answered 304, per `If-None-Match`."""
     return matches(etag(state), header)
+
+
+#: The OpenAPI extension that names where a client reads what a conditional
+#: write is conditional on. RF-39.
+PRECONDITION_EXTENSION = "x-draupnir-precondition"
+
+
+def precondition_read(
+    operation_id: str,
+    *,
+    parameters: Mapping[str, str] | None = None,
+    item: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Declare, in the OpenAPI document, the read that supplies an `If-Match`. RF-39.
+
+    A conditional write is conditional on what its caller last read, and a
+    generated client can only honour that if the document says which read that
+    is. `draupnirctl` sent no `If-Match` at all, so every conditional command
+    was refused with 428; the console had been fixed by hand (RF-32), which is
+    the kind of fix a generated client cannot receive. Declared here, beside
+    the route, so the route and the read it names are reviewed together.
+
+    `parameters` maps the read's path parameters to the write's, where they
+    are named differently -- a gate is a run, read as `run_id` and decided as
+    `gate_id`. `item` names a list read's collection, the field identifying an
+    entry, and the write's path parameter holding its value; the tag is then
+    that entry's `etag`.
+    """
+    declaration: dict[str, Any] = {"read": operation_id}
+    if parameters:
+        declaration["parameters"] = dict(parameters)
+    if item:
+        declaration["item"] = dict(item)
+    return {PRECONDITION_EXTENSION: declaration}

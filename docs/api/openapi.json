@@ -4807,7 +4807,13 @@
         "summary": "Approve or reject",
         "tags": [
           "approvals"
-        ]
+        ],
+        "x-draupnir-precondition": {
+          "parameters": {
+            "run_id": "gate_id"
+          },
+          "read": "getRun"
+        }
       }
     },
     "/v1/ledger": {
@@ -6256,7 +6262,10 @@
         "summary": "Publish a release",
         "tags": [
           "approvals"
-        ]
+        ],
+        "x-draupnir-precondition": {
+          "read": "getLineage"
+        }
       }
     },
     "/v1/retention": {
@@ -6522,7 +6531,15 @@
         "summary": "Approve the deletion a retention action proposes",
         "tags": [
           "corpora"
-        ]
+        ],
+        "x-draupnir-precondition": {
+          "item": {
+            "collection": "items",
+            "key": "id",
+            "parameter": "action_id"
+          },
+          "read": "listRetention"
+        }
       }
     },
     "/v1/roles": {
@@ -7338,7 +7355,10 @@
         "summary": "Cancel a run",
         "tags": [
           "runs"
-        ]
+        ],
+        "x-draupnir-precondition": {
+          "read": "getRun"
+        }
       }
     },
     "/v1/runs/{run_id}/events": {
@@ -7628,7 +7648,10 @@
         "summary": "Retry a run",
         "tags": [
           "runs"
-        ]
+        ],
+        "x-draupnir-precondition": {
+          "read": "getRun"
+        }
       }
     },
     "/v1/search": {
@@ -8449,7 +8472,10 @@
         "summary": "Choose the merge point a run is quantised from",
         "tags": [
           "models"
-        ]
+        ],
+        "x-draupnir-precondition": {
+          "read": "getSweep"
+        }
       }
     }
   }

@@ -27,7 +27,7 @@ from uuid import UUID
 from fastapi import APIRouter, Path, Query, Response, status
 
 from draupnir.api import release_documents, telemetry, writing
-from draupnir.api.concurrency import ConcurrencyError, etag, require
+from draupnir.api.concurrency import ConcurrencyError, etag, precondition_read, require
 from draupnir.api.deps import (
     Cursor,
     Guarded,
@@ -539,6 +539,7 @@ def _sweep_out(run_id: UUID, model: str, recorded: sweeps.Sweep | None) -> Sweep
     summary="Choose the merge point a run is quantised from",
     operation_id="selectMergePoint",
     response_model=SweepOut,
+    openapi_extra=precondition_read("getSweep"),
 )
 @needs(Permission.SELECT_MERGE_POINT)
 async def select_merge_point(

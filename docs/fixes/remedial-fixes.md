@@ -4495,6 +4495,73 @@ defect, and RF-32 fixed it there.
 - The generated command table carries the option, and the drift gate covers it.
 - Gated in stage 2.3.
 
+> **Status — done.**
+>
+> **Six commands, not four.** The OpenAPI document gives `If-Match` to six
+> operations: `cancelRun`, `retryRun`, `decideGate`, `publishRelease`,
+> `approveRetention` and `selectMergePoint`. The finding named the first four.
+> `approve-retention` and `select-merge-point`, the two actions RF-27 added,
+> were refused with 428 in the same way.
+>
+> **Where a tag comes from is the document's, not the CLI's.** A hand-kept map
+> in `cli.py` would be a hand-written client method under another name. So
+> `precondition_read` in `draupnir/api/concurrency.py` writes an
+> `x-draupnir-precondition` extension beside each conditional route, naming
+> the read that supplies its tag:
+> - `cancelRun` and `retryRun` read `getRun`;
+> - `decideGate` reads `getRun`, with `gate_id` passed as `run_id`, because a
+>   gate is a run and the tag checked is the run's;
+> - `publishRelease` reads `getLineage`;
+> - `selectMergePoint` reads `getSweep`;
+> - `approveRetention` reads the `listRetention` entry whose `id` is the
+>   action, since no read returns a single action.
+>
+> **Generator.** `scripts/generate_cli.py` carries `if_match` and a
+> `Precondition` into the command table. It refuses a document in which an
+> operation takes `If-Match` and:
+> - names no read;
+> - names a read that is not a GET; or
+> - names a read whose path parameters it cannot supply.
+>
+> `clients-check` compares the table, so the drift gate covers the option.
+>
+> **CLI.**
+> - Every conditional command takes `--if-match`.
+> - Given no tag, it calls the declared read, sends the tag that read returned,
+>   and says on standard error which tag it sent and where from.
+> - If the read fails, or the list holds no such entry, it sends nothing.
+> - `--if-match` on an unconditional command is refused.
+>
+> **Tests,** stage 2.3, `tests/contract/test_cli_conditional_writes.py`. The
+> commands run through Typer, with their HTTP routed into the application over
+> the doubles the API's own conditional-write tests use. For each of the six:
+> - given no tag, the command reads it and the write is accepted;
+> - given a tag the state has since moved past, the write is refused with 412.
+>
+> Publication is the one exception to the first point. Its precondition
+> passes, and then the publication is refused for a reason of its own,
+> because the doubles hold no publication facts. A real publication through
+> the API is `tests/integration/test_release_publication.py`'s.
+>
+> The table test derives the set of conditional operations from
+> `docs/api/openapi.json`, so a seventh arrives covered or fails.
+>
+> **Results.**
+> - The coverage-gated stages, each above its floor:
+>   - unit: 1,660 tests at 90.22% (floor 90);
+>   - property: 14;
+>   - contract: 525 tests at 89.30% (floor 87), the CLI's nine among them;
+>   - integration: 227 tests at 77.29% (floor 77).
+> - mypy across `draupnir`, `scripts` and `draupnirctl` is clean. The import
+>   contracts hold (7 kept).
+> - The OpenAPI diff is additive only: six `x-draupnir-precondition`
+>   extensions.
+> - Regenerating the clients a second time changes nothing further. The
+>   acceptance pack is current.
+> - The first contract and integration runs failed on a stopped Docker daemon,
+>   not on this change: every error was the Docker connection. Both passed once
+>   Docker Desktop was running.
+
 ---
 
 ### RF-40 — P3 — The console's approval can never be accepted
@@ -4737,7 +4804,7 @@ says the deployed upstream is not the address it uses.
 | RF-36 | P5 | The journey stack does not route `/auth`, so sign-in cannot pass — **done**; both development servers read one list of proxied prefixes, `/auth` among them, and a test holds it to nginx |
 | RF-37 | P2 | SAD 9.5's transport security is not built: nothing terminates TLS and nothing uses mTLS — **done**; the console proxy terminates TLS 1.3 only, the API and MEGINGJORD require the certificates the proxy and GULLINBURSTI present, and the inventory row reads the proxy's configuration |
 | RF-38 | P5 | The Storybook axe sweep races Storybook's own axe run — **done**; the addon's automatic run is off on the sweep's pages, and the shard fails if it ever starts again |
-| RF-39 | P4 | `draupnirctl` cannot perform a conditional write: it never sends `If-Match` |
+| RF-39 | P4 | `draupnirctl` cannot perform a conditional write: it never sends `If-Match` — **done**; all six conditional commands take `--if-match`, or read the tag from the read the OpenAPI document declares for them |
 | RF-40 | P3 | The console's approval can never be accepted: no `decidedAt`, and a placeholder signature |
 | RF-41 | P3 | Gate results are read from a table only the seed writes, so an estate's approval queue shows no evidence |
 | RF-42 | P3 | The licence register is read from a table only the seed writes, so a registered source appears nowhere |

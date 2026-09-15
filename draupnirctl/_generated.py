@@ -12,6 +12,21 @@ GENERATED_FROM_OPENAPI_VERSION = "0.1.0"
 
 
 @dataclass(frozen=True, slots=True)
+class Precondition:
+    """Where a conditional write reads the tag it is conditional on. RF-39."""
+
+    #: The operation that returns the tag.
+    read: str
+    #: The read's path parameters, each taken from the write's parameter named.
+    parameters: tuple[tuple[str, str], ...] = ()
+    #: For a list read: the collection, the field that identifies an entry, and
+    #: the write's path parameter holding its value. The tag is the entry's etag.
+    collection: str | None = None
+    key: str | None = None
+    parameter: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Operation:
     """One operation of the API contract, as the CLI sees it."""
 
@@ -22,6 +37,10 @@ class Operation:
     summary: str
     path_params: tuple[str, ...]
     has_body: bool
+    #: Whether the operation takes `If-Match` (SAD 11E.2).
+    if_match: bool = False
+    #: Where to read the tag when none is given.
+    precondition: Precondition | None = None
 
 
 OPERATIONS: tuple[Operation, ...] = (
@@ -168,6 +187,8 @@ OPERATIONS: tuple[Operation, ...] = (
         summary="Approve or reject",
         path_params=("gate_id",),
         has_body=True,
+        if_match=True,
+        precondition=Precondition(read="getRun", parameters=(("run_id", "gate_id"),)),
     ),
     Operation(
         operation_id="getLedger",
@@ -267,6 +288,8 @@ OPERATIONS: tuple[Operation, ...] = (
         summary="Publish a release",
         path_params=("artefact",),
         has_body=False,
+        if_match=True,
+        precondition=Precondition(read="getLineage"),
     ),
     Operation(
         operation_id="listRetention",
@@ -285,6 +308,10 @@ OPERATIONS: tuple[Operation, ...] = (
         summary="Approve the deletion a retention action proposes",
         path_params=("action_id",),
         has_body=False,
+        if_match=True,
+        precondition=Precondition(
+            read="listRetention", collection="items", key="id", parameter="action_id"
+        ),
     ),
     Operation(
         operation_id="getRoles",
@@ -339,6 +366,8 @@ OPERATIONS: tuple[Operation, ...] = (
         summary="Cancel a run",
         path_params=("run_id",),
         has_body=True,
+        if_match=True,
+        precondition=Precondition(read="getRun"),
     ),
     Operation(
         operation_id="streamRunEvents",
@@ -357,6 +386,8 @@ OPERATIONS: tuple[Operation, ...] = (
         summary="Retry a run",
         path_params=("run_id",),
         has_body=False,
+        if_match=True,
+        precondition=Precondition(read="getRun"),
     ),
     Operation(
         operation_id="search",
@@ -411,5 +442,7 @@ OPERATIONS: tuple[Operation, ...] = (
         summary="Choose the merge point a run is quantised from",
         path_params=("run_id",),
         has_body=True,
+        if_match=True,
+        precondition=Precondition(read="getSweep"),
     ),
 )
