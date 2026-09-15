@@ -184,11 +184,9 @@ test.describe('J3 Approve', () => {
     // neither, and until RF-32 neither could succeed: the console sent no
     // If-Match, so the API refused every decision from it with 428.
     //
-    // Rejection rather than approval, because a rejection needs no signature.
-    // The console signs an approval with a placeholder that cannot verify,
-    // which is a finding of its own. The gate decided here is the seed's
-    // cim-nzl-v0.1, which exists to be decided, so cim-aus-v0.1 stays pending
-    // for the tests above and for the keyboard walk that follows this stage.
+    // The gate decided here is the seed's cim-nzl-v0.1, which exists to be
+    // decided, so cim-aus-v0.1 stays pending for the tests above and for the
+    // keyboard walk that follows this stage. The approval below has its own.
     const gateId = await pendingGateFor(page, 'cim-nzl-v0.1');
     if (gateId === undefined) {
       // Decided by an earlier run against a database that outlives it.
@@ -211,6 +209,41 @@ test.describe('J3 Approve', () => {
     await expect(page.getByTestId('decision-outcome')).toContainText('quarantined');
     expect(await stateOf(page, 'cim-nzl-v0.1')).toBe('QUARANTINED');
     expect(await pendingGateFor(page, 'cim-nzl-v0.1')).toBeUndefined();
+  });
+
+  test('a confirmed approval is signed by the agent and accepted', async ({ page }) => {
+    // RF-40. S13's approval sent a placeholder signature and no `decidedAt`,
+    // so it could never be accepted and this journey stopped at the dialog.
+    // The stack now runs the approver's signing agent with the development
+    // principal's key, registered where the API verifies. The gate approved
+    // here is the seed's cim-fji-v0.1, which exists to be approved.
+    const gateId = await pendingGateFor(page, 'cim-fji-v0.1');
+    if (gateId === undefined) {
+      // Approved by an earlier run against a database that outlives it.
+      expect(await stateOf(page, 'cim-fji-v0.1')).toBe('RELEASED');
+      return;
+    }
+
+    await page.goto(`/gates/${gateId}`);
+    await expect(page.getByTestId('gate-evidence')).toBeVisible({ timeout: 15_000 });
+    // Before the dialog: the screen names the key it will sign with.
+    await expect(page.getByTestId('signing-agent')).toContainText(
+      'Signing as dev@veldris.internal',
+      { timeout: 15_000 },
+    );
+    await page.getByRole('button', { name: 'Sign and approve' }).click();
+
+    const decided = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname.endsWith('/decide'),
+    );
+    await page.getByRole('dialog').getByRole('button', { name: 'Sign and approve' }).click();
+
+    expect((await decided).status()).toBe(201);
+    await expect(page.getByTestId('decision-outcome')).toContainText('Approved');
+    expect(await stateOf(page, 'cim-fji-v0.1')).toBe('RELEASED');
+    expect(await pendingGateFor(page, 'cim-fji-v0.1')).toBeUndefined();
   });
 });
 

@@ -101,6 +101,17 @@
             "title": "Runid",
             "type": "string"
           },
+          "signing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApprovalSigning"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the caller signs to approve this artefact (RF-40). Null where the run's facts cannot be read, in which case an approval cannot be signed either."
+          },
           "submittedBy": {
             "description": "Who submitted the run.",
             "title": "Submittedby",
@@ -154,6 +165,41 @@
           "limit"
         ],
         "title": "ApprovalPage",
+        "type": "object"
+      },
+      "ApprovalSigning": {
+        "additionalProperties": false,
+        "description": "What the caller signs to approve one artefact. RF-40.\n\nThe fields of `Approval.signing_payload()` that only the API knows, so the\napprover's signing agent can build the exact bytes `decideGate` verifies.\nThe instant is the agent's: it dates the approval when it signs.",
+        "properties": {
+          "approver": {
+            "description": "Who signs: the caller, as the API identifies them. The key must be theirs.",
+            "title": "Approver",
+            "type": "string"
+          },
+          "policyVersion": {
+            "description": "The approval policy the decision is signed under.",
+            "title": "Policyversion",
+            "type": "string"
+          },
+          "soleApproverException": {
+            "description": "Whether the caller also submitted the run. Computed from the chain, never supplied, and inside the signed bytes, so a signature over any other value does not verify (constraint C-11).",
+            "title": "Soleapproverexception",
+            "type": "boolean"
+          },
+          "subject": {
+            "description": "The subject the approval is about.",
+            "format": "uuid",
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "approver",
+          "policyVersion",
+          "soleApproverException"
+        ],
+        "title": "ApprovalSigning",
         "type": "object"
       },
       "ArrayElementOut": {
@@ -4481,7 +4527,7 @@
     },
     "/v1/gates": {
       "get": {
-        "description": "List artefacts awaiting a decision, with their gate results.\n\n    The gate results come back with the queue rather than behind a second\n    request per row. AC-U13 puts the evidence above the decision control, and a\n    queue that has to be expanded row by row to see any of it is a queue whose\n    evidence is, in practice, after the decision.\n    \n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
+        "description": "List artefacts awaiting a decision, with their gate results.\n\n    The gate results come back with the queue rather than behind a second\n    request per row. AC-U13 puts the evidence above the decision control, and a\n    queue that has to be expanded row by row to see any of it is a queue whose\n    evidence is, in practice, after the decision.\n\n    Each row also carries what the caller would sign to approve it (RF-40),\n    computed as `decideGate` computes it: the submitter is read from the run's\n    facts, so the sole approver flag the console asks the signing agent to sign\n    is the flag the decision checks. The row's `submittedBy` is taken from the\n    same facts where they are read, rather than from the read model's\n    placeholder.\n    \n\nRequires: `admin`, `approver`, `curator`, `operator`, `viewer`.",
         "operationId": "listGates",
         "parameters": [
           {

@@ -12,6 +12,8 @@ imported, directly or through other modules, from something a deployment runs:
 
 - the API application, and `draupnir.api.serve`, which serves it over mTLS and
   is the API image's command (`docker/api.Dockerfile`, RF-37);
+- the approver's signing agent, `python -m draupnir.gleipnir.signing_agent`,
+  which runs on the approver's own machine rather than on the forge (RF-40);
 - the worker, run as `python -m draupnir.worker`;
 - `draupnirctl`, the console script `pyproject.toml` declares;
 - every installed plug-in, through the entry point its `pyproject.toml`
@@ -45,6 +47,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ENTRY_POINTS = (
     "draupnir.api.app",
     "draupnir.api.serve",
+    "draupnir.gleipnir.signing_agent",
     "draupnir.worker.__main__",
     "draupnirctl.__main__",
 )

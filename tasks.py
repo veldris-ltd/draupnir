@@ -414,6 +414,36 @@ def api_command() -> str:
     )
 
 
+#: Where the console stack's development approver key lives (RF-40). Ignored by
+#: git: a private key, however throwaway, does not belong in the repository.
+DEV_DIR = ROOT / ".dev"
+
+#: The loopback port the signing agent listens on, which the console and its
+#: content security policy both name.
+SIGNING_AGENT_PORT = 47920
+
+
+def development_approver() -> dict[str, str]:
+    """A signing agent and an approver key store for the console stack. RF-40.
+
+    The journeys confirm an approval end to end, so the stack Playwright starts
+    needs the development principal's key held by an agent and its public half
+    where the API reads approver keys. The key is made by a script run through
+    uv, like everything else here that needs a dependency; this only says where
+    it is and how to start the agent.
+    """
+    uv_run("python", "scripts/development_approver.py", str(DEV_DIR))
+    agent = (
+        f'"{uv()}" run --frozen python -m draupnir.gleipnir.signing_agent '
+        f'--key "{DEV_DIR / "approver.key"}" --approver dev@veldris.internal '
+        f"--origin http://127.0.0.1:5173 --port {SIGNING_AGENT_PORT}"
+    )
+    return {
+        "DRAUPNIR_APPROVER_KEY_STORE": str(DEV_DIR / "approvers"),
+        "DRAUPNIR_AGENT_COMMAND": agent,
+    }
+
+
 def docker(*args: str, check: bool = True) -> int:
     """Run docker."""
     binary = which("docker")
@@ -1160,7 +1190,7 @@ RESET_SQL = (
 )
 
 
-@task("seed", "Seed the development dataset (2 sites, 6 sources, 13 runs, 1 release, 400 entries)")
+@task("seed", "Seed the development dataset (2 sites, 6 sources, 14 runs, 1 release, 400 entries)")
 def seed() -> int:
     uv_run("python", "scripts/seed.py")
     return 0
@@ -1378,7 +1408,7 @@ def test_e2e() -> int:
     # the console itself; what it cannot start is the database, and a journey
     # run against an empty one would pass its navigation and prove nothing.
     seeded_stack()
-    pnpm("run", "test:e2e", env={"DRAUPNIR_API_COMMAND": api_command()})
+    pnpm("run", "test:e2e", env={"DRAUPNIR_API_COMMAND": api_command(), **development_approver()})
     return 0
 
 
@@ -1396,7 +1426,7 @@ def test_a11y() -> int:
     # The console half of this scans real routes, so it needs the same stack
     # the journeys do.
     seeded_stack()
-    pnpm("run", "test:a11y", env={"DRAUPNIR_API_COMMAND": api_command()})
+    pnpm("run", "test:a11y", env={"DRAUPNIR_API_COMMAND": api_command(), **development_approver()})
     # The keyboard walk writes its record as it finishes (RF-31).
     records_left_the_tree_clean()
     return 0

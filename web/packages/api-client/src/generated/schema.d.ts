@@ -375,6 +375,13 @@ export interface paths {
          *         queue that has to be expanded row by row to see any of it is a queue whose
          *         evidence is, in practice, after the decision.
          *
+         *         Each row also carries what the caller would sign to approve it (RF-40),
+         *         computed as `decideGate` computes it: the submitter is read from the run's
+         *         facts, so the sole approver flag the console asks the signing agent to sign
+         *         is the flag the decision checks. The row's `submittedBy` is taken from the
+         *         same facts where they are read, rather than from the read model's
+         *         placeholder.
+         *
          *
          *     Requires: `admin`, `approver`, `curator`, `operator`, `viewer`.
          */
@@ -1221,6 +1228,8 @@ export interface components {
              * @description The run that produced it.
              */
             runId: string;
+            /** @description What the caller signs to approve this artefact (RF-40). Null where the run's facts cannot be read, in which case an approval cannot be signed either. */
+            signing?: components["schemas"]["ApprovalSigning"] | null;
             /**
              * Submittedby
              * @description Who submitted the run.
@@ -1247,6 +1256,37 @@ export interface components {
              * @description Cursor for the next page.
              */
             nextCursor?: string | null;
+        };
+        /**
+         * ApprovalSigning
+         * @description What the caller signs to approve one artefact. RF-40.
+         *
+         *     The fields of `Approval.signing_payload()` that only the API knows, so the
+         *     approver's signing agent can build the exact bytes `decideGate` verifies.
+         *     The instant is the agent's: it dates the approval when it signs.
+         */
+        ApprovalSigning: {
+            /**
+             * Approver
+             * @description Who signs: the caller, as the API identifies them. The key must be theirs.
+             */
+            approver: string;
+            /**
+             * Policyversion
+             * @description The approval policy the decision is signed under.
+             */
+            policyVersion: string;
+            /**
+             * Soleapproverexception
+             * @description Whether the caller also submitted the run. Computed from the chain, never supplied, and inside the signed bytes, so a signature over any other value does not verify (constraint C-11).
+             */
+            soleApproverException: boolean;
+            /**
+             * Subject
+             * Format: uuid
+             * @description The subject the approval is about.
+             */
+            subject: string;
         };
         /**
          * ArrayElementOut

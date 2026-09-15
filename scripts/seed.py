@@ -2,7 +2,7 @@
 
 Produces, exactly as Prompt 0 specifies:
 
-    2 sites, 6 sources, 13 runs across every state, 1 release,
+    2 sites, 6 sources, 14 runs across every state, 1 release,
     400 ledger entries
 
 The dataset is deterministic. Identifiers are UUIDv7 built from a fixed epoch
@@ -66,7 +66,7 @@ SEED = 20260901
 EPOCH = datetime(2026, 3, 2, 9, 0, tzinfo=UTC)
 
 TARGET_LEDGER_ENTRIES = 400
-TARGET_RUNS = 13
+TARGET_RUNS = 14
 TARGET_SOURCES = 6
 #: One, because one run is released. RF-33: artefacts, approvals and releases
 #: are projected from the chain, so a release is a publication of a released
@@ -192,6 +192,11 @@ RUN_PLAN = (
     # of stage 2.8. Last in the plan, so it is the newest in the queue and the
     # generated values of every run before it are unchanged.
     ("cim-nzl-v0.1", "adapter", RunState.AWAITING_APPROVAL, "sindri"),
+    # A third, which J3 approves end to end (RF-40). An approval could not
+    # succeed from the console until the signing agent signed it, so J3 only
+    # opened the dialog. Approving consumes the gate as rejecting does, so it is
+    # J3's own, and last in the plan for the same reason as cim-nzl-v0.1.
+    ("cim-fji-v0.1", "adapter", RunState.AWAITING_APPROVAL, "sindri"),
 )
 
 GATES = ("E1", "E2", "E3", "E4", "E5", "E6")

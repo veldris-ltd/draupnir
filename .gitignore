@@ -35,6 +35,9 @@ web/**/blob-report/
 docker/.env
 artefacts/
 *.log
+# The console stack's development approver key (RF-40). Throwaway, and still a
+# private key: it does not belong in the repository.
+.dev/
 
 # Generated evidence, rebuilt by the pipeline
 sbom/

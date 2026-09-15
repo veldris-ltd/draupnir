@@ -4595,6 +4595,105 @@ dialog, because the approval cannot be confirmed.
   after it.
 - Gated in stage 2.7.
 
+> **Status — done.**
+>
+> **How the console reaches the key** was put to the user, as the prompt asks,
+> and they chose a **local signing agent** over WebAuthn. The API's verifier is
+> unchanged: an Ed25519 signature over `Approval.signing_payload()`, checked
+> against the approver's registered public key.
+>
+> **The agent.** `draupnir/gleipnir/signing_agent.py` runs on the approver's
+> own machine and holds their key.
+> - **What it signs.** It builds the payload itself from the approval's fields
+>   with `Approval.signing_payload()`, and dates it with the instant it signs.
+>   It never signs bytes a caller supplies. It signs only approvals, and only
+>   for the approver it was started for.
+> - **Who it answers.** It listens on `127.0.0.1:47920` and answers only the
+>   console origins it was started with. Its preflight grants those origins
+>   CORS and Private Network Access.
+> - **Where it lives.** It is in GLEIPNIR, which owns release sign-off. The
+>   import contracts keep SVALINN and GLEIPNIR from importing each other, and
+>   the agent needs the approval payload.
+>
+> **The API.** Each `listGates` row gains `signing`: the approver, the policy
+> version and the sole approver flag, which are the payload fields only the
+> server knows.
+> - The flag is computed as `decideGate` computes it, from the submitter in
+>   the run's facts, so the flag the agent signs is the flag the decision checks.
+> - *Found in passing, and fixed:* the read model gave every queue row
+>   `submittedBy: curator@veldris.internal`. The row now takes the submitter
+>   from the same facts where they are read.
+>
+> **The console.**
+> - **Before the dialog.** S13 asks the agent who it is, and states the answer
+>   in the `signing-agent` line: still looking, no agent answering, nothing to
+>   sign, the agent holds another approver's key, or which key it will sign
+>   with.
+> - **When approval is unavailable.** "Sign and approve" is read-only, and the
+>   same reason is its accessible description.
+> - **Confirming.** The agent signs, and the console sends the signature and
+>   `decidedAt`. A rejection needs no agent.
+> - **CSP.** The console proxy's `connect-src` names the agent's loopback
+>   origin.
+>
+> **The journey stack.**
+> - `scripts/development_approver.py` makes a development approver key once,
+>   in the git-ignored `.dev/`, and registers its public half for
+>   `dev@veldris.internal`.
+> - `tasks.py test-e2e` and `test-a11y` pass Playwright the key store and the
+>   agent's command. Playwright starts the agent beside the API.
+> - The seed gains a third gate awaiting approval, `cim-fji-v0.1`, which J3
+>   approves. `cim-aus-v0.1` stays pending, and `cim-nzl-v0.1` stays J3's
+>   rejection.
+>
+> **Operators.** `docs/runbook.md`, Approving from the console, covers the key,
+> its registration, starting the agent, and what S13 shows.
+>
+> **Tests.**
+> - `tests/unit/test_signing_agent.py`.
+>   - What the agent signs verifies as the API verifies it, and not once the
+>     sole approver flag is changed.
+>   - It refuses another approver, a rejection and malformed fields, and a key
+>     that is not Ed25519 or a start with no origins.
+>   - Over HTTP it refuses another origin, and answers the Private Network
+>     Access preflight.
+> - `tests/contract/test_console_approval_signing.py`.
+>   - An approval the agent signs is accepted by `decideGate` and releases the
+>     run.
+>   - A signature over the wrong flag, or from another approver's key, is
+>     refused with 422.
+>   - The console's loop runs through the API: read the row, have the agent
+>     sign its `signing` block, decide.
+> - `Gates.test.tsx` and `signing.test.ts` (Vitest).
+>   - With no agent answering, S13 says so before the dialog, approval is
+>     read-only, and the button carries the reason.
+>   - An agent holding the approver's key is named, and one holding another's
+>     is said to.
+> - J3, stage 2.7, confirms an approval end to end: it names the key before
+>   the dialog, the decision returns 201, and the run is RELEASED.
+>
+> **Results.**
+> - On a reset and reseeded development database (14 runs, 15 artefacts,
+>   2 approvals, 1 release):
+>   - journeys: 53 of 53, J3's end-to-end approval among them;
+>   - a11y: 73 of 73.
+> - The coverage-gated stages, each above its floor:
+>   - unit: 1,678 tests at 90.04% (floor 90);
+>   - contract: 529 tests at 89.15% (floor 87);
+>   - integration: 227 tests at 77.29% (floor 77).
+> - The unit stage's one failure was the reachability check. The signing agent
+>   is started on the approver's machine, and nothing a deployment runs imports
+>   it, so it is now a named entry point beside `draupnir.api.serve`.
+> - Vitest: 13 across S13, the signing client and the shell. Typecheck, lint
+>   and formatting are clean. The OpenAPI diff is additive only.
+> - Two failures in the first runs were this machine's, not the change's:
+>   - a `D:` drive briefly unreadable to Node;
+>   - Docker Desktop's stale share of that drive, which failed the proxy's
+>     bind mounts.
+>
+>   The contract stage passed once Docker Desktop was restarted, with the
+>   user's agreement.
+
 ---
 
 ### RF-41 — P3 — Gate results are read from a table only the seed writes
@@ -4805,7 +4904,7 @@ says the deployed upstream is not the address it uses.
 | RF-37 | P2 | SAD 9.5's transport security is not built: nothing terminates TLS and nothing uses mTLS — **done**; the console proxy terminates TLS 1.3 only, the API and MEGINGJORD require the certificates the proxy and GULLINBURSTI present, and the inventory row reads the proxy's configuration |
 | RF-38 | P5 | The Storybook axe sweep races Storybook's own axe run — **done**; the addon's automatic run is off on the sweep's pages, and the shard fails if it ever starts again |
 | RF-39 | P4 | `draupnirctl` cannot perform a conditional write: it never sends `If-Match` — **done**; all six conditional commands take `--if-match`, or read the tag from the read the OpenAPI document declares for them |
-| RF-40 | P3 | The console's approval can never be accepted: no `decidedAt`, and a placeholder signature |
+| RF-40 | P3 | The console's approval can never be accepted: no `decidedAt`, and a placeholder signature — **done**; the approver's local signing agent signs the payload the API verifies, S13 says before the dialog when no key is reachable, and J3 approves end to end |
 | RF-41 | P3 | Gate results are read from a table only the seed writes, so an estate's approval queue shows no evidence |
 | RF-42 | P3 | The licence register is read from a table only the seed writes, so a registered source appears nowhere |
 | RF-43 | P1 | Nothing but the demonstration procedure takes a run's licence decision, so a submitted run stays at DRAFT |

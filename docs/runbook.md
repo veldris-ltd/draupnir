@@ -619,6 +619,44 @@ container's user cannot read is refused before anything starts:
 old, keeping its owner and mode, then restart the unit that reads it. The proxy
 and the API load their material at start and not again.
 
+## Approving from the console
+
+An approval is signed with the approver's own Ed25519 key, and the API verifies
+the signature against the public key registered for them (SAD 9.4). The
+console cannot sign with a key itself, so it asks the **signing agent**: a small
+process on the approver's own machine that holds their key (RF-40). A rejection
+needs no signature and no agent.
+
+**Once, per approver.**
+
+1. The approver keeps their private key on their own machine, readable by them
+   alone: `chmod 0400 ~/.config/draupnir/approver.key`. It never goes on ALVISS.
+2. Whoever administers the estate registers the public half where the API reads
+   approver keys, named for the approver's subject:
+   `/etc/draupnir/approvers/<subject>.pem`. The API reads the directory on every
+   approval, so a key added or removed takes effect at once, without a restart.
+
+**Each session, on the approver's machine.**
+
+```bash
+python -m draupnir.gleipnir.signing_agent \
+  --key ~/.config/draupnir/approver.key \
+  --approver <subject> \
+  --origin https://alviss.sindri.veldris.internal:8443
+```
+
+It listens on `127.0.0.1:47920` and answers only the console origins it was
+started with. It signs only approvals, only for the approver it was started
+for, and dates each one with the instant it signs.
+
+**What S13 shows.**
+- With the agent running, "Sign and approve" names the key it will sign with.
+- With no agent answering, S13 says so before the dialog and offers no approve
+  control. Start the agent and reload the page. Rejection stays available.
+- A `409 approver-unregistered` after confirming means the public key is not in
+  `/etc/draupnir/approvers`. A `422 approval-signature-invalid` means the agent
+  holds a different key from the one registered.
+
 ## What to read when something is wrong
 
 | Question | Where |

@@ -42,7 +42,13 @@ from draupnir.api.deps import (
 )
 from draupnir.api.guards import needs
 from draupnir.api.problems import ProblemError
-from draupnir.api.schemas import ApprovalPage, DecisionIn, DecisionOut, PublishOut
+from draupnir.api.schemas import (
+    ApprovalPage,
+    ApprovalSigning,
+    DecisionIn,
+    DecisionOut,
+    PublishOut,
+)
 from draupnir.core.application.orchestrator import RunFacts, UnknownRunError
 from draupnir.core.domain.evidence import (
     ArtefactMismatchError,
@@ -97,10 +103,44 @@ async def list_gates(
     request per row. AC-U13 puts the evidence above the decision control, and a
     queue that has to be expanded row by row to see any of it is a queue whose
     evidence is, in practice, after the decision.
+
+    Each row also carries what the caller would sign to approve it (RF-40),
+    computed as `decideGate` computes it: the submitter is read from the run's
+    facts, so the sole approver flag the console asks the signing agent to sign
+    is the flag the decision checks. The row's `submittedBy` is taken from the
+    same facts where they are read, rather than from the read model's
+    placeholder.
     """
     page = await reading.approvals(ctx.site_id, limit=limit, cursor=cursor)
-    telemetry.log("gates.listed", queue=state, limit=limit, count=len(page.items))
-    return page
+    recorder = writing.writer()
+    items = []
+    for item in page.items:
+        facts: RunFacts | None = None
+        if recorder.records:
+            try:
+                facts = await recorder.read(
+                    site_id=ctx.site_id, actor=ctx.actor, question=writing.facts_of(item.id)
+                )
+            except UnknownRunError:
+                facts = None
+        if facts is None:
+            items.append(item)
+            continue
+        items.append(
+            item.model_copy(
+                update={
+                    "submitted_by": facts.submitter,
+                    "signing": ApprovalSigning(
+                        subject=item.id,
+                        approver=ctx.actor,
+                        policy_version=POLICY_VERSION,
+                        sole_approver_exception=facts.submitter == ctx.actor,
+                    ),
+                }
+            )
+        )
+    telemetry.log("gates.listed", queue=state, limit=limit, count=len(items))
+    return page.model_copy(update={"items": items})
 
 
 @router.post(

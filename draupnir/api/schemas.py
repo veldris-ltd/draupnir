@@ -221,6 +221,28 @@ class GateOut(Wire):
     passed: bool = Field(description="Whether the gate was satisfied.")
 
 
+class ApprovalSigning(Wire):
+    """What the caller signs to approve one artefact. RF-40.
+
+    The fields of `Approval.signing_payload()` that only the API knows, so the
+    approver's signing agent can build the exact bytes `decideGate` verifies.
+    The instant is the agent's: it dates the approval when it signs.
+    """
+
+    subject: UUID = Field(description="The subject the approval is about.")
+    approver: str = Field(
+        description="Who signs: the caller, as the API identifies them. The key must be theirs."
+    )
+    policy_version: str = Field(description="The approval policy the decision is signed under.")
+    sole_approver_exception: bool = Field(
+        description=(
+            "Whether the caller also submitted the run. Computed from the chain, never "
+            "supplied, and inside the signed bytes, so a signature over any other value "
+            "does not verify (constraint C-11)."
+        )
+    )
+
+
 class ApprovalItem(Wire):
     """One artefact awaiting a decision."""
 
@@ -232,6 +254,13 @@ class ApprovalItem(Wire):
     submitted_by: str = Field(description="Who submitted the run.")
     awaiting_since: datetime = Field(description="When it entered the queue.")
     retry_count: int = Field(default=0, description="How many times the run has been requeued.")
+    signing: ApprovalSigning | None = Field(
+        default=None,
+        description=(
+            "What the caller signs to approve this artefact (RF-40). Null where the run's "
+            "facts cannot be read, in which case an approval cannot be signed either."
+        ),
+    )
 
     @computed_field(  # type: ignore[prop-decorator]
         description=(

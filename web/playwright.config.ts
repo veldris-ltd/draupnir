@@ -15,6 +15,12 @@ const API_COMMAND =
   process.env.DRAUPNIR_API_COMMAND ??
   'uv run --frozen python -m uvicorn draupnir.api.app:app --host 127.0.0.1 --port 8000';
 
+// The approver's signing agent and the key store the API verifies against
+// (RF-40), both named by the task runner, which makes the development key.
+const APPROVER_KEY_STORE = process.env.DRAUPNIR_APPROVER_KEY_STORE ?? '';
+const AGENT_COMMAND = process.env.DRAUPNIR_AGENT_COMMAND ?? '';
+const SIGNING_AGENT_URL = 'http://127.0.0.1:47920';
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -81,12 +87,33 @@ export default defineConfig({
             // shim, which has no uvicorn -- a webServer failure that looks
             // nothing like its cause.
             command: API_COMMAND,
-            env: { DRAUPNIR_DEV: '1' },
+            // The approver key store is where the API verifies an approval's
+            // signature (RF-40). Passed only when the task runner made one, so
+            // the default location still applies to a stack started by hand.
+            env: {
+              DRAUPNIR_DEV: '1',
+              ...(APPROVER_KEY_STORE ? { DRAUPNIR_APPROVER_KEY_STORE: APPROVER_KEY_STORE } : {}),
+            },
             cwd: '..',
             url: `${API_URL}/healthz`,
             reuseExistingServer: !process.env.CI,
             timeout: 120_000,
           },
+          // The approver's signing agent (RF-40), holding the development
+          // principal's key, so J3 can confirm an approval end to end. Started
+          // only when the task runner names a command. Its identity answers 403
+          // to a request with no console origin, which Playwright counts as up.
+          ...(AGENT_COMMAND
+            ? [
+                {
+                  command: AGENT_COMMAND,
+                  cwd: '..',
+                  url: `${SIGNING_AGENT_URL}/v1/identity`,
+                  reuseExistingServer: !process.env.CI,
+                  timeout: 60_000,
+                },
+              ]
+            : []),
           {
             // Built, then served statically, for the reason the Storybook
             // entry below gives. The dev server injects the stylesheet through

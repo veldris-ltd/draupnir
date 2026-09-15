@@ -23,7 +23,7 @@ def test_the_dataset_has_the_specified_shape() -> None:
     dataset = build()
     assert len(dataset["sites"]) == 2
     assert len(dataset["sources"]) == TARGET_SOURCES == 6
-    assert len(dataset["runs"]) == TARGET_RUNS == 13
+    assert len(dataset["runs"]) == TARGET_RUNS == 14
     assert len(projected(dataset).releases) == TARGET_RELEASES == 1
     assert sum(chain.seq for chain in dataset["chains"].values()) == TARGET_LEDGER_ENTRIES == 400
 

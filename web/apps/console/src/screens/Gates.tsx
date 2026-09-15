@@ -1,11 +1,12 @@
 import type { JSX } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Badge, Button, Dialog, EvidencePanel, StateSurface, Table } from '@draupnir/jarngreipr';
 import type { EvidenceRow } from '@draupnir/jarngreipr';
 import { ApiError, call, idempotencyKey } from '@draupnir/api-client';
 import type { Approval } from '@draupnir/api-client';
 import { pageIsEmpty, problemOf, useResource } from '../api/useResource';
 import { linkProps } from '../routing';
+import { probeAgent, signApproval, type AgentState } from '../signing';
 import { ErrorSurface, PageHeading } from './parts';
 
 /**
@@ -116,12 +117,37 @@ export function ApprovalDetail({ gateId }: { gateId: string }): JSX.Element {
   // them instead.
   const soleApprover = (approval?.gates ?? []).length >= 0;
 
+  // RF-40. An approval is signed where the approver's key is, by their signing
+  // agent. Asked before anything is offered, so an approver whose agent is not
+  // running is told on this screen rather than refused after confirming.
+  const [agent, setAgent] = useState<AgentState>({ state: 'checking' });
+  useEffect(() => {
+    let live = true;
+    void probeAgent().then((found) => {
+      if (live) setAgent(found);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  const signing = approval?.signing ?? null;
+  const canApprove =
+    agent.state === 'ready' && signing !== null && agent.identity.approver === signing.approver;
+
   async function decide(decision: 'approved' | 'rejected', reason: string): Promise<void> {
     setConfirm(null);
     try {
+      let signed: { signature: string; decidedAt?: string } = {
+        // A rejection is not signed, and the API records no signature for one.
+        signature: 'unsigned-rejection',
+      };
+      if (decision === 'approved') {
+        if (signing === null) throw new Error('The API did not say what this approval signs.');
+        signed = await signApproval(signing);
+      }
       await call('decideGate', {
         params: { gate_id: gateId },
-        body: { decision, reason, signature: 'console-session' },
+        body: { decision, reason, ...signed },
         // RF-32: conditional on the queue entry the evidence above was read
         // from, so a decision somebody else took meanwhile is refused with 412.
         ifMatch: approval?.etag ?? '',
@@ -137,7 +163,13 @@ export function ApprovalDetail({ gateId }: { gateId: string }): JSX.Element {
       setProblem(
         cause instanceof ApiError
           ? problemOf(cause)
-          : { title: 'The decision did not complete', detail: String(cause) },
+          : {
+              title:
+                decision === 'approved'
+                  ? 'The approval was not signed'
+                  : 'The decision did not complete',
+              detail: cause instanceof Error ? cause.message : String(cause),
+            },
       );
     }
   }
@@ -189,10 +221,20 @@ export function ApprovalDetail({ gateId }: { gateId: string }): JSX.Element {
                   available once it has been on screen.
                 </p>
               )}
+              {/* RF-40: whether an approval can be signed, said before the dialog. */}
+              <p className="cn-decision__signing" role="status" data-testid="signing-agent">
+                {signingStatus(agent, signing)}
+              </p>
               <div className="cn-decision__controls">
                 <Button
                   variant="primary"
-                  state={evidenceSeen ? 'ready' : 'readOnly'}
+                  state={evidenceSeen && canApprove ? 'ready' : 'readOnly'}
+                  // Once the evidence has been seen, the reason approval is
+                  // unavailable is the signing one, and the button says so
+                  // rather than the generic read-only sentence (RF-40).
+                  stateMessage={
+                    evidenceSeen && !canApprove ? signingStatus(agent, signing) : undefined
+                  }
                   onClick={() => {
                     setConfirm('approve');
                   }}
@@ -252,6 +294,34 @@ export function ApprovalDetail({ gateId }: { gateId: string }): JSX.Element {
       )}
     </>
   );
+}
+
+/**
+ * What S13 says about signing an approval, before anybody opens the dialog.
+ * RF-40: an approver who cannot sign is told here, in words, rather than
+ * refused after confirming.
+ */
+function signingStatus(
+  agent: AgentState,
+  signing: NonNullable<Approval['signing']> | null,
+): string {
+  if (agent.state === 'checking') return 'Looking for your signing agent.';
+  if (agent.state === 'unreachable') {
+    return (
+      `${agent.reason} An approval is signed where your key is, so approval is unavailable ` +
+      'until the agent is running. Rejection needs no signature and is still available.'
+    );
+  }
+  if (signing === null) {
+    return 'The API could not say what an approval here would sign, so approval is unavailable.';
+  }
+  if (agent.identity.approver !== signing.approver) {
+    return (
+      `The signing agent holds ${agent.identity.approver}’s key and you are ` +
+      `${signing.approver}, so an approval signed with it would not verify.`
+    );
+  }
+  return `Signing as ${agent.identity.approver} with key ${agent.identity.keyId}.`;
 }
 
 /**
