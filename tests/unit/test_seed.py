@@ -35,11 +35,39 @@ def test_the_runs_cover_every_run_state() -> None:
 
 def test_the_dataset_is_reproducible() -> None:
     first, second = build(), build()
-    for key in ("sites", "sources", "runs", "gate_results"):
+    for key in ("sites", "sources", "runs"):
         assert first[key] == second[key], f"{key} is not deterministic"
     assert projected(first) == projected(second), "the projected releases are not deterministic"
     for site_id, chain in first["chains"].items():
         assert chain.rows == second["chains"][site_id].rows
+
+
+def test_the_gates_are_folded_from_evaluations_recorded_in_the_worker_s_shape() -> None:
+    """RF-41. The seed inserts no gate row; every one is projected from the chain."""
+    import json
+
+    from draupnir.core.domain import gate_results
+    from draupnir.core.domain.ledger import LedgerEntry
+
+    dataset = build()
+    assert "gate_results" not in dataset, "the seed still carries gate rows beside the chain"
+
+    rows = []
+    for chain in dataset["chains"].values():
+        rows.extend(
+            gate_results.fold(
+                LedgerEntry(**{**row, "payload": json.loads(row["payload"])})
+                for row in chain.rows or []
+            )
+        )
+
+    past_evaluation = {
+        run["id"]
+        for run in dataset["runs"]
+        if run["state"] in {"MERGED", "QUANTISED", "AWAITING_APPROVAL", "RELEASED", "QUARANTINED"}
+    }
+    assert {row.run_id for row in rows} == past_evaluation
+    assert all(row.baseline_value is not None and row.margin is not None for row in rows)
 
 
 def test_every_site_chain_verifies() -> None:

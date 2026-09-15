@@ -22,6 +22,7 @@ from draupnir.core.application.orchestrator import Orchestrator, _now
 from draupnir.core.domain.sites import SiteScope
 from draupnir.core.infrastructure.repositories import (
     ChainProjections,
+    GateResultProjection,
     LedgerRepository,
     ReleaseProjection,
     RunProjection,
@@ -47,9 +48,13 @@ def for_connection(
     return Orchestrator(
         LedgerRepository(connection, scope),
         # The run registry, then the artefacts, approvals and releases folded
-        # from the same chain (RF-33), in that order because an artefact names
-        # the run that produced it.
-        ChainProjections(RunProjection(connection, scope), ReleaseProjection(connection, scope)),
+        # from the same chain (RF-33), then the gate results (RF-41), in that
+        # order because an artefact and a gate result both name their run.
+        ChainProjections(
+            RunProjection(connection, scope),
+            ReleaseProjection(connection, scope),
+            GateResultProjection(connection, scope),
+        ),
         site_id=scope.site_id,
         actor=actor,
         clock=clock,

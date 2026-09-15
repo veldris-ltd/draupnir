@@ -28,7 +28,7 @@ from uuid import UUID
 
 from sqlalchemy import Connection, text
 
-from draupnir.core.domain import releases
+from draupnir.core.domain import gate_results, releases
 from draupnir.core.domain.federation import ANCHOR_SUBMITTED
 from draupnir.core.domain.ledger import (
     GENESIS_HASH,
@@ -597,22 +597,139 @@ class ReleaseProjection(ScopedRepository):
         return len(stored) + len(projected.approvals) + len(bound)
 
 
+class GateResultProjection(ScopedRepository):
+    """Maintains `gate_result` from the chain. RF-41.
+
+    The seed wrote this table and nothing else did, so an estate's approval
+    queue, model detail and `/metrics` read an empty one while the worker
+    recorded every outcome in the chain. Folded by `gate_results.fold`, which
+    never reads it, and advanced on every append beside the releases.
+
+    `gate_result` carries no site of its own -- it belongs to a run -- so a
+    rebuild clears it through the site's runs.
+    """
+
+    NAME = "gate_result"
+
+    def checkpoint(self) -> int:
+        """Return the last sequence number this projection consumed."""
+        value = self._connection.execute(
+            text(
+                "SELECT last_seq FROM projection_checkpoint "
+                "WHERE site_id = :site_id AND projection = :projection"
+            ),
+            {"site_id": self.site_id, "projection": self.NAME},
+        ).scalar_one_or_none()
+        return int(value or 0)
+
+    def _record_checkpoint(self, last_seq: int, *, rebuilt: bool) -> None:
+        self._connection.execute(
+            text(
+                "INSERT INTO projection_checkpoint (site_id, projection, last_seq, rebuilt_at) "
+                "VALUES (:site_id, :projection, :last_seq, :rebuilt_at) "
+                "ON CONFLICT (site_id, projection) DO UPDATE SET "
+                "last_seq = EXCLUDED.last_seq, "
+                "rebuilt_at = COALESCE(EXCLUDED.rebuilt_at, projection_checkpoint.rebuilt_at)"
+            ),
+            {
+                "site_id": self.site_id,
+                "projection": self.NAME,
+                "last_seq": last_seq,
+                "rebuilt_at": datetime.now(tz=UTC) if rebuilt else None,
+            },
+        )
+
+    def rebuild(self) -> ProjectionReport:
+        """Discard this site's gate results and fold the chain from sequence 1."""
+        entries = list(self._ledger().stream(1))
+        self._connection.execute(
+            text(
+                "DELETE FROM gate_result WHERE run_id IN "
+                "(SELECT id FROM run WHERE site_id = :site_id)"
+            ),
+            {"site_id": self.site_id},
+        )
+        written = self._write(gate_results.fold(entries))
+        last_seq = entries[-1].seq if entries else 0
+        self._record_checkpoint(last_seq, rebuilt=True)
+        return ProjectionReport(self.NAME, self.site_id, len(entries), written, last_seq, True)
+
+    def catch_up(self) -> ProjectionReport:
+        """Fold the chain again when an entry since the checkpoint recorded a gate outcome."""
+        checkpoint = self.checkpoint()
+        pending = list(self._ledger().stream(checkpoint + 1))
+        if not pending:
+            return ProjectionReport(self.NAME, self.site_id, 0, 0, checkpoint, False)
+        last_seq = pending[-1].seq
+        written = 0
+        if any(gate_results.concerns(entry) for entry in pending):
+            written = self._write(gate_results.fold(self._ledger().stream(1)))
+        self._record_checkpoint(last_seq, rebuilt=False)
+        return ProjectionReport(self.NAME, self.site_id, len(pending), written, last_seq, False)
+
+    def _ledger(self) -> LedgerRepository:
+        return LedgerRepository(self._connection, self._scope)
+
+    def _write(self, rows: Sequence[gate_results.ProjectedGateResult]) -> int:
+        """Upsert every folded row whose run is projected, keyed as the table is."""
+        if not rows:
+            return 0
+        self._connection.execute(
+            text(
+                "INSERT INTO gate_result (id, run_id, gate, suite_version, value, "
+                " baseline_value, margin, passed, evaluated_at) "
+                "SELECT :id, :run_id, :gate, :suite_version, :value, :baseline_value, "
+                " :margin, :passed, :evaluated_at "
+                # A row names the run it measured, and the run registry is
+                # advanced first; an outcome for a run it does not hold is not
+                # written rather than refused, so one entry cannot stop the rest.
+                "WHERE EXISTS (SELECT 1 FROM run WHERE id = :run_id) "
+                "ON CONFLICT (run_id, gate, suite_version) DO UPDATE SET "
+                "value = EXCLUDED.value, baseline_value = EXCLUDED.baseline_value, "
+                "margin = EXCLUDED.margin, passed = EXCLUDED.passed, "
+                "evaluated_at = EXCLUDED.evaluated_at"
+            ),
+            [
+                {
+                    "id": row.id,
+                    "run_id": row.run_id,
+                    "gate": row.gate,
+                    "suite_version": row.suite_version,
+                    "value": row.value,
+                    "baseline_value": row.baseline_value,
+                    "margin": row.margin,
+                    "passed": row.passed,
+                    "evaluated_at": row.evaluated_at,
+                }
+                for row in rows
+            ],
+        )
+        return len(rows)
+
+
 class ChainProjections:
     """Every projection an append advances, behind the one port the orchestrator knows.
 
     The orchestrator asks one projection to catch up and reads runs from it.
-    This keeps that shape while adding the release projection (RF-33): runs
-    first, because an artefact row names the run that produced it.
+    This keeps that shape while adding the release projection (RF-33) and the
+    gate results (RF-41): runs first, because an artefact row and a gate result
+    both name the run they belong to.
     """
 
-    def __init__(self, runs: RunProjection, release_rows: ReleaseProjection) -> None:
-        """Hold the two projections, in the order they are advanced."""
+    def __init__(
+        self,
+        runs: RunProjection,
+        release_rows: ReleaseProjection,
+        gate_rows: GateResultProjection,
+    ) -> None:
+        """Hold the projections, in the order they are advanced."""
         self._runs = runs
         self._releases = release_rows
+        self._gates = gate_rows
 
-    def catch_up(self) -> tuple[ProjectionReport, ProjectionReport]:
-        """Advance the run registry, then the artefacts, approvals and releases."""
-        return self._runs.catch_up(), self._releases.catch_up()
+    def catch_up(self) -> tuple[ProjectionReport, ProjectionReport, ProjectionReport]:
+        """Advance the run registry, then the releases, then the gate results."""
+        return self._runs.catch_up(), self._releases.catch_up(), self._gates.catch_up()
 
     def read(self) -> tuple[ProjectedRun, ...]:
         """The projected runs, which is all the orchestrator reads."""
@@ -656,12 +773,30 @@ class RunProjection(ScopedRepository):
         """Discard the projection and replay the chain from sequence 1.
 
         Idempotent: running it twice produces identical table contents,
-        because the fold is pure and the write is a full replacement rather
-        than a merge.
+        because the fold is pure and every folded run is written in full.
+
+        A run the chain still holds is rewritten in place rather than deleted
+        and inserted: its identity is its specification, so the row is the same
+        row, and the gate results that name it (RF-41) stay valid. Only a run
+        the chain no longer holds is removed, with the gate results that named it.
         """
         entries = list(self._stream_all())
         runs = project(entries)
-        self._connection.execute(text("DELETE FROM run WHERE site_id = :s"), {"s": self.site_id})
+        kept = [_as_uuid(run_id) for run_id in runs]
+        stale = (
+            "SELECT id FROM run WHERE site_id = :s AND NOT (id = ANY(:kept))"
+            if kept
+            else "SELECT id FROM run WHERE site_id = :s"
+        )
+        parameters: dict[str, Any] = {"s": self.site_id, "kept": kept}
+        self._connection.execute(
+            text(f"DELETE FROM gate_result WHERE run_id IN ({stale})"),  # noqa: S608 -- fixed text
+            parameters,
+        )
+        self._connection.execute(
+            text(f"DELETE FROM run WHERE id IN ({stale})"),  # noqa: S608 -- fixed text
+            parameters,
+        )
         written = self._write(runs.values())
         last_seq = entries[-1].seq if entries else 0
         self._record_checkpoint(last_seq, rebuilt=True)

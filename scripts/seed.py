@@ -45,6 +45,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection
 
 from draupnir.brisingamen import sweep as sweeps
+from draupnir.core.domain import gate_results as gate_record
 from draupnir.core.domain import releases as release_record
 from draupnir.core.domain.evidence import Evidence
 from draupnir.core.domain.federation import ANCHOR_SUBMITTED
@@ -54,7 +55,11 @@ from draupnir.core.domain.projector import REGISTRATION
 from draupnir.core.domain.sites import SiteScope
 from draupnir.core.domain.states import RUN_PHASE_STATES, RunState, Transition, find
 from draupnir.core.infrastructure.config import get_settings
-from draupnir.core.infrastructure.repositories import ReleaseProjection, RunProjection
+from draupnir.core.infrastructure.repositories import (
+    GateResultProjection,
+    ReleaseProjection,
+    RunProjection,
+)
 from draupnir.gleipnir import licence as licence_policy
 from draupnir.hamarr import tiers
 from draupnir.hodd import retention as retention_record
@@ -439,6 +444,40 @@ def transition_payload(
     return built[transition.name]
 
 
+def gate_evidence(
+    name: str, kind: str, decided_at: datetime, *, digest: str | None = None
+) -> dict[str, Any]:
+    """A passing evaluation, in the shape `Evidence.as_payload()` records. RF-41.
+
+    Every gate carries its value, baseline and margin, so `gate_result` is
+    projected from the chain as it is on an estate. Drawn from a stream of its
+    own per run and kind, so the values repeat on every seed without drawing on
+    the stream the rest of the dataset is generated from.
+    """
+    stream = random.Random(f"gates:{kind}:{name}")  # noqa: S311 -- a fixture, not a security decision
+    gates: dict[str, dict[str, Any]] = {}
+    for gate in GATES:
+        baseline = round(stream.uniform(0.58, 0.74), 4)
+        value = round(baseline + stream.uniform(0.001, 0.06), 4)
+        gates[gate] = {
+            "value": value,
+            "baseline": baseline,
+            "margin": round(value - baseline, 4),
+            "passed": True,
+        }
+    return {
+        "artefactSha256": digest or fake_sha256(stream, f"evaluated:{kind}:{name}"),
+        "artefactKind": kind,
+        "suite": "general-core" if kind == "adapter" else "release",
+        "suiteVersion": GATE_SUITE_VERSION,
+        "baselineSha256": None,
+        "evaluatedAt": (decided_at - timedelta(hours=12)).isoformat(),
+        "passed": True,
+        "failing": [],
+        "gates": gates,
+    }
+
+
 def stored_facts(
     transition: Transition,
     *,
@@ -476,11 +515,26 @@ def stored_facts(
             "artefact_uri": adapter["uri"],
             "artefacts": [adapter],
         }
+    if transition.name == "EVALUATING->MERGED":
+        # RF-41. What the worker records when the gates pass: the evidence in
+        # full, so `gate_result` is projected from it rather than inserted.
+        return {"gate_results": gate_evidence(name, "adapter", decided_at)}
     if transition.name == "MERGED->QUANTISED":
         nvfp4 = stored("quantised", f"models/{name}/nvfp4")
         return {"formats_built": {"nvfp4": nvfp4["sha256"]}, "artefacts": [nvfp4]}
     if transition.name == "QUANTISED->AWAITING_APPROVAL":
-        return {"artefact_sha256": quantised, "formats": ["nvfp4"], "model": name}
+        return {
+            "artefact_sha256": quantised,
+            "formats": ["nvfp4"],
+            "model": name,
+            # The re-gate of every built format, as the worker records it.
+            "format_gate_results": {
+                "nvfp4": {
+                    **gate_evidence(name, "quantised", decided_at, digest=quantised),
+                    "format": "nvfp4",
+                }
+            },
+        }
     if transition.name == "AWAITING_APPROVAL->RELEASED":
         return {
             "artefact_sha256": quantised,
@@ -571,7 +625,6 @@ def build() -> dict[str, Any]:
 
     # -- runs: a registration entry, then one entry per transition ----------
     runs: list[dict[str, Any]] = []
-    gate_results: list[dict[str, Any]] = []
     #: Each run's quantised artefact, and where its approval sits in the chain:
     #: what a publication names.
     quantised_of: dict[UUID, str] = {}
@@ -622,30 +675,8 @@ def build() -> dict[str, Any]:
                 approved_at[run_id] = chains[site_id].seq
 
         runs.append({"id": run_id, "site_id": site_id, "name": name, "state": str(state)})
-
-        if state in (
-            RunState.EVALUATING,
-            RunState.MERGED,
-            RunState.QUANTISED,
-            RunState.AWAITING_APPROVAL,
-            RunState.RELEASED,
-        ):
-            for gate in GATES:
-                baseline = round(rng.uniform(0.58, 0.74), 4)
-                value = round(baseline + rng.uniform(-0.01, 0.06), 4)
-                gate_results.append(
-                    {
-                        "id": ids.next(started),
-                        "run_id": run_id,
-                        "gate": gate,
-                        "suite_version": GATE_SUITE_VERSION,
-                        "value": value,
-                        "baseline_value": baseline,
-                        "margin": round(value - baseline, 4),
-                        "passed": value >= baseline,
-                        "evaluated_at": started + timedelta(hours=6),
-                    }
-                )
+        # No gate rows here (RF-41). The evaluations are recorded on the chain
+        # above, in the worker's shape, and `gate_result` is projected from them.
 
     # -- releases: each released run's approved artefact, published ---------
     # As `publishRelease` records one (RF-33): against the artefact, naming the
@@ -883,7 +914,6 @@ def build() -> dict[str, Any]:
         "sites": sites,
         "sources": sources,
         "runs": runs,
-        "gate_results": gate_results,
         "plugins": plugins,
         "chains": chains,
     }
@@ -941,9 +971,9 @@ def write(dataset: dict[str, Any], url: str) -> None:
             # Artefacts, approvals and releases, folded from the chain just
             # written, exactly as an append projects them (RF-33).
             ReleaseProjection(connection, SiteScope(site_id)).rebuild()
-
-    with engine.begin() as connection:
-        _insert(connection, "gate_result", dataset["gate_results"])
+            # And the gate results, from the evaluations the chain records
+            # (RF-41), rather than inserted beside it.
+            GateResultProjection(connection, SiteScope(site_id)).rebuild()
 
     engine.dispose()
 
@@ -983,6 +1013,24 @@ def projected(dataset: dict[str, Any]) -> release_record.Projected:
     )
 
 
+def projected_gate_results(dataset: dict[str, Any]) -> tuple[Any, ...]:
+    """The gate results the seeded chains project to. RF-41.
+
+    Folded per site by the function `GateResultProjection` uses, from the
+    evaluations recorded on the chain, so the count describes the rows the
+    database will hold rather than a list kept beside it.
+    """
+    rows: list[Any] = []
+    for chain in dataset["chains"].values():
+        rows.extend(
+            gate_record.fold(
+                LedgerEntry(**{**row, "payload": json.loads(row["payload"])})
+                for row in chain.rows or []
+            )
+        )
+    return tuple(rows)
+
+
 def summarise(dataset: dict[str, Any]) -> str:
     """Return the one-line-per-entity summary printed after a seed."""
     chains: dict[str, Chain] = dataset["chains"]
@@ -995,7 +1043,8 @@ def summarise(dataset: dict[str, Any]) -> str:
         f"  runs           {len(dataset['runs']):>4}  resting in {len(states)} of "
         f"{len(RUN_PHASE_STATES)} run states",
         f"  artefacts      {len(folded.artefacts):>4}",
-        f"  gate results   {len(dataset['gate_results']):>4}",
+        # Folded from the chain, as `GateResultProjection` folds it (RF-41).
+        f"  gate results   {len(projected_gate_results(dataset)):>4}",
         f"  approvals      {len(folded.approvals):>4}",
         f"  releases       {len(folded.releases):>4}",
         f"  plugins        {len(dataset['plugins']):>4}",

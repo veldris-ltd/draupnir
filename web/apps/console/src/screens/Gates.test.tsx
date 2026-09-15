@@ -24,7 +24,16 @@ const QUEUE = {
       runId: GATE,
       model: 'cim-fji-v0.1',
       artefactSha256: '7'.repeat(64),
-      gates: [],
+      gates: [
+        {
+          gate: 'E1',
+          suiteVersion: 'raun-suite/2026.02',
+          value: 0.74,
+          baselineValue: 0.72,
+          margin: 0.02,
+          passed: true,
+        },
+      ],
       submittedBy: 'operator@veldris.internal',
       awaitingSince: '2026-09-15T08:00:00+00:00',
       retryCount: 0,
@@ -51,13 +60,13 @@ function answer(body: unknown, status = 200): Response {
   } as unknown as Response;
 }
 
-function stub(agent: () => Promise<Response>): void {
+function stub(agent: () => Promise<Response>, queue: unknown = QUEUE): void {
   vi.stubGlobal(
     'fetch',
     vi.fn((input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : (input as URL).href;
       if (url.startsWith(SIGNING_AGENT)) return agent();
-      return Promise.resolve(answer(QUEUE));
+      return Promise.resolve(answer(queue));
     }),
   );
 }
@@ -110,5 +119,25 @@ describe('S13 before a decision', () => {
     await statusSays(/holds somebody-else’s key/);
     expect(approveButton()).toHaveAttribute('aria-disabled', 'true');
     expect(approveButton()).toHaveAccessibleName(/holds somebody-else’s key/);
+  });
+
+  it('says no evidence is recorded, and offers no decision, when the row has none', async () => {
+    // RF-41. An artefact awaiting approval with an empty evidence table is not
+    // decided on the strength of it, whichever way the decision would go.
+    stub(() => Promise.resolve(answer({ approver: 'akuma', keyId: '0123456789abcdef' })), {
+      ...QUEUE,
+      items: QUEUE.items.map((item) => ({ ...item, gates: [] })),
+    });
+    render(<ApprovalDetail gateId={GATE} />);
+
+    expect(await screen.findByTestId('no-evidence')).toHaveTextContent(
+      /No gate evidence is recorded/,
+    );
+    expect(approveButton()).toHaveAttribute('aria-disabled', 'true');
+    expect(approveButton()).toHaveAccessibleName(/No gate evidence is recorded/);
+    expect(screen.getByRole('button', { name: /^Reject/ })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
   });
 });

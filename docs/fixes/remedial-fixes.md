@@ -4736,6 +4736,114 @@ this table, by agreement, for its own finding.
 - S13 with no evidence states that there is none and offers no decision.
 - Gated in stages 2.4 and 2.7.
 
+> **Status — done.**
+>
+> **The fold.** `draupnir/core/domain/gate_results.py` folds `gate_result`
+> from the outcomes the chain records, beside RF-33's releases, and like them
+> never reads the table it produces. It reads two payloads:
+> - EVALUATING's `gate_results`, recorded on both the pass and the requeue;
+> - QUANTISED→AWAITING_APPROVAL's `format_gate_results`, one evaluation per
+>   built format.
+>
+> **What a row is.** An outcome that recorded a numeric value, a pass or
+> fail, a suite version, and the baseline and margin keys. A gate with an
+> absolute threshold records those two as null, so they must be present, not
+> non-null. An outcome recording less is not a row; the seed's old
+> `{"passed": true}` is the example.
+>
+> **Which outcome a row holds,** since the table keeps one per run, gate and
+> suite version:
+> - the latest entry wins, because a requeued run is evaluated again;
+> - within a re-gate of several formats, the weakest outcome wins: failing
+>   before passing, then the smallest margin. The row is what an approver
+>   reads, and the best of three formats would hide a near miss.
+>
+> A merge sweep's per-point evidence is not folded. Those points are
+> candidates; the chosen point's re-gate is recorded by later entries.
+>
+> **The projection.** `GateResultProjection` advances on every append, after
+> the run registry and the releases. A rebuild clears the site's rows through
+> its runs, because `gate_result` has no site column. The row identifier is
+> derived from site, run, gate and suite version, so a rebuild reproduces it.
+>
+> **The seed** records each evaluation in the worker's shape:
+> - EVALUATING→MERGED records a full `gate_results`;
+> - QUANTISED→AWAITING_APPROVAL records `format_gate_results`;
+> - it inserts no gate row, and rebuilds the projection instead.
+>
+> A run resting at EVALUATING has no outcome recorded yet, so it now shows no
+> gates rather than invented ones.
+>
+> **S13.** An artefact awaiting approval with no recorded evidence says so, in
+> the `no-evidence` line. Neither decision is offered: "Sign and approve" and
+> "Reject" are both read-only, and each carries that reason as its accessible
+> description. The decision's outcome is rendered outside the pending approval,
+> because the approval leaves the queue when it is refreshed and used to take
+> the message with it.
+>
+> **The run registry's rebuild.** `RunProjection.rebuild` deleted the site's
+> runs and wrote them again. The projected gate results name those runs, so
+> the delete was refused. It now rewrites every run the chain holds in place
+> (a run's identity is its specification, so it is the same row) and removes
+> only runs the chain no longer holds, together with their gate results.
+>
+> **The run board's event feed.** Found by this fix's journeys: J2 failed
+> beside the other journeys and passed alone. `useEvents` kept the latest
+> delta as state, and two frames dispatched in one task render once, so the
+> board, which merged from `feed.last`, never saw the first. A new run whose
+> delta arrived beside another run's never appeared. The hook now hands every
+> delta to an `onDelta` callback, and the board merges from that.
+>
+> **Tests.**
+> - `tests/unit/test_gate_result_projection.py`:
+>   - the worker's evaluation becomes one row per gate, and an absolute gate
+>     is still a row;
+>   - an unmeasured outcome, one without its baseline key, and one without a
+>     suite version are not rows;
+>   - the latest evaluation wins, the weakest format wins within a re-gate,
+>     and a failing format wins over any passing one;
+>   - identifiers survive a rebuild.
+> - `tests/unit/test_seed.py`: the dataset carries no gate rows, and folding
+>   its chains yields rows for exactly the runs past evaluation.
+> - `tests/integration/test_gate_result_projection.py` (stage 2.4) walks a
+>   run through the real orchestrator with the worker's payloads and inserts
+>   no row. It reads the gates back from:
+>   - the approval queue;
+>   - the model detail;
+>   - `/metrics`.
+>
+>   It then rebuilds the run registry and finds the rows still there.
+>   `test_procedures.py`'s rebuild of a released run is the same check against
+>   the whole procedure.
+> - `Gates.test.tsx` (Vitest, stage 2.6): with no evidence, S13 says so and
+>   both decisions are read-only. `useEvents.test.ts`: two frames dispatched
+>   in one task both reach the caller.
+> - Stage 2.7: J3's evidence journeys read the seeded queue's gates, now
+>   projected rather than inserted. J3's signed approval reads the outcome
+>   after the approved artefact has left the refreshed queue. The seed holds
+>   no artefact awaiting approval
+>   without evidence, so the no-evidence state is gated by Vitest rather than a
+>   journey.
+>
+> **Results.**
+> - On a reset and reseeded development database (14 runs, 15 artefacts,
+>   42 gate results, all projected, 2 approvals, 1 release):
+>   - journeys: 53 of 53;
+>   - a11y: 73 of 73.
+> - The coverage-gated stages, each above its floor:
+>   - unit: 1,687 tests at 90.04% (floor 90);
+>   - contract: 529 tests at 89.15% (floor 87);
+>   - integration: 228 tests at 77.49% (floor 77).
+> - Vitest: 1,128. Typecheck, lint and formatting are clean. mypy across
+>   `draupnir`, `scripts` and `draupnirctl` is clean, and the import contracts
+>   hold (7 kept).
+> - The first full run failed three ways, each now fixed:
+>   - `test_procedures.py`'s projection rebuild, refused by the new rows'
+>     foreign key (the run registry's rebuild);
+>   - J3's signed approval, whose outcome left with the refreshed queue;
+>   - J2's five-second board, which passed alone and failed beside the other
+>     journeys (the run board's event feed).
+
 ---
 
 ### RF-42 — P3 — The licence register is read from a table only the seed writes
@@ -4905,7 +5013,7 @@ says the deployed upstream is not the address it uses.
 | RF-38 | P5 | The Storybook axe sweep races Storybook's own axe run — **done**; the addon's automatic run is off on the sweep's pages, and the shard fails if it ever starts again |
 | RF-39 | P4 | `draupnirctl` cannot perform a conditional write: it never sends `If-Match` — **done**; all six conditional commands take `--if-match`, or read the tag from the read the OpenAPI document declares for them |
 | RF-40 | P3 | The console's approval can never be accepted: no `decidedAt`, and a placeholder signature — **done**; the approver's local signing agent signs the payload the API verifies, S13 says before the dialog when no key is reachable, and J3 approves end to end |
-| RF-41 | P3 | Gate results are read from a table only the seed writes, so an estate's approval queue shows no evidence |
+| RF-41 | P3 | Gate results are read from a table only the seed writes, so an estate's approval queue shows no evidence — **done**; `gate_result` is projected from the outcomes the chain records, the seed inserts no row, and S13 offers no decision on an empty evidence table |
 | RF-42 | P3 | The licence register is read from a table only the seed writes, so a registered source appears nowhere |
 | RF-43 | P1 | Nothing but the demonstration procedure takes a run's licence decision, so a submitted run stays at DRAFT |
 | RF-44 | P1 | The console proxy cannot reach the API on a commissioned host: its upstream 127.0.0.1 is its own container's loopback |

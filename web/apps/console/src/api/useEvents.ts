@@ -39,7 +39,10 @@ export interface RunDelta {
 export type Liveness = 'connecting' | 'live' | 'reconnecting' | 'stale';
 
 export interface EventFeed {
-  /** The most recent delta, so a caller can merge it. */
+  /**
+   * The most recent delta. Deltas that arrive together render once, so a
+   * caller that must see every one passes `onDelta` instead.
+   */
   last: RunDelta | null;
   liveness: Liveness;
   /** When an event or keep-alive last arrived. */
@@ -55,12 +58,22 @@ export interface EventFeed {
  * it resends `Last-Event-ID`, and both are behaviours this would otherwise
  * have to reimplement and get subtly wrong.
  */
-export function useEvents(url: string, enabled = true): EventFeed {
+export function useEvents(
+  url: string,
+  enabled = true,
+  onDelta?: (delta: RunDelta) => void,
+): EventFeed {
   const [last, setLast] = useState<RunDelta | null>(null);
   const [liveness, setLiveness] = useState<Liveness>('connecting');
   const [lastHeardAt, setLastHeardAt] = useState<Date | null>(null);
   const [mustResynchronise, setMustResynchronise] = useState(false);
   const source = useRef<EventSource | null>(null);
+  // Every delta, as it arrives. `last` is state, and two frames that arrive in
+  // one chunk are dispatched in one task, so React renders once with the
+  // second: a caller that merged from `last` never saw the first. On a busy
+  // site that was a new run's only delta, and the board did not show it.
+  const deliver = useRef(onDelta);
+  deliver.current = onDelta;
 
   useEffect(() => {
     if (!enabled || typeof EventSource === 'undefined') {
@@ -81,7 +94,9 @@ export function useEvents(url: string, enabled = true): EventFeed {
       setLastHeardAt(new Date());
       setLiveness('live');
       try {
-        setLast(JSON.parse(event.data) as RunDelta);
+        const delta = JSON.parse(event.data) as RunDelta;
+        setLast(delta);
+        deliver.current?.(delta);
       } catch {
         // A frame that is not JSON is a bug on the wire, not a reason to tear
         // the board down. It is dropped and the connection is left alone.

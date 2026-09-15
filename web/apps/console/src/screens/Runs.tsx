@@ -71,11 +71,10 @@ export function RunBoard(): JSX.Element {
     setRows(runs.data?.items ?? []);
   }, [runs.data]);
 
-  const feed = useEvents(urlFor(OPERATIONS.streamSiteEvents));
-
-  const delta = feed.last;
-  useEffect(() => {
-    if (delta === null) return;
+  // Every delta, not the latest: two arriving together are rendered once, and
+  // merging from `feed.last` dropped the first -- a new run's only delta when
+  // the site was busy.
+  const feed = useEvents(urlFor(OPERATIONS.streamSiteEvents), true, (delta) => {
     const id = delta.runId ?? delta.subjectId;
     const unseen = !held.current.some((row) => row.id === id);
     setRows((current) => merge(current, delta));
@@ -96,7 +95,7 @@ export function RunBoard(): JSX.Element {
         // The placeholder stands. A run that cannot be read is still a run
         // the stream reported, and the next delta for it merges as usual.
       });
-  }, [delta]);
+  });
 
   const columns = useMemo(
     () => [

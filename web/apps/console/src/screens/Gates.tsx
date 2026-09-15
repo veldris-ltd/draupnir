@@ -178,6 +178,15 @@ export function ApprovalDetail({ gateId }: { gateId: string }): JSX.Element {
     <>
       <PageHeading title={approval?.model ?? 'Approval'} subtitle={gateId} />
 
+      {/* The outcome sits outside the approval: a decided artefact leaves the
+          pending queue when it is refreshed, and a message rendered with it
+          would vanish at the moment it is shown (RF-41). */}
+      {outcome === null ? null : (
+        <p role="status" data-testid="decision-outcome">
+          {outcome}
+        </p>
+      )}
+
       <StateSurface
         state={queue.state === 'ready' && approval === null ? 'empty' : queue.state}
         problem={queue.problem}
@@ -221,6 +230,12 @@ export function ApprovalDetail({ gateId }: { gateId: string }): JSX.Element {
                   available once it has been on screen.
                 </p>
               )}
+              {/* RF-41: no recorded evidence is said, and nothing is decided on it. */}
+              {(approval.gates ?? []).length > 0 ? null : (
+                <p className="cn-decision__gate" role="status" data-testid="no-evidence">
+                  {NO_EVIDENCE}
+                </p>
+              )}
               {/* RF-40: whether an approval can be signed, said before the dialog. */}
               <p className="cn-decision__signing" role="status" data-testid="signing-agent">
                 {signingStatus(agent, signing)}
@@ -228,13 +243,17 @@ export function ApprovalDetail({ gateId }: { gateId: string }): JSX.Element {
               <div className="cn-decision__controls">
                 <Button
                   variant="primary"
-                  state={evidenceSeen && canApprove ? 'ready' : 'readOnly'}
-                  // Once the evidence has been seen, the reason approval is
-                  // unavailable is the signing one, and the button says so
-                  // rather than the generic read-only sentence (RF-40).
-                  stateMessage={
-                    evidenceSeen && !canApprove ? signingStatus(agent, signing) : undefined
+                  state={
+                    evidenceSeen && canApprove && (approval.gates ?? []).length > 0
+                      ? 'ready'
+                      : 'readOnly'
                   }
+                  // The reason a decision is unavailable, rather than the
+                  // generic read-only sentence: no evidence (RF-41) before an
+                  // unsignable approval (RF-40).
+                  stateMessage={decisionUnavailable(approval, evidenceSeen, () =>
+                    canApprove ? undefined : signingStatus(agent, signing),
+                  )}
                   onClick={() => {
                     setConfirm('approve');
                   }}
@@ -243,7 +262,8 @@ export function ApprovalDetail({ gateId }: { gateId: string }): JSX.Element {
                 </Button>
                 <Button
                   variant="danger"
-                  state={evidenceSeen ? 'ready' : 'readOnly'}
+                  state={evidenceSeen && (approval.gates ?? []).length > 0 ? 'ready' : 'readOnly'}
+                  stateMessage={decisionUnavailable(approval, evidenceSeen, () => undefined)}
                   onClick={() => {
                     setConfirm('reject');
                   }}
@@ -251,11 +271,6 @@ export function ApprovalDetail({ gateId }: { gateId: string }): JSX.Element {
                   Reject
                 </Button>
               </div>
-              {outcome === null ? null : (
-                <p role="status" data-testid="decision-outcome">
-                  {outcome}
-                </p>
-              )}
               {problem === null ? null : <ErrorSurface problem={problem} />}
             </section>
           </>
@@ -294,6 +309,26 @@ export function ApprovalDetail({ gateId }: { gateId: string }): JSX.Element {
       )}
     </>
   );
+}
+
+/** What S13 says when no gate evidence is recorded for an artefact. RF-41. */
+const NO_EVIDENCE =
+  'No gate evidence is recorded for this artefact, so there is nothing to decide on. ' +
+  'A decision is offered once the evaluation it rests on is in the ledger.';
+
+/**
+ * Why a decision control is unavailable, or undefined for the generic reason.
+ * No recorded evidence comes first: nothing is decided on an empty table
+ * (RF-41). Otherwise, once the evidence has been seen, whatever else the
+ * control is waiting on.
+ */
+function decisionUnavailable(
+  approval: Approval,
+  evidenceSeen: boolean,
+  otherwise: () => string | undefined,
+): string | undefined {
+  if ((approval.gates ?? []).length === 0) return NO_EVIDENCE;
+  return evidenceSeen ? otherwise() : undefined;
 }
 
 /**
