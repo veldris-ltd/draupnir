@@ -18,7 +18,7 @@ follows from that, under a version that is recorded with every decision.
 
 from __future__ import annotations
 
-from draupnir.gleipnir.policy import Policy, Rule
+from draupnir.gleipnir.policy import Policy, PolicyDriverAdapter, Rule
 from draupnir.interfaces.types import Verdict
 
 #: Licences a model may be trained on without further question. Open government
@@ -153,3 +153,15 @@ def by_version(version: str) -> Policy:
         "re-explained under a newer one."
     )
     raise KeyError(msg)
+
+
+#: GLEIPNIR's policy in force, as the `draupnir.policy` driver a deployment
+#: installs. RF-43.
+#:
+#: The worker takes a run's licence decision through the installed driver, and
+#: the only one installed was the reference SPDX driver, whose version
+#: `by_version` does not hold -- so a release cleared by it would have had its
+#: copyright policy refused (RF-34). Registered by this distribution's entry
+#: point, and named by `DRAUPNIR_POLICY_DRIVER`'s default.
+DRIVER_NAME = "gleipnir.licence/v1"
+driver = PolicyDriverAdapter(CURRENT, name=DRIVER_NAME)

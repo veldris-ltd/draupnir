@@ -504,9 +504,30 @@ python -m draupnir.worker --site sindri --interval 5
 **What it will and will not do.** It drives a run from QUEUED to
 AWAITING_APPROVAL and stops there. Approval is a person's and so is release
 (Decision S6): a worker that approved its own work would be the sole approver
-exception with nobody in it. Everything before QUEUED -- registering sources,
-clearing licences, curating -- is the curator's, and the worker does not touch
-it.
+exception with nobody in it. Registering sources and curating are the
+curator's, and the worker does not touch them.
+
+**The licence decision is the worker's.** A submitted run moves from DRAFT to
+CORPUS_REGISTERED once a source is registered for its jurisdiction at the site.
+The worker then takes GLEIPNIR's licence decision on every source and on the run's base
+model, through the `draupnir.policy` driver named by `DRAUPNIR_POLICY_DRIVER`
+(default `gleipnir.licence/v1`, GLEIPNIR's policy in force):
+
+| The policy says | The run | What the chain records |
+|---|---|---|
+| Every source and the base are permitted | LICENCE_CLEARED | the policy version and each decision |
+| Any source, or the base, is refused | QUARANTINED | the failing source or base, and the rule |
+| A source holds personal data | stays at CORPUS_REGISTERED | nothing, until an approval is recorded |
+
+A Tier A run is quarantined at this step. Its base is declared under the Gemma
+Terms of Use, and the licence policy in force has no rule for them, so it
+refuses them by default. That is a policy decision, and changing it means a new
+policy version, not a change to the worker.
+
+A run sitting at CORPUS_REGISTERED with `worker.deferred` in the log is waiting
+on something the reason names: an approval, an undeclared base licence, or a
+policy driver that is not installed under the configured name. A driver that
+cannot be resolved is never replaced with another one.
 
 **Running more than one.** SAD 5.1 asks for two to four processes and that is
 safe. Every append takes the site's advisory lock, and the guards of SAD 6.1

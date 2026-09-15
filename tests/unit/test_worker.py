@@ -79,17 +79,28 @@ def test_the_order_observes_before_it_dispatches() -> None:
 
 
 def test_ordered_drops_nothing_and_queues_last() -> None:
-    given = [facts(RunState.QUEUED), facts(RunState.DRAFT), facts(RunState.TRAINING)]
+    given = [
+        facts(RunState.QUEUED),
+        facts(RunState.DRAFT),
+        facts(RunState.TRAINING),
+        facts(RunState.AWAITING_APPROVAL),
+    ]
     got = ordered(given)
-    assert [item.state for item in got] == [RunState.TRAINING, RunState.QUEUED]
+    assert [item.state for item in got] == [RunState.TRAINING, RunState.DRAFT, RunState.QUEUED]
+
+
+def test_the_corpus_half_is_the_worker_s_and_curation_is_not() -> None:
+    """RF-43: a submitted run is registered and licence cleared by the worker."""
+    assert {RunState.DRAFT, RunState.CORPUS_REGISTERED} <= stages.actionable()
+    assert RunState.LICENCE_CLEARED not in stages.actionable()
 
 
 @pytest.mark.parametrize(
     "state",
-    [RunState.DRAFT, RunState.AWAITING_APPROVAL, RunState.RELEASED, RunState.FAILED],
+    [RunState.LICENCE_CLEARED, RunState.AWAITING_APPROVAL, RunState.RELEASED, RunState.FAILED],
 )
 def test_the_worker_leaves_alone_what_is_not_its(state: RunState) -> None:
-    """Approval is a human's (Decision S6) and the terminal states are nobody's."""
+    """Curation is a curator's, approval a human's (Decision S6), terminal states nobody's."""
     context = stages.Context(orchestrator=None, scheduler=None, scratch=None)  # type: ignore[arg-type]
     outcome = stages.advance(context, facts(state))
     assert outcome.result is stages.Result.IDLE

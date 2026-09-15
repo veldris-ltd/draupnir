@@ -54,13 +54,15 @@ from draupnir.core.application.orchestrator import (
 from draupnir.core.domain.identifiers import new_id
 from draupnir.core.domain.identity import run_identity
 from draupnir.core.domain.states import RunState
+from draupnir.gleipnir import clearance
 from draupnir.gleipnir import gates as gleipnir_gates
 from draupnir.gleipnir.approvals import Decision, approve
 from draupnir.gleipnir.licence import by_version
-from draupnir.hamarr import checkpoints
+from draupnir.gleipnir.policy import PolicyDriverAdapter
+from draupnir.hamarr import checkpoints, tiers
 from draupnir.hodd import curation
 from draupnir.hodd.register import LicenceRegister, SourceRecord
-from draupnir.interfaces.types import JobPlan, JobState, RunSpec, Verdict
+from draupnir.interfaces.types import JobPlan, JobState, RunSpec
 from draupnir.motsognir.execution import BASE_ENVIRONMENT
 from draupnir.raun import suites as raun_suites
 from draupnir.raun.baselines import (
@@ -318,15 +320,13 @@ def m1_register_sources(procedure: Procedure, scheduler: Any) -> Mapping[str, An
     procedure.register = LicenceRegister(records)
     digest = procedure.record("corpus_raw", raw)
 
+    # What the worker records for a submitted run too (RF-43): one
+    # implementation of the registration, in the register.
+    facts, payload = procedure.register.corpus_registration(
+        curator=procedure.orchestrator.actor, corpus_sha256=digest
+    )
     applied = procedure.orchestrator.transition(
-        procedure.run_id,
-        RunState.CORPUS_REGISTERED,
-        facts={"sources_without_declaration": []},
-        payload={
-            "sources": [str(record.sha256) for record in records],
-            "source_sha256": digest,
-            "curator": procedure.orchestrator.actor,
-        },
+        procedure.run_id, RunState.CORPUS_REGISTERED, facts=facts, payload=payload
     )
     return _evidence(applied, sources=len(records), corpus_raw=digest)
 
@@ -335,51 +335,35 @@ def m2_clear_licences(procedure: Procedure, scheduler: Any) -> Mapping[str, Any]
     """M2. Run the licence policy over every source and over the base model."""
     del scheduler
     register = _require_register(procedure)
-    policy = by_version(POLICY_VERSION)
 
-    decisions = [(facts, policy.decide(facts)) for facts in register.facts_for_policy()]
-    refused = [
-        f"{facts.get('licenceSpdx')} ({decision.rule})"
-        for facts, decision in decisions
-        if decision.verdict is not Verdict.PERMIT
-    ]
-    if refused:
-        # The refusal path is a real transition, not an exception: SAD 6.1 sends
-        # a refused corpus to QUARANTINED with the failing rule named (AC-S2).
-        procedure.orchestrator.transition(
-            procedure.run_id,
-            RunState.QUARANTINED,
-            facts={"sources_failing_policy": refused},
-            payload={"failing_source": refused[0], "rule": "licence-policy", "actor": "gleipnir"},
-        )
-        msg = f"licence policy refuses {', '.join(refused)}; the corpus is quarantined"
+    # The decision the worker takes for a submitted run (RF-43), taken by the
+    # same function. The driver is GLEIPNIR's policy at the version this
+    # walkthrough pins, and the base model is judged from its declaration
+    # rather than asserted cleared. Each decision names the policy version that
+    # took it (RF-34), and a release of this corpus renders under it.
+    decided = clearance.decide(
+        register.facts_for_policy(),
+        tiers.base_model_facts(_base_model_name()),
+        PolicyDriverAdapter(by_version(POLICY_VERSION)),
+    )
+    if decided.target is None:
+        msg = f"the corpus is not cleared: {decided.detail}"
         raise ProcedureError(msg)
 
     applied = procedure.orchestrator.transition(
-        procedure.run_id,
-        RunState.LICENCE_CLEARED,
-        facts={"sources_failing_policy": [], "base_model_cleared": True},
-        payload={
-            "policy_version": POLICY_VERSION,
-            "evaluation_result": "PASS",
-            # Each source's decision names the policy version that took it
-            # (RF-34): the version is a fact about the decision, and a release
-            # of this corpus renders its copyright policy under it.
-            "decisions": [
-                {
-                    "licence": facts.get("licenceSpdx"),
-                    "rule": decision.rule,
-                    "policyVersion": decision.policy_version,
-                }
-                for facts, decision in decisions
-            ],
-        },
+        procedure.run_id, decided.target, facts=dict(decided.facts), payload=dict(decided.payload)
     )
+    if decided.target is RunState.QUARANTINED:
+        # The refusal path is a real transition, not an exception: SAD 6.1 sends
+        # a refused corpus to QUARANTINED with the failing rule named (AC-S2).
+        msg = f"{decided.detail}; the corpus is quarantined"
+        raise ProcedureError(msg)
+
     return _evidence(
         applied,
-        policy_version=POLICY_VERSION,
-        assessed=len(decisions),
-        licences=sorted({str(facts.get("licenceSpdx")) for facts, _ in decisions}),
+        policy_version=str(decided.payload["policy_version"]),
+        assessed=len(decided.decisions),
+        licences=sorted({item.licence for item in decided.decisions}),
     )
 
 

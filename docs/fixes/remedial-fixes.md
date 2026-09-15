@@ -5015,6 +5015,120 @@ takes it outside a demonstration.
 - The procedure and the worker share one implementation.
 - Gated in stage 2.4.
 
+> **Status — done.**
+>
+> **One implementation, in two halves.** The import contracts make the worker
+> and the procedure independent siblings, so what they share sits a layer
+> below both. It is split along Decision S4:
+> - **HODD records.** `LicenceRegister.corpus_registration` builds what
+>   DRAFT→CORPUS_REGISTERED records: every source's digest, a corpus digest,
+>   the curator, and the guard's `sources_without_declaration`.
+>   `LicenceRegister.from_projection` builds a register from the sources a
+>   site's chain projects (RF-42).
+> - **GLEIPNIR judges.** `draupnir/gleipnir/clearance.py` applies a
+>   `draupnir.policy` driver to every source and to the base model, from the
+>   facts it is handed. It returns where the corpus goes and what the
+>   transition records.
+>
+> The procedure's M1 and M2 call both, and so does the worker.
+>
+> **What the decision does.**
+> - **Every subject permitted:** LICENCE_CLEARED, recording the policy version
+>   and each decision (subject, licence, verdict, rule, policy version).
+> - **Any refusal:** QUARANTINED, naming the failing source or base and the
+>   refusing rule (AC-S2). A verdict the decision does not recognise counts as a
+>   refusal.
+> - **An approval owed:** a source holding personal data leaves the corpus at
+>   CORPUS_REGISTERED and records nothing. GLEIPNIR's own mapping puts such a
+>   source there; the procedure used to quarantine it, recording a refusal
+>   nobody made.
+> - **No declared licence for the base:** the corpus waits, and says so.
+>
+> **The base model.** Nothing recorded a base's licence, and the procedure
+> asserted `base_model_cleared`. As decided with the user, `hamarr.tiers`
+> declares one per base, and the policy judges it the way it judges a source:
+> - the Qwen base is declared `Apache-2.0`, as SAD's base selection states;
+> - the Gemma base is declared `LicenseRef-Gemma-Terms-of-Use`.
+>
+> The licence policy in force has no rule for Gemma's terms and refuses them by
+> default. **Every Tier A run is therefore quarantined at its licence decision**
+> until a policy version decides otherwise. That is the policy's answer rather
+> than this table's, and changing it is a policy change.
+>
+> **The driver.** Also as decided with the user, GLEIPNIR's policy in force is
+> installed as a first-party `draupnir.policy` driver, `gleipnir.licence/v1`,
+> through this distribution's entry point. The worker resolves the driver named
+> by `DRAUPNIR_POLICY_DRIVER`, which defaults to it, through the production
+> registry, whether or not the development executor is in use. The only
+> driver installed before was the SPDX reference driver. Its version is not one
+> `licence.by_version` holds, so a release it cleared would have had its
+> copyright policy refused (RF-34). A driver that cannot be resolved defers the
+> decision with the reason; it is never taken some other way.
+>
+> Installing the entry point needs the environment re-synced
+> (`uv sync --all-groups`). On an estate the distribution is signed like any
+> other plug-in's (SAD 9.3).
+>
+> **The worker.** DRAFT and CORPUS_REGISTERED join the stages table, worked
+> before QUEUED, which stays last.
+> - **DRAFT:** a run whose specification's jurisdiction has registered sources
+>   at the site is moved to CORPUS_REGISTERED. One with none is left alone,
+>   recording nothing.
+> - **CORPUS_REGISTERED:** the decision above is taken, judging the base the
+>   specification names.
+>
+> Curation from LICENCE_CLEARED remains a curator's.
+>
+> **Tests.**
+> - `tests/unit/test_licence_clearance.py`, through GLEIPNIR's installed driver
+>   and a driver whose verdicts the test chooses:
+>   - clearance, and what it records;
+>   - a refusal naming its rule, and a refusal by default;
+>   - a refused base;
+>   - an approval owed, and a refusal that wins over one;
+>   - an unrecognised verdict;
+>   - an undeclared base;
+>   - no sources.
+> - `tests/unit/test_corpus_registration.py`: the registration record, the
+>   register built from a projection, and every base's declaration by name and
+>   by address.
+> - `tests/unit/test_worker_corpus.py`: both stages over each thing the chain
+>   can hold, and the driver setting.
+> - `tests/unit/test_worker.py`: the order, now including the corpus half.
+> - `tests/integration/test_worker_licence_decision.py` (stage 2.4) registers
+>   sources and submits four runs through a real API process. A real worker,
+>   resolving the installed driver, takes each as far as its corpus allows:
+>   - NZL is cleared with the policy version recorded, including the base's
+>     decision;
+>   - FJI is quarantined on `licence-refused`;
+>   - GBR is quarantined on its base;
+>   - TON stays at DRAFT;
+>   - the register follows each decision (RF-42);
+>   - a further tick records nothing.
+> - The procedure's integration tests exercise the shared M1 and M2.
+>
+> **Results.**
+> - The coverage-gated stages, each above its floor:
+>   - unit: 1,737 tests at 90.20% (floor 90);
+>   - contract: 529 tests at 89.15% (floor 87);
+>   - integration: 232 tests at 77.52% (floor 77).
+> - On the development database: journeys 53 of 53, a11y 73 of 73. Neither the
+>   seed nor the console changed, so neither was reseeded or rebuilt.
+> - mypy across `draupnir`, `scripts` and `draupnirctl` is clean, the import
+>   contracts hold (7 kept), and `install.sh` parses. The acceptance pack is
+>   regenerated: AC-S2 now cites the clearance module, the worker's stages and
+>   both licence-decision tests.
+> - The entry point needed the environment re-synced
+>   (`uv sync --all-groups --frozen`); `uv.lock` is unchanged. Discovery then
+>   resolves `gleipnir.licence/v1` beside the reference `gleipnir.spdx/v1`.
+> - Two first-run failures were the tests' own and are fixed: a `Verdict`
+>   member that does not exist, and a `RunFacts` built through `__dict__`, which
+>   a slotted dataclass does not have.
+> - The contract stage's four proxy tests failed on this machine's stale Docker
+>   drive share, as in RF-40 ("mkdir /run/desktop/mnt/host/d: file exists").
+>   With the user's agreement Docker Desktop was restarted, and
+>   `tests/contract/test_transport.py` then passed 16 of 16.
+
 ---
 
 ### RF-44 — P1 — The console proxy cannot reach the API: its upstream is its own loopback
@@ -5104,7 +5218,7 @@ says the deployed upstream is not the address it uses.
 | RF-40 | P3 | The console's approval can never be accepted: no `decidedAt`, and a placeholder signature — **done**; the approver's local signing agent signs the payload the API verifies, S13 says before the dialog when no key is reachable, and J3 approves end to end |
 | RF-41 | P3 | Gate results are read from a table only the seed writes, so an estate's approval queue shows no evidence — **done**; `gate_result` is projected from the outcomes the chain records, the seed inserts no row, and S13 offers no decision on an empty evidence table |
 | RF-42 | P3 | The licence register is read from a table only the seed writes, so a registered source appears nowhere — **done**; `source` is projected from the registrations and the corpus transitions the chain records, the seed inserts no row, and `registerSource` records its residency constraint |
-| RF-43 | P1 | Nothing but the demonstration procedure takes a run's licence decision, so a submitted run stays at DRAFT |
+| RF-43 | P1 | Nothing but the demonstration procedure takes a run's licence decision, so a submitted run stays at DRAFT — **done**; the worker registers a submitted run's corpus and takes GLEIPNIR's licence decision through the installed `draupnir.policy` driver, sharing one implementation with the procedure; base licences are declared, and Tier A's Gemma terms are refused by the policy in force |
 | RF-44 | P1 | The console proxy cannot reach the API on a commissioned host: its upstream 127.0.0.1 is its own container's loopback |
 
 ---

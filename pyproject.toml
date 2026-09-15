@@ -89,6 +89,12 @@ testing = ["pytest>=8.3"]
 [project.scripts]
 draupnirctl = "draupnirctl.__main__:main"
 
+# GLEIPNIR's licence policy in force, as the `draupnir.policy` driver the worker
+# takes a run's licence decision through (RF-43). A deployment whose regime
+# differs installs its own driver and names it in DRAUPNIR_POLICY_DRIVER.
+[project.entry-points."draupnir.policy"]
+"gleipnir.licence/v1" = "draupnir.gleipnir.licence:driver"
+
 [dependency-groups]
 dev = [
   # Test

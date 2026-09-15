@@ -16,9 +16,13 @@ make test-unit
 
 ## Evidence
 
+- `draupnir/gleipnir/clearance.py`
 - `draupnir/gleipnir/policy.py`
 - `draupnir/procedures/sindri.py`
+- `draupnir/worker/stages.py`
+- `tests/integration/test_worker_licence_decision.py`
 - `tests/unit/test_gleipnir_policy.py`
+- `tests/unit/test_licence_clearance.py`
 
 ---
 

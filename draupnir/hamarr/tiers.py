@@ -57,6 +57,39 @@ class BaseModel(StrEnum):
     MOE_35B_A3B = "MIDGARD-CORE-QWEN36-35B-A3B-v1.0"
 
 
+@dataclass(frozen=True, slots=True)
+class BaseLicence:
+    """The licence a base is declared under. A declaration, never a judgement."""
+
+    #: An SPDX identifier, or a `LicenseRef-` where the terms have none.
+    spdx: str
+    #: Whether the terms oblige a notice to travel with a derived model.
+    attribution_required: bool
+
+
+#: What each base is declared to be licensed under. RF-43.
+#:
+#: SAD 6.1 clears a corpus when "GLEIPNIR licence policy passes for every source
+#: and for the base model", and SAD 10.1 makes registering "the base model and
+#: its licence" part of adding one. Nothing recorded a base's licence, so the
+#: procedure asserted the base cleared and the worker could not have judged it.
+#:
+#: These are facts GLEIPNIR decides on, as it decides on a corpus source's; what
+#: follows from them is the policy's, under the version its decision records.
+#:
+#: - The Qwen base is declared Apache-2.0, as SAD's base selection states for
+#:   the Qwen family. Apache-2.0 obliges the notices to be carried.
+#: - The Gemma base is distributed under Google's Gemma Terms of Use, which have
+#:   no SPDX identifier and are declared by reference. The licence policy in
+#:   force has no rule for them and refuses them by default, so a Tier A run is
+#:   quarantined at its licence decision until a policy version decides
+#:   otherwise. That is the policy's answer, and changing it is a policy change.
+BASE_LICENCE: dict[BaseModel, BaseLicence] = {
+    BaseModel.DENSE_27B: BaseLicence("LicenseRef-Gemma-Terms-of-Use", attribution_required=True),
+    BaseModel.MOE_35B_A3B: BaseLicence("Apache-2.0", attribution_required=True),
+}
+
+
 #: Tier A: nine jurisdictions, fixed by revision 1.1 of the SAD and named in
 #: the build specification.
 TIER_A: tuple[str, ...] = (
@@ -253,6 +286,29 @@ def base_for(jurisdiction: str) -> BaseModel:
 def base_artefact(jurisdiction: str, *, site: str = "sindri") -> str:
     """The `hodd://` address of the base model for a jurisdiction."""
     return f"hodd://{site}/models/core/{base_for(jurisdiction)}"
+
+
+def base_model_facts(reference: str) -> dict[str, object] | None:
+    """The facts a licence policy evaluates for a base, from its name or address. RF-43.
+
+    In the shape the licence register renders a source in, so a policy driver
+    judges a base the way it judges a source. `None` for a base this table does
+    not declare, which a caller must not read as permitted.
+    """
+    name = reference.rstrip("/").rsplit("/", 1)[-1]
+    try:
+        base = BaseModel(name)
+    except ValueError:
+        return None
+    declared = BASE_LICENCE[base]
+    return {
+        "id": str(base),
+        "url": reference,
+        "kind": "base_model",
+        "licenceSpdx": declared.spdx,
+        "attributionRequired": declared.attribution_required,
+        "personalData": False,
+    }
 
 
 def jurisdictions_in(tier: Tier) -> tuple[str, ...]:

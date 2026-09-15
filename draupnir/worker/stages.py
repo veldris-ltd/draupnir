@@ -60,9 +60,13 @@ import structlog
 from draupnir.api import assurance
 from draupnir.brisingamen.sweep import Sweep, linear
 from draupnir.core.application.orchestrator import Orchestrator, RunFacts
+from draupnir.core.domain import sources as source_record
 from draupnir.core.domain.states import RunState
+from draupnir.gleipnir import clearance
 from draupnir.gleipnir import gates as gleipnir_gates
+from draupnir.hamarr import tiers
 from draupnir.hodd import quota, stores
+from draupnir.hodd.register import LicenceRegister
 from draupnir.interfaces.types import JobHandle, JobPlan, JobState, RunSpec
 from draupnir.motsognir import execution
 from draupnir.motsognir.placement import Estate, Partition, Placement, PlacementError
@@ -157,6 +161,10 @@ class Context:
     #: same one the dry run uses, which is what makes the plan an operator was
     #: shown the plan that is submitted (RF-10, AC-F14).
     registry: Any = None
+    #: The `draupnir.policy` driver a run's licence decision is taken through
+    #: (RF-43). `None` where none is installed under the configured name, which
+    #: defers the decision with the reason rather than taking it some other way.
+    policy: Any = None
     #: Run the development executor instead of the specification's driver.
     #: False everywhere but a machine with no GPU, and loud when true.
     stand_in: bool = False
@@ -589,6 +597,113 @@ def _stage(context: Context, kind: str, run_id: UUID, source: Path, *, name: str
     except Exception as error:
         raise NotStagedError(f"{uri} was not stored: {error}") from error
     return Staged(sha256=digest, uri=uri, kind=kind, size=size)
+
+
+# ---------------------------------------------------------------------------
+# DRAFT -> CORPUS_REGISTERED -> LICENCE_CLEARED or QUARANTINED
+# ---------------------------------------------------------------------------
+
+
+def register_corpus(context: Context, facts: RunFacts) -> Outcome:
+    """Register a submitted run's corpus once its sources are registered. RF-43.
+
+    A run submitted through the console or `draupnirctl` stayed at DRAFT,
+    because only the demonstration procedure took the corpus steps. The corpus
+    is the run's jurisdiction's, and its sources are the ones `registerSource`
+    recorded at this site; the entry is the one the procedure records, from the
+    register's own `corpus_registration`.
+
+    A run whose jurisdiction has no registered source is left where it is, with
+    nothing recorded: a curator registers the sources, and the next tick
+    registers the corpus.
+    """
+    spec = _corpus_spec(facts)
+    if spec is None:
+        return Outcome(
+            facts.run_id,
+            Result.IDLE,
+            "no specification is recorded for this run, so its corpus is not known",
+        )
+    jurisdiction = spec.metadata.jurisdiction
+    register = _register_for(context, jurisdiction)
+    if not len(register):
+        return Outcome(
+            facts.run_id, Result.IDLE, f"no source is registered for {jurisdiction} at this site"
+        )
+
+    recorded, payload = register.corpus_registration(curator=context.orchestrator.actor)
+    applied = context.orchestrator.transition(
+        facts.run_id, RunState.CORPUS_REGISTERED, facts=recorded, payload=payload
+    )
+    return Outcome(
+        facts.run_id,
+        Result.MOVED,
+        f"{len(register)} source(s) registered for {jurisdiction}",
+        applied.state,
+    )
+
+
+def clear_licences(context: Context, facts: RunFacts) -> Outcome:
+    """Take the corpus's licence decision through the installed policy driver. RF-43.
+
+    SAD 6.1: LICENCE_CLEARED when GLEIPNIR's licence policy passes for every
+    source and for the base model, recording the policy version and each
+    decision; QUARANTINED, naming the refusing rule, when any fails (AC-S2).
+    `gleipnir.clearance.decide` takes it, and the procedure's M2 calls the same
+    function.
+
+    Nothing is recorded while the decision is owed something -- an approval a
+    source's personal data requires, or a base model licence nobody declared --
+    and the outcome says which.
+    """
+    if context.policy is None:
+        return Outcome(
+            facts.run_id,
+            Result.DEFERRED,
+            "no draupnir.policy driver is installed under the configured name, so the "
+            "licence decision is not taken",
+        )
+    spec = _corpus_spec(facts)
+    if spec is None:
+        return Outcome(
+            facts.run_id,
+            Result.IDLE,
+            "no specification is recorded for this run, so its corpus is not known",
+        )
+
+    register = _register_for(context, spec.metadata.jurisdiction)
+    decided = clearance.decide(
+        register.facts_for_policy(),
+        tiers.base_model_facts(spec.base.artefact),
+        context.policy,
+    )
+    if decided.target is None:
+        return Outcome(facts.run_id, Result.DEFERRED, decided.detail)
+
+    applied = context.orchestrator.transition(
+        facts.run_id, decided.target, facts=dict(decided.facts), payload=dict(decided.payload)
+    )
+    return Outcome(facts.run_id, Result.MOVED, decided.detail, applied.state)
+
+
+def _corpus_spec(facts: RunFacts) -> RunSpec | None:
+    """The run's specification, or `None` where none was recorded or it will not read."""
+    if facts.specification is None:
+        return None
+    try:
+        return RunSpec.from_mapping(facts.specification)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _register_for(context: Context, jurisdiction: str) -> LicenceRegister:
+    """The sources registered for one jurisdiction at this site, folded from its chain."""
+    registered = source_record.fold(
+        context.orchestrator.entries_of_type(source_record.SOURCE_SUBJECT)
+    )
+    return LicenceRegister.from_projection(
+        row for row in registered if row.jurisdiction == jurisdiction
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1244,9 +1359,13 @@ def regate_formats(context: Context, facts: RunFacts) -> Outcome:
 # ---------------------------------------------------------------------------
 
 #: One row per state the worker acts on. Everything else is somebody else's:
-#: DRAFT through CURATED are the operator's corpus work, AWAITING_APPROVAL is
-#: an approver's, and FAILED, RELEASED and QUARANTINED are terminal.
+#: curation from LICENCE_CLEARED is a curator's, AWAITING_APPROVAL is an
+#: approver's, and FAILED, RELEASED and QUARANTINED are terminal. DRAFT and
+#: CORPUS_REGISTERED are the worker's since RF-43: registering a corpus whose
+#: sources a curator registered, and taking GLEIPNIR's licence decision on it.
 STAGES: Mapping[RunState, Stage] = {
+    RunState.DRAFT: register_corpus,
+    RunState.CORPUS_REGISTERED: clear_licences,
     RunState.QUEUED: dispatch,
     RunState.TRAINING: observe,
     RunState.TRAINED: begin_evaluation,

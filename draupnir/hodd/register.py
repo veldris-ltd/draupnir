@@ -23,6 +23,7 @@ judgement appears here.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from datetime import datetime
@@ -184,3 +185,49 @@ class LicenceRegister:
         handed the register, and the register never learns what it decided.
         """
         return tuple(record.as_mapping() for record in self)
+
+    @classmethod
+    def from_projection(cls, rows: Iterable[Any]) -> LicenceRegister:
+        """The register a site's chain projects to (RF-42), as records. RF-43.
+
+        What the worker judges a corpus from: the sources `registerSource`
+        recorded, rather than a list somebody assembled beside the chain.
+        """
+        return cls(
+            SourceRecord(
+                id=row.id,
+                jurisdiction=row.jurisdiction,
+                url=row.url,
+                licence_spdx=row.licence_spdx,
+                attribution_required=row.attribution_required,
+                retrieved_at=row.retrieved_at,
+                sha256=row.sha256,
+                personal_data=row.personal_data,
+                dpia_ref=row.dpia_ref,
+                residency_constraint=tuple(row.residency_constraint),
+                state=RunState(row.state),
+            )
+            for row in rows
+        )
+
+    def corpus_registration(
+        self, *, curator: str, corpus_sha256: str | None = None
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """What DRAFT -> CORPUS_REGISTERED records for this register. RF-43.
+
+        The facts SAD 6.1's guard reads -- every source declared -- and the
+        fields the transition records: each source's digest, a digest over the
+        corpus, and who registered it. Shared by the procedure's M1 and the
+        worker, so the entry is the same whichever of them registered it.
+
+        The corpus digest is the raw corpus's where one was published, as the
+        procedure publishes one; otherwise it is taken over the sources'
+        digests, sorted, so the same sources give the same corpus.
+        """
+        undeclared = [record.url for record in self if not record.licence_spdx.strip()]
+        digests = [record.sha256 for record in self]
+        corpus = corpus_sha256 or hashlib.sha256("\n".join(sorted(digests)).encode()).hexdigest()
+        return (
+            {"sources_without_declaration": undeclared},
+            {"sources": digests, "source_sha256": corpus, "curator": curator},
+        )

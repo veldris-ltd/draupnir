@@ -54,6 +54,7 @@ from draupnir.core.domain.states import (
 from draupnir.core.infrastructure.config import get_settings
 from draupnir.core.infrastructure.orchestration import for_connection
 from draupnir.core.infrastructure.repositories import LedgerRepository
+from draupnir.gleipnir import licence
 from draupnir.hodd.reconcile import require_vault
 from draupnir.hodd.stores import PosixStoreDriver
 from draupnir.motsognir import arrays, execution
@@ -90,6 +91,9 @@ DEFAULT_ACTOR = "worker@veldris.internal"
 DEFAULT_INTERVAL = 5.0
 DEFAULT_SCRATCH = Path("build") / "worker"
 DEFAULT_FABRIC_BASELINE_GBPS = 0.0
+#: The `draupnir.policy` driver a run's licence decision is taken through
+#: unless `DRAUPNIR_POLICY_DRIVER` names another: GLEIPNIR's policy in force.
+DEFAULT_POLICY_DRIVER = licence.DRIVER_NAME
 
 #: The order runs are worked in. Later states first, so that finishing work
 #: frees capacity before queued work asks for it, within the same tick.
@@ -99,6 +103,10 @@ ORDER: tuple[RunState, ...] = (
     RunState.EVALUATING,
     RunState.MERGED,
     RunState.QUANTISED,
+    # The corpus half (RF-43). Before QUEUED, which stays last: registering a
+    # corpus and taking its licence decision place no job and use no capacity.
+    RunState.CORPUS_REGISTERED,
+    RunState.DRAFT,
     RunState.QUEUED,
 )
 
@@ -306,6 +314,12 @@ class WorkerSettings:
     federation_certificate: Path | None = None
     federation_private_key: Path | None = None
     internal_ca: Path | None = None
+    #: The `draupnir.policy` driver, by its versioned entry point name, that a
+    #: run's licence decision is taken through (RF-43). Named rather than
+    #: chosen by capability: a compliance regime is a deployment's decision,
+    #: and two installed drivers that both judge licences must not be chosen
+    #: between by discovery order.
+    policy_driver: str = DEFAULT_POLICY_DRIVER
 
     @classmethod
     def from_environment(cls, environ: Mapping[str, str] | None = None) -> WorkerSettings:
@@ -371,6 +385,7 @@ class WorkerSettings:
             evaluation_sets=Path(evaluation_sets) if evaluation_sets else None,
             stand_in=source.get("DRAUPNIR_WORKER_STAND_IN", "").strip()
             in {"1", "true", "TRUE", "yes"},
+            policy_driver=source.get("DRAUPNIR_POLICY_DRIVER", "").strip() or DEFAULT_POLICY_DRIVER,
         )
 
 
@@ -981,6 +996,7 @@ class Worker:
             store=self._store,
             secrets=self._secrets,
             registry=self._registry_of_plugins,
+            policy=self._policy_driver,
             stand_in=self.settings.stand_in,
         )
 
@@ -1011,6 +1027,32 @@ class Worker:
             return registry()
         except Exception:
             logger.exception("worker.plugins.unavailable", site=self.settings.site_id)
+            return None
+
+    @cached_property
+    def _policy_driver(self) -> Any:
+        """The `draupnir.policy` driver licence decisions are taken through. RF-43.
+
+        Resolved through the production registry, by the configured name, and
+        whether or not the development executor is in use: the stand-in
+        replaces a trainer, never a compliance decision.
+
+        `None` where it cannot be resolved, which defers every licence decision
+        with the reason. Taking it some other way -- the nearest driver, or
+        GLEIPNIR's policy directly -- would record a decision under a regime
+        the deployment did not install.
+        """
+        from draupnir.svalinn.pki import registry
+
+        try:
+            found = self._registry_of_plugins or registry()
+            return found.resolve("draupnir.policy", self.settings.policy_driver).driver
+        except Exception:
+            logger.exception(
+                "worker.policy.unavailable",
+                site=self.settings.site_id,
+                driver=self.settings.policy_driver,
+            )
             return None
 
     @cached_property

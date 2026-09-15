@@ -205,6 +205,12 @@ EVALUATION_SETS="${DRAUPNIR_EVALUATION_SETS-${VAULT_ROOT:+${VAULT_ROOT}/evaluati
 # scheduler declares no type, where a job asks for an untyped count instead.
 ACCELERATOR="${DRAUPNIR_ACCELERATOR-gb10}"
 
+# The `draupnir.policy` driver a run's licence decision is taken through
+# (RF-43), by its versioned entry point name. GLEIPNIR's policy in force unless
+# this estate's compliance regime installs another; a name nothing installed
+# answers defers every licence decision rather than taking it some other way.
+POLICY_DRIVER="${DRAUPNIR_POLICY_DRIVER-gleipnir.licence/v1}"
+
 # The fabric probe of SAD 11.3, which is the estate's in every part. The binary
 # is built on the appliances by VLD-INF-SINDRI-001 Procedure S5 and is on no
 # PATH; the interface and RoCE device names are from the ring configuration,
@@ -303,8 +309,8 @@ DRAUPNIR_TLS_CERTIFICATE, DRAUPNIR_TLS_PRIVATE_KEY, DRAUPNIR_INTERNAL_CA,
 DRAUPNIR_PROXY_CLIENT_CERTIFICATE, DRAUPNIR_PROXY_CLIENT_PRIVATE_KEY,
 DRAUPNIR_API_TLS_CERTIFICATE, DRAUPNIR_API_TLS_PRIVATE_KEY,
 DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE, DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY,
-DRAUPNIR_ACCELERATOR, the DRAUPNIR_FABRIC_* probe settings and the
-DRAUPNIR_*_DIR paths override the defaults. DRAUPNIR_FABRIC_BASELINE_GBPS is
+DRAUPNIR_ACCELERATOR, DRAUPNIR_POLICY_DRIVER, the DRAUPNIR_FABRIC_* probe
+settings and the DRAUPNIR_*_DIR paths override the defaults. DRAUPNIR_FABRIC_BASELINE_GBPS is
 the figure acceptance test A3 measured; leave it at 0 until there is one, and
 the probe reports a reading without an alarm rather than alarming against a
 number nobody took. Set DRAUPNIR_VAULT_ROOT to the empty string for a forge
@@ -750,6 +756,7 @@ DRAUPNIR_FABRIC_PROBE_BINARY=${FABRIC_PROBE_BINARY}
 DRAUPNIR_FABRIC_INTERFACE=${FABRIC_INTERFACE}
 DRAUPNIR_FABRIC_HCA=${FABRIC_HCA}
 DRAUPNIR_FABRIC_BASELINE_GBPS=${FABRIC_BASELINE_GBPS}
+DRAUPNIR_POLICY_DRIVER=${POLICY_DRIVER}
 EOF
 )"
 
