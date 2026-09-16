@@ -24,6 +24,59 @@
 DRAUPNIR_UNITS=("draupnir-api" "draupnir-worker" "draupnir-web")
 
 # ---------------------------------------------------------------------------
+# The network the units share. RF-44.
+# ---------------------------------------------------------------------------
+
+# Each unit is its own rootless container, so each has its own network
+# namespace and `127.0.0.1` inside one of them is that container. The console
+# proxy's upstream was that address, so every request it proxied answered 502
+# on a commissioned host.
+#
+# **One network rather than one pod.** The units are started independently by a
+# service manager -- systemd on Linux, launchd on macOS -- and a pod is a
+# fourth thing with a lifecycle neither of them owns: it would have to exist
+# before the first unit starts, and the published ports would move from the
+# units to it. A network is created on demand by whichever unit starts first
+# and outlives all of them.
+#
+# **Fixed addresses rather than container names.** The proxy cannot resolve a
+# name: nginx resolves one in a `proxy_pass` variable only through a
+# `resolver`, which this nginx will not take from the container, and an
+# `upstream` block resolves at start and then refuses to start while the API is
+# down. See the comment in docker/nginx.conf. The name the API's certificate is
+# verified under is not the address and does not change.
+DRAUPNIR_NETWORK="${DRAUPNIR_NETWORK:-draupnir}"
+
+# The /24 the network is given. A private range that podman's own default pool
+# does not hand out, so the network this creates cannot collide with one podman
+# created for something else.
+DRAUPNIR_NETWORK_PREFIX="${DRAUPNIR_NETWORK_PREFIX:-10.89.100}"
+DRAUPNIR_NETWORK_SUBNET="${DRAUPNIR_NETWORK_PREFIX}.0/24"
+
+# The address of each unit something connects to. Written as settings rather
+# than buried in the case below, because `docker/nginx.conf` carries the API's
+# and `tasks.py` starts the images on these addresses: three readers, one
+# statement of the fact. `tests/contract/test_deploy.py` holds them together.
+DRAUPNIR_API_ADDRESS="${DRAUPNIR_API_ADDRESS:-${DRAUPNIR_NETWORK_PREFIX}.10}"
+DRAUPNIR_WEB_ADDRESS="${DRAUPNIR_WEB_ADDRESS:-${DRAUPNIR_NETWORK_PREFIX}.20}"
+
+# The address one unit answers on inside that network, or empty for a unit
+# nothing connects to. Nothing connects to the worker: it reaches the database,
+# the vault and MEGINGJORD, and no unit reaches it -- so it joins no network of
+# ours and keeps the default one.
+#
+#   draupnir_address_for <unit>
+draupnir_address_for() {
+  local unit="${1:?draupnir_address_for needs a unit}"
+  case "${unit}" in
+    draupnir-api) printf '%s\n' "${DRAUPNIR_API_ADDRESS}" ;;
+    draupnir-web) printf '%s\n' "${DRAUPNIR_WEB_ADDRESS}" ;;
+    draupnir-worker) printf '\n' ;;
+    *) echo "draupnir_address_for: unknown unit: ${unit}" >&2; return 64 ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
 # Names
 # ---------------------------------------------------------------------------
 

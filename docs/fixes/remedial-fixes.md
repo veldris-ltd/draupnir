@@ -5170,6 +5170,86 @@ says the deployed upstream is not the address it uses.
 - `docker/nginx.conf`'s upstream is the address that test uses.
 - Gated in stage 3.1a, which already starts a built image.
 
+> **Status — done.**
+>
+> **The option, and why.** The prompt offered a pod or a reachable address.
+> This is the address: the units share a container network `draupnir-run.sh`
+> creates, the API answers on `10.89.100.10` and the console on
+> `10.89.100.20`, and `deploy/lib.sh` is where both are decided. Three reasons,
+> written out in `deploy/README.md`:
+> - **A pod has a lifecycle neither service manager owns.** systemd and launchd
+>   start the three units independently and in no order; a pod would have to
+>   exist before the first one starts, and the published ports would move from
+>   the units to it.
+> - **`host.containers.internal` does not reach this API.** It publishes on the
+>   host's loopback by design, which the host gateway address does not reach.
+>   Reaching it that way would mean publishing the API beyond loopback, and the
+>   binding is what SAD 8.1 rests `/metrics` on.
+> - **An address rather than a name, because the proxy must start without the
+>   API.** nginx resolves a name in a `proxy_pass` variable only through a
+>   `resolver`, and this nginx refuses `resolver local=on`; an `upstream` block
+>   resolves at start and then refuses to start while the API is down. The
+>   console's error surface when the API is gone (AC-U14) is the one thing an
+>   operator has then, and the unit templates say so in as many words.
+>
+> The name the API's certificate is verified under is untouched:
+> `proxy_ssl_name draupnir-api`, independent of the address, as the prompt asks.
+>
+> **What changed.**
+> - `deploy/lib.sh`: the network, its subnet, and each unit's address.
+> - `deploy/units/draupnir-run.sh`: creates the network if it is absent --
+>   asking first and tolerating the creation's own failure, so two units
+>   starting together is one network and one harmless refusal -- and joins it
+>   with the unit's address. The worker joins nothing: it reaches the database,
+>   the vault and MEGINGJORD, and no unit reaches it.
+> - `docker/nginx.conf`: the upstream is the API's address.
+> - `docs/runbook.md`: what a console that loads while every request in it
+>   answers 502 means, and the three commands that tell an operator which of
+>   the two it is.
+>
+> **The gate.** `python tasks.py images-transport`, stage 3.1a beside the step
+> that starts the API image alone. It starts both built images on that network
+> at those addresses, with a throwaway estate's TLS material mounted where both
+> read it, and asks the console for `/healthz` -- a path only the API answers.
+> The API image serves a stand-in application through `draupnir.api.serve`,
+> which is the image's own command: the hop is what is under test, and
+> `create_app` would open a database stage 3 does not have. The addresses come
+> from `deploy/lib.sh` rather than from a second copy here.
+>
+> It reports itself skipped, with the reason, when the images are not loaded:
+> the pipeline builds them with `--load` at stage 3.1, and a developer's
+> `make ci` builds them to the cache.
+>
+> **Tests.**
+> - `tests/contract/test_deploy.py`: the API and the console join the network
+>   and answer on the addresses `lib.sh` gives them, driven through the wrapper
+>   rather than read; the worker joins no network; the wrapper creates the
+>   network it needs; and `docker/nginx.conf`'s upstream is the address the API
+>   answers on, which is the whole of the defect.
+> - Stage 3.1a starts the two images together, which is what nothing did.
+>
+> **Results.**
+> - The gate passes against freshly built images: `python tasks.py
+>   images-transport` starts both on the network at the addresses `lib.sh`
+>   gives them and reports "the console proxied /healthz to the API over
+>   mTLS". That request is the one that answered 502 on a commissioned host.
+>   It could not be made at all until RF-45, because the console image would
+>   not build.
+> - `tests/contract/test_deploy.py`: 122 pass, the network assertions among
+>   them. `tests/contract/test_transport.py`: 16 pass against the edited
+>   configuration, so the proxy still terminates TLS 1.3 only and still
+>   presents its client certificate. The inventory reads the file unchanged:
+>   `terminates_tls13_only` and `upstream_mtls` both true.
+> - The coverage-gated stages: unit 1,737 at 90.20%, contract 535 at 89.15%,
+>   integration 231 of 232 -- the one failure being the readiness probe's
+>   timing, which RF-45's results describe and which fails the same way with
+>   this work stashed.
+> - `bash -n` passes on both edited scripts, and `lib.sh` answers `draupnir`,
+>   `10.89.100.0/24`, `10.89.100.10` for the API, `10.89.100.20` for the
+>   console and nothing for the worker.
+> - The journeys and the a11y sweep were not re-run: they serve the console
+>   directly rather than through this proxy, and nothing they exercise changed.
+
 ---
 
 ### RF-45 — P1 — The console image cannot be built: it does not carry the file its build reads
@@ -5298,7 +5378,7 @@ the check below reads what the configuration opens.
 | RF-41 | P3 | Gate results are read from a table only the seed writes, so an estate's approval queue shows no evidence — **done**; `gate_result` is projected from the outcomes the chain records, the seed inserts no row, and S13 offers no decision on an empty evidence table |
 | RF-42 | P3 | The licence register is read from a table only the seed writes, so a registered source appears nowhere — **done**; `source` is projected from the registrations and the corpus transitions the chain records, the seed inserts no row, and `registerSource` records its residency constraint |
 | RF-43 | P1 | Nothing but the demonstration procedure takes a run's licence decision, so a submitted run stays at DRAFT — **done**; the worker registers a submitted run's corpus and takes GLEIPNIR's licence decision through the installed `draupnir.policy` driver, sharing one implementation with the procedure; base licences are declared, and Tier A's Gemma terms are refused by the policy in force |
-| RF-44 | P1 | The console proxy cannot reach the API on a commissioned host: its upstream 127.0.0.1 is its own container's loopback |
+| RF-44 | P1 | The console proxy cannot reach the API on a commissioned host: its upstream 127.0.0.1 is its own container's loopback — **done**; the units share a container network with fixed addresses, the proxy passes to the API's, and stage 3.1a starts both images and proxies a request through to it over mTLS |
 | RF-45 | P1 | The console image cannot be built: `web.Dockerfile` does not carry the file `vite.config.ts` reads — **done**; the image copies `web/scripts`, and a contract test holds it to what the console build reads |
 
 ---

@@ -120,6 +120,22 @@ scheduler job identifier the chain recorded at QUEUED to TRAINING.
 dependency true, and the run board shows the same states it showed before.
 Service is expected within 30 seconds of the process starting (AC-N6).
 
+**If the console loads and every request in it fails with 502,** the console is
+up and the API is not reachable *from it*. The two units are separate
+containers sharing one network, and the console proxies to the API's address on
+it (RF-44):
+
+```bash
+podman ps --filter name=draupnir --format '{{.Names}} {{.Status}}'
+podman network exists draupnir && echo "network: present"
+podman inspect draupnir-api --format '{{.NetworkSettings.Networks.draupnir.IPAddress}}'
+```
+
+Expect `10.89.100.10` for the API. The console starts whether or not the API
+is running — that is deliberate, so its error surface is there to read — so a
+502 means the API unit is down, or it is not on the network. Restart it as
+above; the wrapper creates the network if it is missing.
+
 **If the registry looks behind the chain:**
 
 ```bash

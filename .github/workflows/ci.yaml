@@ -271,6 +271,19 @@ jobs:
           print("api, worker and both database drivers import in the image")
           '
 
+      - name: "3.1a the console proxy reaches the API (RF-44)"
+        # The step above starts the API image alone. This starts both, on the
+        # network and at the addresses `deploy/units/draupnir-run.sh` starts
+        # them on, and asks the console for a path only the API can answer.
+        #
+        # Nothing did. The proxy's upstream was `127.0.0.1:8000`, which inside
+        # the console's own container is the console, so every request the
+        # console proxied answered 502 on a commissioned host -- and no test
+        # started the two together to find out.
+        env:
+          DRAUPNIR_TAG: ${{ github.sha }}
+        run: python tasks.py images-transport
+
       - name: "3.1b CON-A local view (S30), the wheel DVALIN installs"
         # Built here because it was built nowhere: not a workspace member, not
         # in an image, not in deploy/. VLD-INF-SINDRI-001 Procedure S12 step 10

@@ -130,6 +130,10 @@ tls_setting() {
   return 0
 }
 
+# Where this unit answers on the shared network, or empty for one nothing
+# connects to (RF-44). Read before the case below so that every branch has it.
+address="$(draupnir_address_for "${UNIT}")"
+
 # Per-unit differences, in one place. The worker runs the API image with a
 # different command: the pipeline builds `api` and `web` and there is no third
 # image, because the worker is the same application with a different entry
@@ -272,6 +276,22 @@ fi
 # is better than four.
 "${PODMAN}" rm --ignore --force "${UNIT}" >/dev/null 2>&1 || true
 
+# The network the console proxy reaches the API on (RF-44, lib.sh). Created
+# here rather than by the installer, because the unit that starts first is the
+# one that needs it and a host can lose the network without losing the units --
+# a `podman system reset`, or a machine rebuilt on macOS. Creating one that
+# exists fails, which is why existence is asked first and the creation's own
+# failure is tolerated: two units starting together is one network and one
+# harmless refusal, not a unit that will not start.
+network=()
+if [[ -n "${address}" ]]; then
+  if ! "${PODMAN}" network exists "${DRAUPNIR_NETWORK}" >/dev/null 2>&1; then
+    "${PODMAN}" network create --subnet "${DRAUPNIR_NETWORK_SUBNET}" \
+      "${DRAUPNIR_NETWORK}" >/dev/null 2>&1 || true
+  fi
+  network=("--network" "${DRAUPNIR_NETWORK}" "--ip" "${address}")
+fi
+
 # `--rm` because the unit is the lifecycle: a stopped container that the
 # service manager will recreate on the next start is a container that can
 # disagree with the unit about which image it holds. `--pull=never` because
@@ -288,6 +308,7 @@ exec "${PODMAN}" run \
   "${env_files[@]}" \
   "${mounts[@]}" \
   "${tls[@]}" \
+  "${network[@]}" \
   "${publish[@]}" \
   "${image}" \
   "${command[@]}"

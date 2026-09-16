@@ -1592,6 +1592,93 @@ def test_the_api_unit_is_told_where_its_tls_material_is_mounted(tmp_path: Path) 
 
 
 # ---------------------------------------------------------------------------
+# The network the console reaches the API on. RF-44.
+# ---------------------------------------------------------------------------
+
+
+def _wrapper(unit: str, tmp_path: Path) -> subprocess.CompletedProcess[str]:
+    """Run the wrapper for one unit with podman replaced by `echo`."""
+    assert BASH is not None
+    return subprocess.run(  # noqa: S603
+        [BASH, str(UNITS_DIR / "draupnir-run.sh"), unit],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        env={
+            **os.environ,
+            "DRAUPNIR_PLATFORM": "linux",
+            "DRAUPNIR_CONFIG_DIR": str(tmp_path / "config"),
+            "DRAUPNIR_STATE_DIR": str(tmp_path / "state"),
+            "DRAUPNIR_PODMAN": "echo",
+            f"DRAUPNIR_IMAGE_{unit.replace('-', '_')}": "registry.invalid/image:test",
+        },
+    )
+
+
+@requires_bash
+@pytest.mark.parametrize("unit", ["draupnir-api", "draupnir-web"])
+def test_the_console_and_the_api_share_a_network_with_fixed_addresses(
+    unit: str, tmp_path: Path
+) -> None:
+    """RF-44: each unit is its own namespace, so `127.0.0.1` reached nobody.
+
+    Driven rather than read, because the property is what arrives in the podman
+    arguments: the unit joins the network and answers on the address `lib.sh`
+    gives it.
+    """
+    address = ask_lib(f"draupnir_address_for {unit}")
+    result = _wrapper(unit, tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert f"--network {ask_lib('printf %s "${DRAUPNIR_NETWORK}"')}" in result.stdout
+    assert f"--ip {address}" in result.stdout
+
+
+@requires_bash
+def test_the_worker_joins_no_network_because_nothing_connects_to_it(tmp_path: Path) -> None:
+    """It reaches the database, the vault and MEGINGJORD; no unit reaches it."""
+    assert ask_lib("draupnir_address_for draupnir-worker") == ""
+    assert "--network" not in _wrapper("draupnir-worker", tmp_path).stdout
+
+
+@requires_bash
+def test_the_wrapper_creates_the_network_it_needs(tmp_path: Path) -> None:
+    """A host can lose the network and keep the units: `podman system reset`.
+
+    Asked for rather than assumed, and the creation's failure tolerated: two
+    units starting together is one network and one harmless refusal.
+    """
+    wrapper = (UNITS_DIR / "draupnir-run.sh").read_text(encoding="utf-8")
+
+    assert "network exists" in wrapper, "the wrapper assumes the network is there"
+    assert "network create --subnet" in wrapper, "the network is created without its subnet"
+    assert _wrapper("draupnir-api", tmp_path).stdout.count("network create") <= 1
+
+
+@requires_bash
+def test_the_proxy_passes_to_the_address_the_api_answers_on() -> None:
+    """The one place the two could differ, and the whole of RF-44's defect.
+
+    `docker/nginx.conf` sent every proxied path to `127.0.0.1:8000`, which
+    inside the console's container is the console.
+    """
+    address = ask_lib("draupnir_address_for draupnir-api")
+    config = NGINX.read_text(encoding="utf-8")
+
+    assert f'default "https://{address}:8000";' in config, (
+        f"the proxy's upstream is not {address}, which is where the API answers"
+    )
+    assert 'default "https://127.0.0.1:8000"' not in config
+    # The address is not the name: the certificate is verified under the name
+    # the API carries, whatever address it is reached on.
+    named = [line for line in config.splitlines() if line.strip().startswith("proxy_ssl_name")]
+    assert named and all(line.strip().endswith("draupnir-api;") for line in named), (
+        "the proxy no longer verifies the API's certificate under `draupnir-api`"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Stage 3 produces what stage 4 consumes. RF-04.
 # ---------------------------------------------------------------------------
 

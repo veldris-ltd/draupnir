@@ -13,8 +13,10 @@ import argparse
 import json
 import os
 import platform
+import re
 import shutil
 import signal
+import ssl
 import subprocess
 import sys
 import time
@@ -25,6 +27,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from subprocess import Popen
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
@@ -1498,6 +1501,176 @@ def build_web() -> int:
     return 0
 
 
+#: What the API image is asked to serve for the transport check below.
+#:
+#: A stand-in application rather than the control plane's own: what is under
+#: test is the hop between the two containers, and `create_app` would open a
+#: database this stage does not have. It is served by `draupnir.api.serve`,
+#: which is the image's own command, so the TLS the proxy meets is the TLS a
+#: deployment meets -- client certificate required, TLS 1.3 only.
+_API_STAND_IN = """
+import uvicorn
+from fastapi import FastAPI
+
+from draupnir.api import serve
+from draupnir.core.infrastructure.config import Settings
+
+app = FastAPI()
+
+
+@app.get("/healthz")
+def healthz() -> dict[str, str]:
+    return {"status": "ok", "servedBy": "the api image"}
+
+
+settings = Settings().model_copy(
+    update={
+        "api_tls_certificate": "/etc/draupnir/tls/api.pem",
+        "api_tls_private_key": "/etc/draupnir/tls/api.key",
+        "internal_ca": "/etc/draupnir/tls/internal-ca.pem",
+        "api_host": "0.0.0.0",
+        "api_port": 8000,
+    }
+)
+uvicorn.Server(serve.configure(settings, app=app, environ={})).run()
+"""
+
+
+def deploy_network() -> dict[str, str]:
+    """The network, its subnet and each unit's address, read from `deploy/lib.sh`.
+
+    Read rather than restated: the wrapper the units start through decides
+    these, and a second copy here is the kind of drift RF-44 is about.
+    """
+    text = (ROOT / "deploy" / "lib.sh").read_text(encoding="utf-8")
+    found: dict[str, str] = {}
+    for key in ("DRAUPNIR_NETWORK", "DRAUPNIR_NETWORK_PREFIX"):
+        match = re.search(rf'^{key}="\$\{{{key}:-([^}}"]+)\}}"', text, re.MULTILINE)
+        if match is None:
+            raise Failure(f"deploy/lib.sh no longer states {key}")
+        found[key] = match.group(1)
+    for key in ("DRAUPNIR_API_ADDRESS", "DRAUPNIR_WEB_ADDRESS"):
+        match = re.search(
+            rf'^{key}="\$\{{{key}:-\$\{{DRAUPNIR_NETWORK_PREFIX\}}(\.\d+)\}}"', text, re.MULTILINE
+        )
+        if match is None:
+            raise Failure(f"deploy/lib.sh no longer states {key}")
+        found[key] = f"{found['DRAUPNIR_NETWORK_PREFIX']}{match.group(1)}"
+    found["SUBNET"] = f"{found['DRAUPNIR_NETWORK_PREFIX']}.0/24"
+    return found
+
+
+@task("images-transport", "Start both images and reach the API through the console proxy")
+def images_transport() -> int:
+    """RF-44. The proxy's upstream was its own container's loopback.
+
+    `docker/nginx.conf` sent the API's paths to `127.0.0.1:8000`, and each unit
+    is its own rootless container, so every request the console proxied
+    answered 502 on a commissioned host. Nothing caught it: no test started the
+    two together.
+
+    This starts them the way `deploy/units/draupnir-run.sh` starts them -- one
+    network, the addresses `deploy/lib.sh` gives them, the TLS material mounted
+    where both read it -- and asks the console for a path only the API answers.
+
+    Skipped, and said so, when the images are not loaded on this machine: the
+    pipeline builds them at stage 3.1 and a developer's `make ci` builds them
+    to the cache. Skipping is the honest report of a check nothing could run.
+    """
+    import tempfile
+
+    tag = os.environ.get("DRAUPNIR_TAG", "dev")
+    images = {"api": f"draupnir-api:{tag}", "web": f"draupnir-web:{tag}"}
+    absent = [
+        image
+        for image in images.values()
+        if docker("image", "inspect", "--format", "{{.Id}}", image, check=False) != 0
+    ]
+    if absent:
+        print(
+            f"    skipped: {', '.join(absent)} is not loaded on this machine.\n"
+            "    Stage 3.1 builds both with --load; `python tasks.py images` builds\n"
+            "    to the cache unless DRAUPNIR_LOAD is set, so there is nothing to start."
+        )
+        return 0
+
+    from tests.tls import issue_estate
+
+    network = deploy_network()
+    workdir = Path(tempfile.mkdtemp(prefix="draupnir-transport-"))
+    estate = issue_estate(workdir / "tls")
+    tls = str((workdir / "tls").resolve())
+    names = {"api": "draupnir-api", "web": "draupnir-web"}
+
+    def stop() -> None:
+        for name in names.values():
+            docker("rm", "--force", name, check=False)
+        docker("network", "rm", network["DRAUPNIR_NETWORK"], check=False)
+
+    stop()
+    say("the network the units share")
+    docker("network", "create", "--subnet", network["SUBNET"], network["DRAUPNIR_NETWORK"])
+    try:
+        say("the API image, over mTLS")
+        docker(
+            "run", "--detach", "--name", names["api"],
+            "--network", network["DRAUPNIR_NETWORK"],
+            "--ip", network["DRAUPNIR_API_ADDRESS"],
+            "--volume", f"{tls}:/etc/draupnir/tls:ro",
+            images["api"], "-c", _API_STAND_IN,
+        )  # fmt: skip
+        say("the console image, which proxies to it")
+        docker(
+            "run", "--detach", "--name", names["web"],
+            "--network", network["DRAUPNIR_NETWORK"],
+            "--ip", network["DRAUPNIR_WEB_ADDRESS"],
+            "--publish", "127.0.0.1:18443:8443",
+            "--volume", f"{tls}:/etc/draupnir/tls:ro",
+            images["web"],
+        )  # fmt: skip
+
+        say("a request through the console, answered by the API")
+        try:
+            answer = through_the_proxy("https://127.0.0.1:18443/healthz", estate.ca)
+        except Failure:
+            # nginx's own account of what it refused, and the API's of whether
+            # it started, are the only places the cause is written. A container
+            # that has been removed takes its log with it.
+            for name in names.values():
+                say(f"{name} said")
+                docker("logs", "--tail", "40", name, check=False)
+            raise
+        if answer.get("servedBy") != "the api image":
+            raise Failure(f"the console did not reach the API: {answer}")
+        print("    the console proxied /healthz to the API over mTLS")
+    finally:
+        stop()
+        shutil.rmtree(workdir, ignore_errors=True)
+    return 0
+
+
+def through_the_proxy(url: str, ca: Path, *, timeout: int = 90) -> dict[str, Any]:
+    """Ask the console for a proxied path, waiting for both containers to answer.
+
+    A 502 is a wait rather than a failure until the deadline: the console
+    answers TLS before the API has bound its port, which is the same race a
+    restart has on a commissioned host.
+    """
+    context = ssl.create_default_context(cafile=str(ca))
+    deadline = time.monotonic() + timeout
+    last = ""
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=5, context=context) as response:  # noqa: S310
+                return dict(json.loads(response.read().decode("utf-8")))
+        except urllib.error.HTTPError as refused:
+            last = f"{refused.status} {refused.read().decode('utf-8', 'replace')[:200]}"
+        except (urllib.error.URLError, TimeoutError, ConnectionError, ssl.SSLError) as error:
+            last = str(error)
+        time.sleep(1)
+    raise Failure(f"the console never answered {url} from the API: {last}")
+
+
 # ---------------------------------------------------------------------------
 # Stack
 # ---------------------------------------------------------------------------
@@ -1716,6 +1889,7 @@ PIPELINE: tuple[str, ...] = (
     # 3 BUILD
     "build-web",
     "images",
+    "images-transport",
     "con-a",
     "clients-check",
     "sign",
