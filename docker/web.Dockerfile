@@ -25,6 +25,11 @@ COPY --chown=node:node web/package.json web/pnpm-lock.yaml web/pnpm-workspace.ya
 COPY --chown=node:node web/packages ./packages
 COPY --chown=node:node web/apps ./apps
 COPY --chown=node:node web/tsconfig.base.json ./
+# The console's `vite.config.ts` reads `scripts/proxied-prefixes.json` when the
+# configuration loads, so it is a build input even though nothing imports it
+# (RF-45). Without it `vite build` stops before it starts, and this image --
+# the one the pipeline ships -- could not be built at all.
+COPY --chown=node:node web/scripts ./scripts
 
 RUN pnpm install --frozen-lockfile --ignore-scripts
 RUN pnpm run build

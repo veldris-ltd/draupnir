@@ -1596,6 +1596,31 @@ def test_the_api_unit_is_told_where_its_tls_material_is_mounted(tmp_path: Path) 
 # ---------------------------------------------------------------------------
 
 
+def test_the_web_image_copies_everything_the_console_build_reads() -> None:
+    """RF-45. `vite.config.ts` reads a file the image did not carry.
+
+    The list of API prefixes the console proxies is data, read when the
+    configuration loads rather than imported by the application, so nothing in
+    a module graph names it -- and `docker/web.Dockerfile` copies the workspace
+    directory by directory. The image the pipeline ships could not be built
+    from the moment that file arrived, and stage 3.1 is where it would have
+    stopped.
+    """
+    dockerfile = (ROOT / "docker" / "web.Dockerfile").read_text(encoding="utf-8")
+    copied = re.findall(r"(web/[\w./-]+)", dockerfile)
+    config = (ROOT / "web" / "apps" / "console" / "vite.config.ts").read_text(encoding="utf-8")
+
+    read_at_build = re.findall(r"new URL\(\s*'(\.\./\.\./[^']+)'", config)
+    assert read_at_build, "vite.config.ts no longer reads anything from the workspace"
+
+    for reference in read_at_build:
+        directory = reference.split("/")[2]
+        assert any(item.startswith(f"web/{directory}") for item in copied), (
+            f"web.Dockerfile does not copy web/{directory}, which vite.config.ts reads "
+            f"as {reference} when the console is built"
+        )
+
+
 def test_the_pipeline_pushes_the_images_on_main() -> None:
     """Nothing pushed one, and `rollout.sh` pulled.
 

@@ -5172,6 +5172,85 @@ says the deployed upstream is not the address it uses.
 
 ---
 
+### RF-45 — P1 — The console image cannot be built: it does not carry the file its build reads
+
+*Found while working RF-44.*
+
+`web/apps/console/vite.config.ts` reads `scripts/proxied-prefixes.json` when the
+configuration loads — the list of API prefixes both development servers and the
+deployed nginx proxy, established by RF-36. `docker/web.Dockerfile` copies the
+workspace directory by directory: `package.json`, the lockfile, the workspace
+file, `packages/`, `apps/` and `tsconfig.base.json`. It does not copy
+`web/scripts`.
+
+So `pnpm run build` inside the image stops at `vite build` with
+`ENOENT: no such file or directory, open '/src/scripts/proxied-prefixes.json'`,
+and the console image cannot be built at all. Since `ad9f8ff`, which added the
+file.
+
+Nothing caught it:
+- the console builds on a developer's machine from the checkout, where the file
+  is beside the configuration that reads it;
+- stage 3.1 builds the image, and a build failure is a red pipeline rather than
+  a test that says what broke;
+- stage 3.1a started the API image only, so nothing ever started the console's.
+
+A file read by a configuration rather than imported by a module appears in no
+dependency graph, which is why directory-by-directory copying missed it and why
+the check below reads what the configuration opens.
+
+**Prompt**
+
+> Carry into the image every file the console's build reads. Hold the
+> Dockerfile to it with a test that reads what `vite.config.ts` opens at build
+> time, rather than a list somebody remembers to extend.
+
+**Acceptance criteria**
+
+- The console image builds.
+- A test fails if the configuration reads a workspace path the image does not
+  copy.
+- Gated in stage 1, which runs the contract tests, and at stage 3.1, which
+  builds the image.
+
+> **Status — done.**
+>
+> `docker/web.Dockerfile` copies `web/scripts`, with the reason written beside
+> it: a build input that nothing imports.
+>
+> `tests/contract/test_deploy.py` reads the `new URL('../../…')` references out
+> of `vite.config.ts` and fails unless the Dockerfile copies the directory each
+> one names. A list of files would have been a second place to remember; this
+> reads the first.
+>
+> **Results.**
+> - `docker buildx build --platform linux/arm64 -f docker/web.Dockerfile` now
+>   completes. Before the fix it stopped at `vite build` with
+>   `ENOENT: no such file or directory, open
+>   '/src/scripts/proxied-prefixes.json'`, which is what stage 3.1 would have
+>   done on every run since `ad9f8ff`.
+> - The coverage-gated stages: unit 1,737 at 90.20%, contract 535 at 89.15%
+>   (the new test among them), integration 231 of 232.
+> - The one integration failure is not this change:
+>   `test_degraded_modes.py::test_the_api_reports_degraded_readiness_when_the_database_is_gone`
+>   fails the same way with the working tree stashed. It allows `/readyz` ten
+>   seconds, and against a database at a port nothing answers on it took 10.6s
+>   and 11.8s in two measurements here. The answer itself is the one SAD 11.2
+>   row 5 asks for --
+>   `{"status":"degraded","checks":{"database":false,"object_store":true}}`.
+>   Where the time goes is *not* the database check: it fails in milliseconds
+>   (`WinError 1225`, the connection refused, logged as
+>   `readiness.check.failed`), and `readiness.CHECK_TIMEOUT_SECONDS` bounds
+>   every check at two seconds. So something else in that request accounts for
+>   the other eight, and this has not established what.
+>
+>   That is worth a finding of its own rather than a line here: an
+>   orchestrator's readiness deadline is shorter than ten seconds, so the
+>   degraded answer would not reach the operator it is for. Left open, with the
+>   measurements above.
+
+---
+
 ## 5  Summary
 
 | ID | Severity | Finding |
@@ -5220,6 +5299,7 @@ says the deployed upstream is not the address it uses.
 | RF-42 | P3 | The licence register is read from a table only the seed writes, so a registered source appears nowhere — **done**; `source` is projected from the registrations and the corpus transitions the chain records, the seed inserts no row, and `registerSource` records its residency constraint |
 | RF-43 | P1 | Nothing but the demonstration procedure takes a run's licence decision, so a submitted run stays at DRAFT — **done**; the worker registers a submitted run's corpus and takes GLEIPNIR's licence decision through the installed `draupnir.policy` driver, sharing one implementation with the procedure; base licences are declared, and Tier A's Gemma terms are refused by the policy in force |
 | RF-44 | P1 | The console proxy cannot reach the API on a commissioned host: its upstream 127.0.0.1 is its own container's loopback |
+| RF-45 | P1 | The console image cannot be built: `web.Dockerfile` does not carry the file `vite.config.ts` reads — **done**; the image copies `web/scripts`, and a contract test holds it to what the console build reads |
 
 ---
 
