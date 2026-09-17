@@ -1901,3 +1901,30 @@ def test_rollout_claims_no_signature_nothing_makes() -> None:
         "the script does not record that image signing is outstanding, so the claim "
         "will be quietly restored"
     )
+
+
+def test_the_api_image_carries_the_library_psycopg_needs_from_the_system() -> None:
+    """RF-48. The image built, and could not create a database engine.
+
+    `psycopg[binary]` bundles libpq, OpenSSL, krb5 and ldap, but manylinux
+    leaves zlib to the system, so the wrapper's one external need beyond glibc
+    is `libz.so.1` -- which `gcr.io/distroless/cc-debian12` does not carry.
+    Every import succeeded and `create_engine` raised "no pq wrapper
+    available": SQLAlchemy loads the DBAPI when the engine is built, and both
+    engines are built in the lifespan, so the image would have failed after
+    starting and before answering anything.
+
+    Stage 3.1a is the real gate, since it runs the image. This asserts the
+    reason survives the next base image change: the copy is one line, its
+    absence is invisible until something creates an engine, and a reader
+    changing the runtime base has no way to know it mattered.
+    """
+    dockerfile = (ROOT / "docker" / "api.Dockerfile").read_text(encoding="utf-8")
+    runtime = dockerfile.split("AS runtime", 1)[1]
+
+    assert "libz.so.1" in runtime, (
+        "docker/api.Dockerfile no longer copies libz.so.1 into the runtime stage. "
+        "psycopg's binary wheel needs it from the system and distroless has no "
+        "package manager to install it: without this the API image starts and then "
+        "fails to create its database engine."
+    )

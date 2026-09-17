@@ -643,17 +643,18 @@ REGISTER: dict[str, Entry] = {
         "fail: a missing baseline is a failure on CI rather than a recorded file and a "
         "pass (RF-22).",
         "make test-visual",
-        note="The 220 committed baselines are all `-win32.png` and the pipeline runs on "
-        "linux/arm64, so stage 2.9 has never compared anything -- it recorded 220 "
-        "baselines into a container it then discarded and reported green. The gate is "
-        "fixed and the baselines are not: a screenshot is only meaningful on the "
-        "platform that will diff against it, and one taken on this machine and named "
-        "`-linux` would fail every CI run for reasons unrelated to any change. "
-        "`.github/workflows/visual-baselines.yaml` generates them on the CI "
-        "architecture and uploads them for a person to commit; until somebody "
-        "dispatches it, stage 2.9 is red, which is the true state and was not "
-        "visible before. The deliberate one-pixel regression this criterion asks "
-        "somebody to watch fail can only be watched once the baselines exist.",
+        note="The 220 baselines were all `-win32.png` while the pipeline runs on "
+        "linux/arm64, so stage 2.9 never compared anything -- it recorded 220 baselines "
+        "into a container it then discarded and reported green (RF-22). Both halves are "
+        "now in place: `.github/workflows/visual-baselines.yaml` recorded 220 `-linux` "
+        "baselines on the runner, a person compared them against their win32 "
+        "counterparts and committed them, and stage 2.9 has since compared them on the "
+        "runner and passed. What remains is this criterion's own demonstration. The "
+        "comparison carried a 1% pixel budget -- 9,344 pixels on one of these stories -- "
+        "and a component one pixel taller than its token passed stage 2.9 on a pull "
+        "request opened to watch it fail. The budget is gone (RF-47) and the one-pixel "
+        "regression has still to be watched failing on CI, so this stays DEVIATED until "
+        "it has been.",
     ),
     "AC-Q6": Entry(
         IMPLEMENTED,

@@ -39,7 +39,18 @@ export default defineConfig({
 
   expect: {
     timeout: 10_000,
-    toHaveScreenshot: { maxDiffPixelRatio: 0.01, animations: 'disabled' },
+    // No pixel budget. `maxDiffPixelRatio: 0.01` forgave 9,344 pixels on a
+    // 1280x730 story, which is more than a regression costs: a component
+    // shifted by one pixel passed stage 2.9 on CI, and a 40px change was
+    // needed to reach 0.042 and fail. A gate whose tolerance exceeds the
+    // defects it exists to catch is RF-22 in a third costume (RF-47).
+    //
+    // `threshold` is left at Playwright's default, which is a per-pixel
+    // perceptual comparison rather than an exact colour match: a pixel has to
+    // actually look different to be counted. So this is "no pixels may
+    // differ", not "no byte may differ" -- anti-aliasing noise within a pixel
+    // is still absorbed, while anything that moves the layout is not.
+    toHaveScreenshot: { maxDiffPixelRatio: 0, animations: 'disabled' },
   },
 
   use: {
