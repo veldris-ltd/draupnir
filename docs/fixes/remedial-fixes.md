@@ -2750,7 +2750,8 @@ It just means the gate has never run where it matters.
   nobody knows works.
 - Gated in stage 2.9.
 
-> **Status: partly done — the gate is fixed and the baselines need a CI run.**
+> **Status: the gate is fixed, the baselines are committed, and what the gate
+> forgives is RF-47.**
 >
 > **The spec can fail now.** A missing baseline is a failure when `CI` is set
 > and a recorded file only on a developer machine, which is where the original
@@ -2781,22 +2782,38 @@ It just means the gate has never run where it matters.
 > halves matter — a gate that fails on everything is as useless as one that
 > fails on nothing.
 >
-> **What is not done: the `-linux` baselines.** A screenshot is only meaningful
-> on the platform that will diff against it. One taken on this machine and
-> named `-linux` would be win32 pixels wearing another platform's name, and
+> **The `-linux` baselines, since committed.** A screenshot is only meaningful
+> on the platform that will diff against it. One taken on a developer's machine
+> and named `-linux` would be win32 pixels wearing another platform's name, and
 > would fail every CI run for reasons unrelated to any change — which is how a
-> gate gets switched off. They have to come from a run on `ubuntu-24.04-arm`,
+> gate gets switched off. They had to come from a run on `ubuntu-24.04-arm`,
 > which is what the dispatch workflow is for.
 >
-> **So the pipeline is red until somebody dispatches it**, and that is the true
-> state rather than a regression. Stage 2.9 has never compared anything; before
-> this it reported green while doing so. The step is one dispatch, one
-> download, one commit, and it is written into `AC-Q5`'s note where the next
-> person to look will find it.
+> They now exist: 220 of them, recorded by that workflow on the runner,
+> downloaded, compared story by story against their win32 counterparts, and
+> committed. The artefact's win32 files were byte for byte the committed ones,
+> so the recording path compared what already existed rather than rewriting it,
+> which is the property the workflow claims and had never been checked. One
+> story differs in height between the platforms — the spec editor's read-only
+> view, 778px against 730px — which is text metrics wrapping a line
+> differently, and is the whole reason a baseline belongs to one platform.
+>
+> Getting the workflow to run at all took one change: GitHub offers "Run
+> workflow" only for workflows on the default branch, and this one was added on
+> `dev` with `main` 42 commits behind, so the dispatch answered 404. A push to a
+> `visual-baselines/**` branch now starts it, which runs the file that was
+> pushed. It still commits nothing.
+>
+> **Stage 2.9 then passed on the runner for the first time in the project's
+> life**, and the pipeline reached six steps it had never executed — one of
+> which, stage 3.1a, failed immediately and is RF-48.
 >
 > The third acceptance criterion — a deliberate one-pixel change watched
-> failing on CI — is the same dependency. It cannot be watched until there is
-> something for it to be compared against.
+> failing on CI — turned out not to depend on the baselines alone. With them
+> committed, the one-pixel change was pushed and opened as a pull request, and
+> stage 2.9 passed it: the comparison had a 1% pixel budget, which is 9,344
+> pixels on one of these stories. That is RF-47, and the criterion is carried
+> there rather than closed here.
 >
 > **A completeness check that holds today.** `web/tests/visual-baseline-coverage.test.ts`
 > asserts every platform with any baselines carries the *same set of stories*
@@ -2808,8 +2825,10 @@ It just means the gate has never run where it matters.
 > somebody had already built one.
 >
 > AC-Q5 said IMPLEMENTED and said 175 snapshots. There are 220, and the gate
-> had never compared any of them. It is DEVIATED with the reason, until the
-> baselines land.
+> had never compared any of them. It stays DEVIATED with the reason carried
+> forward to RF-47: the baselines have landed and the gate now compares on the
+> platform that diffs them, but a one-pixel regression has not yet been watched
+> failing, which is what the criterion asks for.
 
 ---
 
@@ -5486,6 +5505,133 @@ first-use work on a path with a deadline does not depend on it.
 
 ---
 
+### RF-47 — P3 — The visual gate forgives more than a regression costs
+
+RF-22 made stage 2.9 compare instead of recording into a container it threw
+away. It compares, and it still passes the thing it exists to catch.
+
+`web/playwright.config.ts:42` set `maxDiffPixelRatio: 0.01`. On a 1280x730
+story that is 9,344 pixels of licence. A component one pixel taller than its
+token — `.jg-gauge__track`, the capacity gauge's bar — was pushed to a branch
+and opened as a pull request against `dev`: stage 2.9 **passed**, on all eight
+shards, against the Linux baselines committed hours earlier. Reaching the
+budget took a 40px change, which differed by 39,342 pixels at ratio 0.042.
+
+So the gate's tolerance was wider than the defects it was placed there to
+catch, which is RF-22's own shape in a third costume: something occupying the
+place where a person would otherwise notice.
+
+**Prompt**
+
+> Take the pixel budget out of the visual comparison, and hold it out.
+>
+> `maxDiffPixelRatio` and `maxDiffPixels` both go to zero. Leave `threshold`
+> at Playwright's default, which compares pixels perceptually rather than
+> byte for byte, so anti-aliasing inside a pixel is still absorbed and
+> anything that moves the layout is not.
+>
+> Then satisfy RF-22's third acceptance criterion with the budget gone: a
+> deliberate one-pixel change, watched failing stage 2.9 on CI, recorded.
+
+**Acceptance criteria**
+
+- The visual comparison grants no pixel budget, proportional or absolute.
+- A test asserts that, reading the configuration rather than its source text.
+- Stage 2.9 passes on unchanged code with the budget gone, on the runner.
+- A deliberate one-pixel change fails stage 2.9 on CI, watched and recorded.
+
+> **Status: the budget is gone and the proof is outstanding.**
+>
+> **What the budget was hiding, measured.** With the budget removed, the 220
+> committed `-win32.png` baselines no longer match what this machine renders:
+> every one of the eight shards fails, the first story in each differing by
+> between 1,488 and 7,536 pixels — all of it under the old 9,344-pixel licence
+> and therefore invisible for as long as that licence existed. Whether the
+> same is true of the runner's own baselines, recorded hours earlier on the
+> architecture that diffs them, is the question the next pipeline run answers,
+> and it is the honest order: assert the property, then find out.
+>
+> **The number is asserted, not commented.** `web/tests/visual-tolerance.test.ts`
+> imports the configuration object and reads the value, because a regular
+> expression over the source would pass just as happily on a commented-out
+> line. `maxDiffPixels` is asserted alongside the ratio: it is the same licence
+> counted absolutely, and either one alone would let the other back in. A
+> budget is exactly the kind of thing that returns — one line, it makes a red
+> run green, and the reason it was zero lives in a commit message nobody reads
+> at the moment they are tempted.
+
+---
+
+### RF-48 — P1 — The API image starts and cannot create a database engine
+
+Stage 3.1a, the check RF-E23 added because nothing ever started a built image,
+had never run: the job always stopped earlier. Once stage 2.9 passed for the
+first time the pipeline reached it, and it failed:
+
+```
+ImportError: no pq wrapper available.
+- couldn't import psycopg 'c' implementation: No module named 'psycopg_c'
+- couldn't import psycopg 'binary' implementation: libz.so.1: cannot open
+  shared object file: No such file or directory
+- couldn't import psycopg 'python' implementation: libpq library not found
+```
+
+`psycopg[binary]`'s wheel bundles libpq, OpenSSL, krb5, ldap, SASL and the
+rest; manylinux leaves zlib to the system. `gcr.io/distroless/cc-debian12`
+does not carry it and has no package manager to add it. Inspected in the
+builder stage, `libz.so.1` is the wheel's only external need beyond glibc.
+
+Every import in the image succeeds. SQLAlchemy loads the DBAPI when an engine
+is *created*, and both engines are created in the lifespan — so the deployed
+API would have started, reported itself up, and failed on the first thing that
+touched the database. This is precisely the failure RF-E23's check was written
+for, one release later than it should have been caught.
+
+**Prompt**
+
+> Carry the library into the runtime image and hold it there.
+>
+> Stage the resolved `libz.so.1` in the builder, where there is a shell, and
+> copy it into a loader default directory in the runtime stage, which has
+> neither shell nor `ldconfig`. Then a contract test, because the copy is one
+> line whose absence is invisible until something creates an engine.
+
+**Acceptance criteria**
+
+- The built image creates both engines, async and sync.
+- A contract test fails if the runtime stage stops carrying the library.
+- Stage 3.1a passes on CI.
+
+> **Status: done.**
+>
+> **The library is staged, not guessed at.** The builder resolves the symlink
+> with `cp -L` into `/extra`, and the runtime copies it to `/usr/lib`, which is
+> one of the loader's own default directories: no `ld.so.cache` to rebuild, no
+> `ldconfig` to run it, and no architecture in the path — the Debian multiarch
+> directory is named after the architecture and the runtime stage has no shell
+> to work out which.
+>
+> **Verified by running the pipeline's own check.** The image was rebuilt and
+> the exact script from stage 3.1a run against it: `create_app`, both engines,
+> and the worker module all load. This machine builds aarch64 natively, which
+> is the architecture the runner uses, so that is the same check rather than an
+> emulated approximation of it.
+>
+> **The contract test asserts the runtime stage, not the file.** It reads what
+> follows `AS runtime` in `docker/api.Dockerfile`, so a copy that lands only in
+> the builder — where it changes nothing — does not satisfy it. Stage 3.1a
+> remains the real gate, since it starts the image; the test exists so that the
+> next person to change the base image learns why the line is there.
+>
+> **What this says about stage 3.1a.** The step was added, was correct, and had
+> never executed, because the job stops at the first failure and the stages
+> before it were red for unrelated reasons. A check that has never run is a
+> check nobody knows works — which is RF-22's lesson arriving from the
+> opposite direction, and the reason the whole of stage 3 is now worth
+> watching rather than assuming.
+
+---
+
 ## 5  Summary
 
 | ID | Severity | Finding |
@@ -5511,7 +5657,7 @@ first-use work on a path with a deadline does not depend on it.
 | RF-19 | P5 | Eleven coverage targets collect nothing — **done**; floors raised to 91/87/81 |
 | RF-20 | P5 | HODD and GLEIPNIR are under no coverage floor — **done**; every shipped module is measured, floors 90/87/77 |
 | RF-21 | P5 | The breaking-change gate has no baseline — **done**; a parameter's schema was never compared either |
-| RF-22 | P5 | The visual regression gate never gates in CI — **gate done**, `-linux` baselines need one dispatch of `visual-baselines` on the CI runner |
+| RF-22 | P5 | The visual regression gate never gates in CI — **gate done, baselines committed**; 220 `-linux` baselines recorded on the runner and committed by hand, stage 2.9 compares for the first time, and what the comparison forgives is RF-47 |
 | RF-23 | P5 | `clients-check` fails on any CRLF checkout — **done**; it could not run at all since RF-01, and both clients had drifted by three operations |
 | RF-24 | P5 | `tasks.py ci` is not the pipeline — **done**; the pipeline never generated the cryptographic inventory it uploads |
 | RF-25 | P5 | The secret scan cannot run on the documented Windows path — **done**; it diagnoses the mount failure and never passes without scanning |
@@ -5536,6 +5682,8 @@ first-use work on a path with a deadline does not depend on it.
 | RF-44 | P1 | The console proxy cannot reach the API on a commissioned host: its upstream 127.0.0.1 is its own container's loopback — **done**; the units share a container network with fixed addresses, the proxy passes to the API's, and stage 3.1a starts both images and proxies a request through to it over mTLS |
 | RF-45 | P1 | The console image cannot be built: `web.Dockerfile` does not carry the file `vite.config.ts` reads — **done**; the image copies `web/scripts`, and a contract test holds it to what the console build reads |
 | RF-46 | P4 | The first readiness probe of a process does work its timeout cannot bound — **done**; every check's setup happens at startup, a failed setup degrades, and a test reads the checks for imports |
+| RF-47 | P3 | The visual gate forgives more than a regression costs: 9,344 pixels of licence per story — **budget gone**, the proof of a one-pixel failure on CI is outstanding; a component one pixel taller passed stage 2.9 on a pull request, and a test reads the configuration so the budget cannot return |
+| RF-48 | P1 | The API image starts and cannot create a database engine: distroless carries no `libz.so.1` — **done**; the builder stages the library and the runtime carries it, a contract test holds the runtime stage to it, and the pipeline's own check passes against the rebuilt image |
 
 ---
 

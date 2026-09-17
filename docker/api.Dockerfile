@@ -40,6 +40,15 @@ COPY migrations ./migrations
 COPY alembic.ini ./
 RUN uv sync --frozen --no-dev
 
+# The one library the runtime needs and distroless does not carry. The
+# `psycopg[binary]` wheel bundles libpq, OpenSSL, krb5, ldap and the rest, but
+# manylinux leaves zlib to the system, so the wrapper's only external needs
+# beyond glibc are `libz.so.1` -- and without it `import psycopg` raises "no pq
+# wrapper available" the moment an engine is created. Staged under a fixed path
+# with the symlink resolved, because the runtime stage has no shell to resolve
+# one and the Debian multiarch directory is named after the architecture.
+RUN mkdir -p /extra && cp -L /usr/lib/*-linux-gnu/libz.so.1 /extra/libz.so.1
+
 # --------------------------------------------------------------------------
 # Runtime. Distroless: no shell, no package manager, nothing to pivot from.
 # --------------------------------------------------------------------------
@@ -59,6 +68,12 @@ LABEL org.opencontainers.image.title="draupnir-api" \
 # virtual environment refers to it by absolute path.
 COPY --from=builder /python /python
 COPY --from=builder /app /app
+
+# zlib, for the reason given in the builder stage. `/usr/lib` is one of the
+# loader's own default directories, so this needs no ld.so.cache and no
+# architecture in the path -- which matters in an image with no ldconfig to
+# rebuild the cache and no shell to run it.
+COPY --from=builder /extra/libz.so.1 /usr/lib/libz.so.1
 
 WORKDIR /app
 
