@@ -4,7 +4,7 @@ Every criterion in SAD 12, one file each, generated from the specification and
 from the citations in the repository. The status is the vocabulary AC-D4 asks
 for: **IMPLEMENTED**, **DEVIATED** with reasons, or **NOT BUILT**.
 
-90 criteria: 76 implemented, 11 deviated,
+90 criteria: 77 implemented, 10 deviated,
 3 not built. Of the 68 marked **Must**,
 68 have evidence and
 0 do not.
@@ -111,7 +111,7 @@ make acceptance     # regenerate this pack
 | [AC-Q2](AC-Q2.md) | Client regeneration fails the build when the CLI or TypeScript client has drifted from the OpenA… | Must | IMPLEMENTED |
 | [AC-Q3](AC-Q3.md) | Secret scanning runs on every commit and the repository history is clean | Must | IMPLEMENTED |
 | [AC-Q4](AC-Q4.md) | Property tests cover ledger chain invariants, specification hash determinism and projector idemp… | Must | IMPLEMENTED |
-| [AC-Q5](AC-Q5.md) | Visual regression snapshots exist for every component in every state and a diff fails the build | Must | DEVIATED |
+| [AC-Q5](AC-Q5.md) | Visual regression snapshots exist for every component in every state and a diff fails the build | Must | IMPLEMENTED |
 | [AC-Q6](AC-Q6.md) | Migrations are forward only, run dry first in deployment, and a failed smoke test triggers rollb… | Must | IMPLEMENTED |
 | [AC-Q7](AC-Q7.md) | Container images build for aarch64 from a distroless base and run rootless | Must | DEVIATED |
 | [AC-Q8](AC-Q8.md) | Each of the six development skills in section 11G produces a conforming artefact in a demonstrat… | Must | IMPLEMENTED |

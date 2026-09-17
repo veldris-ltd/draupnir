@@ -638,23 +638,23 @@ REGISTER: dict[str, Entry] = {
         "make test-property",
     ),
     "AC-Q5": Entry(
-        DEVIATED,
+        IMPLEMENTED,
         "A snapshot per component per state, 220 in all, with a diff gate that can now "
         "fail: a missing baseline is a failure on CI rather than a recorded file and a "
         "pass (RF-22).",
         "make test-visual",
-        note="The 220 baselines were all `-win32.png` while the pipeline runs on "
-        "linux/arm64, so stage 2.9 never compared anything -- it recorded 220 baselines "
-        "into a container it then discarded and reported green (RF-22). Both halves are "
-        "now in place: `.github/workflows/visual-baselines.yaml` recorded 220 `-linux` "
-        "baselines on the runner, a person compared them against their win32 "
-        "counterparts and committed them, and stage 2.9 has since compared them on the "
-        "runner and passed. What remains is this criterion's own demonstration. The "
-        "comparison carried a 1% pixel budget -- 9,344 pixels on one of these stories -- "
-        "and a component one pixel taller than its token passed stage 2.9 on a pull "
-        "request opened to watch it fail. The budget is gone (RF-47) and the one-pixel "
-        "regression has still to be watched failing on CI, so this stays DEVIATED until "
-        "it has been.",
+        note="Reached in two steps, both recorded. The 220 baselines were all "
+        "`-win32.png` while the pipeline runs on linux/arm64, so stage 2.9 never "
+        "compared anything -- it recorded 220 into a container it then discarded and "
+        "reported green (RF-22); and once it did compare, a 1% pixel budget let a "
+        "component one pixel taller than its token pass (RF-47). With 220 `-linux` "
+        "baselines recorded on the runner and committed by hand, and the budget at "
+        "zero, that same one-pixel change failed stage 2.9 on CI at 1,006 pixels on "
+        "each of two capacity gauge stories, while 218 others matched their baselines "
+        "exactly. Outstanding housekeeping rather than a gap in the criterion: the "
+        "win32 baselines predate the removal of the budget and no longer match what a "
+        "developer machine renders, so they need re-recording and committing by hand "
+        "the way the linux ones were.",
     ),
     "AC-Q6": Entry(
         IMPLEMENTED,

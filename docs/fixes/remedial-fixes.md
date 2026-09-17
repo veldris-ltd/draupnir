@@ -2750,8 +2750,8 @@ It just means the gate has never run where it matters.
   nobody knows works.
 - Gated in stage 2.9.
 
-> **Status: the gate is fixed, the baselines are committed, and what the gate
-> forgives is RF-47.**
+> **Status: done — the gate is fixed, the baselines are committed, and what it
+> forgave is RF-47, also done.**
 >
 > **The spec can fail now.** A missing baseline is a failure when `CI` is set
 > and a recorded file only on a developer machine, which is where the original
@@ -2812,8 +2812,10 @@ It just means the gate has never run where it matters.
 > failing on CI — turned out not to depend on the baselines alone. With them
 > committed, the one-pixel change was pushed and opened as a pull request, and
 > stage 2.9 passed it: the comparison had a 1% pixel budget, which is 9,344
-> pixels on one of these stories. That is RF-47, and the criterion is carried
-> there rather than closed here.
+> pixels on one of these stories. That is RF-47. With the budget removed the
+> same change failed stage 2.9 on CI, naming the two capacity gauge stories at
+> 1,006 pixels each while 218 others matched exactly, so the criterion is met
+> and its evidence is recorded under RF-47.
 >
 > **A completeness check that holds today.** `web/tests/visual-baseline-coverage.test.ts`
 > asserts every platform with any baselines carries the *same set of stories*
@@ -5540,7 +5542,7 @@ place where a person would otherwise notice.
 - Stage 2.9 passes on unchanged code with the budget gone, on the runner.
 - A deliberate one-pixel change fails stage 2.9 on CI, watched and recorded.
 
-> **Status: the budget is gone and the proof is outstanding.**
+> **Status: done.**
 >
 > **What the budget was hiding, measured.** With the budget removed, the 220
 > committed `-win32.png` baselines no longer match what this machine renders:
@@ -5559,6 +5561,43 @@ place where a person would otherwise notice.
 > budget is exactly the kind of thing that returns — one line, it makes a red
 > run green, and the reason it was zero lives in a commit message nobody reads
 > at the moment they are tempted.
+>
+> **Watched failing, on CI, with the budget gone.** The same one-pixel branch
+> that had passed was merged up to the strict configuration and pushed to the
+> pull request. Stage 2.9:
+>
+> ```
+> 2 failed
+>   Storybook baselines, shard 6 of 8
+>     1006 pixels (ratio 0.01 of all image pixels) are different.
+>     Expected: composites-capacity-gauge--read-only-visual-linux.png
+>   Storybook baselines, shard 7 of 8
+>     1006 pixels (ratio 0.01 of all image pixels) are different.
+>     Expected: composites-capacity-gauge--ready-visual-linux.png
+> 6 passed
+> ```
+>
+> Two properties, from the one run. The gate fails on a component one pixel
+> taller than its token — RF-22's third acceptance criterion, and this one's.
+> And the six shards that passed carry 218 stories that matched their Linux
+> baselines *exactly*, with no budget at all, so zero tolerance is a gate
+> rather than a source of noise on the platform that does the diffing. That
+> second property is the one that could not be assumed, and it is why the
+> budget was asserted before it was proved rather than after.
+>
+> The pull request was closed unmerged and its branch deleted; the run is its
+> record.
+>
+> **What this leaves open: the win32 baselines are stale.** With the budget
+> gone, every one of the eight shards fails on this machine against the
+> committed `-win32.png` files, the first story in each differing by 1,488 to
+> 7,536 pixels. All of it sat under the old 9,344-pixel licence, so it accrued
+> unseen. The runner's own baselines match to the pixel, which says the drift
+> is the developer platform's and not the components'. Re-recording them is one
+> `make test-visual` on a win32 machine with the files moved aside, and it is
+> the same rule as the Linux half: a person looks at what changed and commits
+> it on purpose. Until somebody does, stage 2.9 is a CI gate that a developer
+> cannot run locally and have pass.
 
 ---
 
@@ -5657,7 +5696,7 @@ for, one release later than it should have been caught.
 | RF-19 | P5 | Eleven coverage targets collect nothing — **done**; floors raised to 91/87/81 |
 | RF-20 | P5 | HODD and GLEIPNIR are under no coverage floor — **done**; every shipped module is measured, floors 90/87/77 |
 | RF-21 | P5 | The breaking-change gate has no baseline — **done**; a parameter's schema was never compared either |
-| RF-22 | P5 | The visual regression gate never gates in CI — **gate done, baselines committed**; 220 `-linux` baselines recorded on the runner and committed by hand, stage 2.9 compares for the first time, and what the comparison forgives is RF-47 |
+| RF-22 | P5 | The visual regression gate never gates in CI — **done**; 220 `-linux` baselines recorded on the runner and committed by hand, stage 2.9 compares for the first time, and a one-pixel regression was watched failing it on CI once RF-47 took the pixel budget away |
 | RF-23 | P5 | `clients-check` fails on any CRLF checkout — **done**; it could not run at all since RF-01, and both clients had drifted by three operations |
 | RF-24 | P5 | `tasks.py ci` is not the pipeline — **done**; the pipeline never generated the cryptographic inventory it uploads |
 | RF-25 | P5 | The secret scan cannot run on the documented Windows path — **done**; it diagnoses the mount failure and never passes without scanning |
@@ -5682,7 +5721,7 @@ for, one release later than it should have been caught.
 | RF-44 | P1 | The console proxy cannot reach the API on a commissioned host: its upstream 127.0.0.1 is its own container's loopback — **done**; the units share a container network with fixed addresses, the proxy passes to the API's, and stage 3.1a starts both images and proxies a request through to it over mTLS |
 | RF-45 | P1 | The console image cannot be built: `web.Dockerfile` does not carry the file `vite.config.ts` reads — **done**; the image copies `web/scripts`, and a contract test holds it to what the console build reads |
 | RF-46 | P4 | The first readiness probe of a process does work its timeout cannot bound — **done**; every check's setup happens at startup, a failed setup degrades, and a test reads the checks for imports |
-| RF-47 | P3 | The visual gate forgives more than a regression costs: 9,344 pixels of licence per story — **budget gone**, the proof of a one-pixel failure on CI is outstanding; a component one pixel taller passed stage 2.9 on a pull request, and a test reads the configuration so the budget cannot return |
+| RF-47 | P3 | The visual gate forgives more than a regression costs: 9,344 pixels of licence per story — **done**; the budget is zero, a one-pixel change was watched failing stage 2.9 on CI while 218 other stories matched exactly, and a test reads the configuration so the budget cannot return; the win32 baselines are stale and need re-recording by hand |
 | RF-48 | P1 | The API image starts and cannot create a database engine: distroless carries no `libz.so.1` — **done**; the builder stages the library and the runtime carries it, a contract test holds the runtime stage to it, and the pipeline's own check passes against the rebuilt image |
 
 ---
