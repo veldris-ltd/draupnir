@@ -578,13 +578,17 @@ def test_resolves_tells_the_three_answers_apart(tmp_path: Path) -> None:
     """
     assert BASH is not None
 
-    def ask(name: str, *, path: str) -> int:
+    def ask(name: str, *, path: str, lookup: str | None = None) -> int:
+        # `lookup` replaces PATH after the installer is sourced and before the
+        # question is asked. Sourcing needs the ordinary tools; what is being
+        # asked is whether a resolver is on PATH, so only the question's changes.
+        switch = f'PATH="{lookup}"; hash -r; ' if lookup is not None else ""
         result = subprocess.run(  # noqa: S603
             [
                 BASH,
                 "-c",
                 f'set -uo pipefail; source "{(DEPLOY / "install.sh").as_posix()}"; '
-                f'resolves "{name}"',
+                f'{switch}resolves "{name}"',
             ],
             capture_output=True,
             text=True,
@@ -608,7 +612,11 @@ def test_resolves_tells_the_three_answers_apart(tmp_path: Path) -> None:
         "a literal address needs no resolver; asking one about it is how a host "
         "configured by address gets reported as broken"
     )
-    assert ask("andvari.sindri.veldris.internal", path=bash_dir) == 2, (
+    # No resolver on PATH. This used bash's own directory, which holds none on
+    # Git for Windows and holds `getent` on Linux -- so on the pipeline's runner
+    # the function found a resolver, asked it, and correctly said "does not
+    # resolve". A PATH naming a directory that does not exist holds none anywhere.
+    assert ask("andvari.sindri.veldris.internal", path=path, lookup="/nonexistent") == 2, (
         "with no resolver on PATH this must say it cannot tell, not guess"
     )
 
