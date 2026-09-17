@@ -1019,12 +1019,24 @@ is a failure, not a recording (RF-22). To record the runner's own, dispatch the
 `web/e2e/visual/storybook.spec.ts-snapshots/`, and commit it. Locally, a
 missing baseline is recorded so a new story can be baselined on your platform.
 
-GitHub only offers "Run workflow" for workflows already on the default branch,
-so while the workflow is ahead of `main` it is started by pushing a branch named
-`visual-baselines/<something>`. Either way the run uploads an artefact and
+Dispatch it from Actions → Visual baselines → Run workflow. Pushing a branch
+named `visual-baselines/<something>` starts it too, which is the way in when the
+workflow itself is ahead of `main`: GitHub offers "Run workflow" only for
+workflows already on the default branch, so a change to this one cannot be
+dispatched until it has been merged. Either way the run uploads an artefact and
 commits nothing; the baselines enter the repository in a person's commit.
 
 To check the gate still bites, change a component and run `make test-visual`.
+One pixel is enough — the comparison has no pixel budget, proportional or
+absolute (RF-47), and a component one pixel taller than its token is what was
+watched failing stage 2.9 to demonstrate it.
+
+Baselines drift on a platform nobody has recorded on for a while: the win32 set
+went stale under the old 1% budget and 145 of its 220 files changed when it was
+re-recorded, mostly by a pixel or two of text. If `make test-visual` fails on
+your platform against code you have not touched, that is what it is, and the
+remedy is the same as above: move them aside, record, look at what changed, and
+commit on purpose.
 
 ### Dependency audit
 
