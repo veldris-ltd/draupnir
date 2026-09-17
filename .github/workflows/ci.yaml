@@ -253,8 +253,20 @@ jobs:
         # lifespan -- so `import draupnir.api.app` would have passed on the
         # broken image. This builds them, which is the operation that failed,
         # and needs no database to do it.
+        #
+        # The two OIDC settings are passed because `create_app` refuses to
+        # start without a way to authenticate a caller (RF-01), which is the
+        # behaviour a deployment gets and so is the behaviour this should
+        # exercise. `DRAUPNIR_DEV=1` would also satisfy the guard and would be
+        # the wrong check: it would start the one configuration no deployment
+        # runs, and the guard could then break without this noticing. The
+        # values are unreachable on purpose -- nothing here fetches the
+        # issuer's keys, that happens when a request arrives.
         run: |
-          docker run --rm --platform linux/arm64 "draupnir-api:${GITHUB_SHA}" -c '
+          docker run --rm --platform linux/arm64 \
+            -e DRAUPNIR_OIDC_ISSUER="https://megingjord.invalid/realms/draupnir" \
+            -e DRAUPNIR_OIDC_AUDIENCE="draupnir-control-plane" \
+            "draupnir-api:${GITHUB_SHA}" -c '
           from sqlalchemy import create_engine as sync_engine
 
           from draupnir.api.app import create_app
