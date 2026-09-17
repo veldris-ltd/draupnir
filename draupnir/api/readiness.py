@@ -56,6 +56,13 @@ from pathlib import Path
 from typing import Any
 
 import structlog
+from sqlalchemy import text
+
+# At import, not inside the checks (RF-46). An import inside a check runs on the
+# first probe of every process, and an import is the one piece of work a check's
+# timeout cannot bound.
+from draupnir.hodd.reconcile import require_vault
+from draupnir.hodd.stores import PosixStoreDriver
 
 logger = structlog.get_logger(__name__)
 
@@ -159,8 +166,6 @@ class Dependencies:
 
     async def _database(self) -> bool:
         """PostgreSQL answers. Runbook 5."""
-        from sqlalchemy import text
-
         async with self.engine.connect() as connection:
             await connection.execute(text("SELECT 1"))
         return True
@@ -175,9 +180,6 @@ class Dependencies:
         them; this only needs to know that neither happened, and the exception
         it raises carries which for the log line above.
         """
-        from draupnir.hodd.reconcile import require_vault
-        from draupnir.hodd.stores import PosixStoreDriver
-
         driver = PosixStoreDriver(root=Path(self.vault_root), local_site=self.site_id)
         # In a thread: `is_dir()` on a hung NFS mount blocks uninterruptibly,
         # and blocking the event loop would stop the other checks and every
@@ -239,11 +241,23 @@ def object_store_probe(settings: Any) -> Callable[[], bool] | None:
     the vault and never opens a bucket -- so a bucket check would report on a
     dependency that cannot affect service, and a forge whose MinIO is down but
     unused would sit permanently degraded.
+
+    **The client is built here, once, when the lifespan makes the probe** -- and
+    not inside the probe (RF-46). This imported `minio` and built a client on
+    every call, so the first `/readyz` of every process paid for an import on
+    top of the check, and nothing else in the application had loaded `minio` by
+    then. An import is the one piece of work a check's timeout cannot bound, and
+    the first probe is the one an orchestrator sends as the process comes up.
+    Startup has no deadline, so the work belongs there.
+
+    A client that cannot be built is not a process that cannot start. The probe
+    left behind reports the object store unreachable, and the reason is logged
+    once, because readiness degrades rather than refusing (SAD 11.2).
     """
     if settings.vault_root:
         return None
 
-    def probe() -> bool:
+    try:
         from minio import Minio
 
         client = Minio(
@@ -252,7 +266,18 @@ def object_store_probe(settings: Any) -> Callable[[], bool] | None:
             secret_key=settings.object_store_secret_key,
             secure=settings.object_store_secure,
         )
-        return bool(client.bucket_exists(settings.object_store_bucket))
+    except Exception as unusable:
+        logger.warning("readiness.object_store.unconfigurable", reason=str(unusable))
+
+        def unreachable() -> bool:
+            return False
+
+        return unreachable
+
+    bucket = settings.object_store_bucket
+
+    def probe() -> bool:
+        return bool(client.bucket_exists(bucket))
 
     return probe
 

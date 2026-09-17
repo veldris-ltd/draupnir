@@ -5391,7 +5391,98 @@ the check below reads what the configuration opens.
 >   That is worth a finding of its own rather than a line here: an
 >   orchestrator's readiness deadline is shorter than ten seconds, so the
 >   degraded answer would not reach the operator it is for. Left open, with the
->   measurements above.
+>   measurements above -- and since opened as RF-46 and closed there.
+
+---
+
+### RF-46 — P4 — The first readiness probe of a process does work its timeout cannot bound
+
+*Found while working RF-45.*
+
+`test_degraded_modes.py::test_the_api_reports_degraded_readiness_when_the_database_is_gone`
+starts the API against a database at a port nothing answers on, and allows
+`/readyz` ten seconds. It failed on this machine, at 10.6s and 11.8s in two
+measurements, while giving the answer SAD 11.2 row 5 asks for: degraded, with
+the database false.
+
+The checks themselves were not the cause:
+- `readiness.CHECK_TIMEOUT_SECONDS` bounds each at two seconds, and they run
+  concurrently;
+- a connection to a closed port on `127.0.0.1` is refused after 2.03s on
+  Windows, measured raw and through asyncpg, which is inside that bound;
+- in-process, and under a real `uvicorn` process, every `/readyz` answered in
+  2.0 to 3.0s.
+
+The slow answers came early in a fresh process, and only while Windows Smart
+App Control was on and refusing a native module in this environment (recorded
+under RF-30's re-run). With it off, the integration test passes in 4.9s.
+
+What that path did on a first probe and never again is the finding. Once the
+application has started, and before any probe, `minio` is not loaded: the
+object-store check imported it and built a client inside the probe. The vault
+check did the same with two HODD modules. An import is the one piece of work a
+check's timeout cannot bound -- it can hold the interpreter while a scanner or a
+cold disk makes it slow -- and the first probe is the one an orchestrator sends
+while the process comes up, against its shortest patience. Whether that import
+is what stalled could not be reproduced with Smart App Control off; that it is
+first-use work on a path with a deadline does not depend on it.
+
+**Prompt**
+
+> Do every readiness check's setup at startup, so that no probe pays for an
+> import or a client construction. Keep a failure to set up a degraded check
+> rather than a process that will not start, and hold the rule with a test that
+> reads the checks rather than trusting that nobody adds an import to one.
+
+**Acceptance criteria**
+
+- The object-store client is built when the lifespan makes the probe, and a
+  probe builds none.
+- A client that cannot be built leaves a probe that reports the object store
+  unreachable, and the API still starts.
+- No check contains an import statement.
+- `test_degraded_modes.py`'s readiness test passes.
+- Gated in stages 2.1 and 2.4.
+
+> **Status — done.**
+>
+> **The object store.** `readiness.object_store_probe` imports `minio` and
+> builds the client when the lifespan makes the probe, once. The probe only
+> asks whether the bucket exists.
+>
+> A client that cannot be built -- an endpoint `Minio` refuses, say -- logs
+> `readiness.object_store.unconfigurable` with the reason and leaves a probe
+> that reports `false`. A misconfigured object store is then a degraded check,
+> which is what SAD 11.2 asks for, rather than an API that refuses to start.
+>
+> **The vault and the database.** Their imports move to the module. HODD's
+> reconciliation and stores are imported with readiness, not on a vault's
+> first probe, and so is SQLAlchemy's `text`, which was already loaded but was
+> still an import statement inside a check.
+>
+> **Held by a test that reads the source.**
+> `tests/unit/test_readiness_setup.py` walks `readiness.py` and fails on any
+> import inside a check, or inside what `object_store_probe` returns. Beside
+> it: the client is built when the probe is made and never by a probe, a
+> client that cannot be built degrades, and a configured vault means no bucket
+> is probed.
+>
+> **Results.**
+> - The coverage-gated stages: unit 1,743 at 90.25% (the four new tests among
+>   them), contract 535 at 89.15%, integration 232 of 232 at 77.52%.
+>   `test_degraded_modes.py`'s readiness test passes, and so do its other 19.
+> - mypy is clean, the import contracts hold (7 kept) with `readiness`
+>   importing HODD at module level, and the application imports.
+> - The acceptance pack regenerates unchanged.
+> - The diagnosis's measurements, for the record: a refused connection to
+>   `127.0.0.1` took 2.03s raw and through asyncpg; in-process and under a real
+>   `uvicorn` process every `/readyz` answered in 2.0 to 3.0s; before any probe
+>   ran, `minio`, `draupnir.hodd.reconcile` and `draupnir.hodd.stores` were not
+>   loaded.
+> - A first run of `tests/contract/test_api_surface.py` alongside the
+>   readiness tests failed seven authorisation tests, because that invocation
+>   set `DRAUPNIR_DEV=1`, which the contract stage does not. Without it, 57 of
+>   57 pass.
 
 ---
 
@@ -5444,6 +5535,7 @@ the check below reads what the configuration opens.
 | RF-43 | P1 | Nothing but the demonstration procedure takes a run's licence decision, so a submitted run stays at DRAFT — **done**; the worker registers a submitted run's corpus and takes GLEIPNIR's licence decision through the installed `draupnir.policy` driver, sharing one implementation with the procedure; base licences are declared, and Tier A's Gemma terms are refused by the policy in force |
 | RF-44 | P1 | The console proxy cannot reach the API on a commissioned host: its upstream 127.0.0.1 is its own container's loopback — **done**; the units share a container network with fixed addresses, the proxy passes to the API's, and stage 3.1a starts both images and proxies a request through to it over mTLS |
 | RF-45 | P1 | The console image cannot be built: `web.Dockerfile` does not carry the file `vite.config.ts` reads — **done**; the image copies `web/scripts`, and a contract test holds it to what the console build reads |
+| RF-46 | P4 | The first readiness probe of a process does work its timeout cannot bound — **done**; every check's setup happens at startup, a failed setup degrades, and a test reads the checks for imports |
 
 ---
 
@@ -5496,7 +5588,8 @@ register repairs. RF-44 surfaced while RF-37 started the proxy for the first
 time, and belonged with the first group: until it landed, a commissioned
 console answered every request it proxied with a 502. RF-45 surfaced while
 RF-44 started the console image for the first time, and belonged with it: the
-image could not be built.
+image could not be built. RF-46 surfaced while RF-45's stages ran, and belongs
+with the edge contracts: it is the probe an orchestrator acts on.
 
 **Throughout, the documentation.** RF-27 through RF-31 should be amended as each
 finding is closed, not batched at the end. When this was written the
