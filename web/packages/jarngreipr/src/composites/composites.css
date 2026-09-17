@@ -389,7 +389,10 @@
 
 .jg-gauge__track {
   position: relative;
-  height: var(--jg-space-4);
+  /* One pixel taller than the token, on purpose and temporarily: this is the
+     deliberate regression RF-22's third acceptance criterion asks somebody to
+     watch stage 2.9 fail on. It is never merged. */
+  height: calc(var(--jg-space-4) + 1px);
   background: var(--jg-surface-sunken);
   border: var(--jg-border-width) solid var(--jg-border);
   border-radius: var(--jg-radius-full);
