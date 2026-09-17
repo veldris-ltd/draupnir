@@ -200,9 +200,7 @@ def test_the_worker_drives_a_queued_run_to_approval(
     assert recorded.complete, "a point of the sweep was never merged and re-gated"
     assert recorded.selected_point is not None
     quantised = next(
-        entry
-        for entry in history
-        if entry.transition == f"{RunState.MERGED}->{RunState.QUANTISED}"
+        entry for entry in history if entry.transition == f"{RunState.MERGED}->{RunState.QUANTISED}"
     )
     assert isinstance(quantised.payload, dict)
     assert quantised.payload["merge_config_hash"] == recorded.selected_point.config_hash()

@@ -35,4 +35,15 @@ regexes = [
   # whole of `svalinn/pki.py`, which would suppress the detector for a real
   # secret in the one file most likely to acquire one.
   '''_?key: (?:ed25519|ec|rsa|padding|utils)\.[A-Za-z0-9_]+''',
+  # The same annotation with the class imported by name, as
+  # `gleipnir/signing_agent.py` holds the approver's key (RF-40):
+  # `key: Ed25519PrivateKey`. Only the `cryptography` key classes, by name, so
+  # it is exactly as narrow as the dotted form above.
+  '''_?key: (?:Ed25519|EllipticCurve|RSA)(?:Private|Public)Key\b''',
+  # A key *identifier* in a test fixture: `keyId: '0123456789abcdef'`. An
+  # identifier is sixteen hex characters derived from the public half of a key
+  # (`svalinn.signing.key_id`); the approval screen shows it to the approver it
+  # identifies, so it is not a secret. Matched on the quoted sixteen-hex shape,
+  # which a credential does not have.
+  '''keyId: '[0-9a-f]{16}[']''',
 ]

@@ -53,7 +53,7 @@ def test_the_gates_are_folded_from_evaluations_recorded_in_the_worker_s_shape() 
     dataset = build()
     assert "gate_results" not in dataset, "the seed still carries gate rows beside the chain"
 
-    rows = []
+    rows: list[gate_results.ProjectedGateResult] = []
     for chain in dataset["chains"].values():
         rows.extend(
             gate_results.fold(
