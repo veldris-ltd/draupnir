@@ -1019,6 +1019,11 @@ is a failure, not a recording (RF-22). To record the runner's own, dispatch the
 `web/e2e/visual/storybook.spec.ts-snapshots/`, and commit it. Locally, a
 missing baseline is recorded so a new story can be baselined on your platform.
 
+GitHub only offers "Run workflow" for workflows already on the default branch,
+so while the workflow is ahead of `main` it is started by pushing a branch named
+`visual-baselines/<something>`. Either way the run uploads an artefact and
+commits nothing; the baselines enter the repository in a person's commit.
+
 To check the gate still bites, change a component and run `make test-visual`.
 
 ### Dependency audit

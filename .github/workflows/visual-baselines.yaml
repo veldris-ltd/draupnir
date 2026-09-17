@@ -26,6 +26,19 @@ on:
         required: true
         default: "No baselines exist for this platform yet"
 
+  # GitHub only offers "Run workflow" for workflows that are on the default
+  # branch, so this one could not be dispatched at all: it was added on `dev`,
+  # and `main` has not caught up. A push runs the workflow file that was pushed,
+  # which is the way in that does not depend on the merge. The branch is a
+  # throwaway one whose only purpose is to start this.
+  #
+  # It changes nothing that matters about the design: the run still commits
+  # nothing, and the baselines still arrive as an artefact a person looks at and
+  # commits on purpose.
+  push:
+    branches:
+      - "visual-baselines/**"
+
 concurrency:
   group: visual-baselines-${{ github.ref }}
   cancel-in-progress: true
@@ -49,7 +62,7 @@ jobs:
 
     steps:
       - name: Say why
-        run: echo "${{ inputs.reason }}"
+        run: echo "${{ inputs.reason || format('pushed {0}', github.ref_name) }}"
 
       - name: Checkout
         uses: actions/checkout@v4
