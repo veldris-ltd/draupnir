@@ -179,7 +179,17 @@ def minio() -> Iterator[dict[str, str]]:
     module = pytest.importorskip(
         "testcontainers.minio", reason="Docker and testcontainers are required"
     )
-    with module.MinioContainer() as container:
+    # MinIO's own registry, pinned by digest. testcontainers defaults to
+    # `minio/minio:RELEASE.2022-12-02T19-19-22Z` on Docker Hub, which now refuses
+    # anonymous pulls of MinIO's images, so the pipeline could not start this
+    # container at all. The tag is the same release; Quay's is a separate build
+    # of it (its layers differ from Docker Hub's), chosen deliberately, and the
+    # digest keeps a retagged image from changing under the tests.
+    image = (
+        "quay.io/minio/minio"
+        "@sha256:031fd97adca056cdbfd416a26670898d93adb9a79a3cf126aac5a41ddc22c5a3"
+    )
+    with module.MinioContainer(image=image) as container:
         config = container.get_config()
         yield {
             "endpoint": config["endpoint"],
