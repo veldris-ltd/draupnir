@@ -156,10 +156,14 @@ already cleared. The component test found that.
   focus stops 21 and 22, both unavailable, each with its reason. The walk
   now also covers the approval screen, `/gates/:id`, and reaches Sign and
   approve and Reject. The walk fails if either screen stops reaching its
-  controls. On the approval screen the gate evidence is on screen as soon as
-  the page loads, so the controls were already available when the walk
-  reached them. That the unavailable state is reachable and does nothing is
-  shown by the wizard and the component tests, not by this screen.
+  controls. Whether they are available there depends on more than the
+  evidence since RF-40 and RF-41: Sign and approve is unavailable when no
+  signing agent answers with the approver's key, and both decisions are
+  unavailable when the queue carries no recorded evidence. In each case the
+  control stays a focus stop and carries the reason as its accessible
+  description, which is the rule this finding set. That the unavailable state
+  is reachable and does nothing is shown by the wizard and the component
+  tests.
 - **Activating one changes nothing — asserted.**
   - `components.test.tsx` reaches each control by Tab in all six states that
     are not `ready`. It then tries a click, Enter, Space, typing, arrow keys

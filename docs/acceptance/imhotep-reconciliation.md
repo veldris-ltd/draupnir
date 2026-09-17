@@ -82,7 +82,7 @@ the end.
 | Unit | Mark | Where |
 |---|---|---|
 | Control plane API | IMPLEMENTED | `draupnir/api/`, `make api` |
-| Worker / orchestrator | IMPLEMENTED | `draupnir/core/application/orchestrator.py` and `draupnir/worker/`, `make worker` or `python -m draupnir.worker`. The orchestrator makes the state machine, the ledger write and the projection one transaction; the worker ticks, and each tick drives every run one step and performs whatever periodic duty of SAD 11.3 has come due. It holds nothing between ticks — SAD 11.2 row 1 — and it is safe to run the "two to four processes" SAD 5.1 asks for, because the chain serialises on the site's advisory lock and the guards refuse the loser of a race. `tests/integration/test_worker_loop.py` drives a curated run from QUEUED to AWAITING_APPROVAL with nobody asking. |
+| Worker / orchestrator | IMPLEMENTED | `draupnir/core/application/orchestrator.py` and `draupnir/worker/`, `make worker` or `python -m draupnir.worker`. The orchestrator makes the state machine, the ledger write and the projection one transaction; the worker ticks, and each tick drives every run one step and performs whatever periodic duty of SAD 11.3 has come due. It holds nothing between ticks — SAD 11.2 row 1 — and it is safe to run the "two to four processes" SAD 5.1 asks for, because the chain serialises on the site's advisory lock and the guards refuse the loser of a race. `tests/integration/test_worker_loop.py` drives a curated run from QUEUED to AWAITING_APPROVAL with nobody asking. Since RF-43 it also takes the corpus half of SAD 6.1 for a run submitted through the API: it registers the run's corpus once a source is registered for its jurisdiction, and takes GLEIPNIR's licence decision through the installed `draupnir.policy` driver (`tests/integration/test_worker_licence_decision.py`). |
 | Web console | IMPLEMENTED | `web/apps/console/`, 31 screens |
 | CLI | IMPLEMENTED | `draupnirctl/`, generated from the OpenAPI document |
 | Executor shims on the appliances | IMPLEMENTED | `plugins/hamarr_llamafactory/`, `plugins/motsognir_slurm/` — the drivers that render and submit. They run where the tools are. |
@@ -134,7 +134,7 @@ two clients agree on.
 plus `projection_checkpoint` in `0002`. Storage placement, retention and
 `hodd://` addressing are in `draupnir/hodd/`.
 
-Two things are stronger than the specification asked for, and one weaker:
+What is stronger than the specification asked for:
 
 - `run` is a **projection** of the ledger rather than a table written directly.
   SAD 7.1 lists it as an entity; it is one, and it is derived. The table
@@ -145,10 +145,12 @@ Two things are stronger than the specification asked for, and one weaker:
   so on an estate a release had no package to read or download and its lineage
   named no approval. They are folded from the chain on every append,
   beside `run`.
-- **The weaker one: `gate_result` is still written only by the seed** (RF-41).
-  The worker records every gate outcome in the chain, and nothing projects
-  them, so the approval queue's evidence, a model's gates and `/metrics` read
-  a table an estate never fills.
+- So are `gate_result`, since RF-41, and the licence register, `source`, since
+  RF-42. Until then only the seed wrote either: the approval queue's evidence,
+  a model's gates and `/metrics` read a table an estate never filled, and a
+  source registered through the API appeared in neither the register nor a
+  release's lineage. Migration `0007` records the site whose chain registered
+  each source, so a rebuild clears only its own site's rows.
 - The three constraints of SAD 11C are enforced by the **database**: an
   append-only trigger, a foreign key and NOT NULL on `release.approval_id`, and
   row level security with `FORCE` on every scoped table.
@@ -178,7 +180,7 @@ difference is the design rather than an implementation detail:
 | Endpoint | Records | Shape |
 |---|---|---|
 | `POST /v1/runs` | a run at DRAFT, with its identity | transition (registration) |
-| `POST /v1/sources` | the facts HODD holds, with the DPIA determination | `source` entry |
+| `POST /v1/sources` | the facts HODD holds, with the DPIA determination and the residency constraint (RF-42) | `source` entry |
 | `POST /v1/corpora/{iso3}/ingest` | the ingest | `corpus` entry |
 | `POST /v1/corpora/{iso3}/curate` | the curation | `corpus` entry |
 | `POST /v1/gates/{id}/decide` | AWAITING_APPROVAL → RELEASED or QUARANTINED | transition |
@@ -194,9 +196,11 @@ difference is the design rather than an implementation detail:
 design: it validates a specification and returns what submitting it would do.
 
 A source, a corpus and a release are not runs — SAD 7.1 gives each its own
-entity — so those entries are folded by nothing and passed through by the
-projector. A decision, a cancellation and a requeue are lifecycle transitions,
-so they go through the state machine, which checks them against SAD 6.1.
+entity — so the run projector passes those entries through. They are not
+passed over: since RF-33 a release, and since RF-42 a source, is folded by a
+projection of its own on the same append. A decision, a cancellation and a
+requeue are lifecycle transitions, so they go through the state machine, which
+checks them against SAD 6.1.
 
 `Orchestrator.record` refuses a `run` subject outright. The projector folds
 every run entry and raises on a transition string it cannot parse, so one
@@ -247,13 +251,19 @@ driver:
 | `draupnir.export` | `skidbladnir.quantise/v1`, `skidbladnir.targz/v1` |
 | `draupnir.schedule` | `motsognir.slurm/v1`, `motsognir.local_subprocess/v1` |
 | `draupnir.store` | `hodd.posix_reference/v1` — **written for AC-D2 in this prompt** |
-| `draupnir.policy` | `gleipnir.spdx/v1` — **written for AC-D2 in this prompt** |
+| `draupnir.policy` | `gleipnir.spdx/v1` — **written for AC-D2 in this prompt**; and `gleipnir.licence/v1`, GLEIPNIR's policy in force, installed by this distribution since RF-43 |
 
 The store and policy points had no implementation until now, because HODD
 addresses its own vault and GLEIPNIR decides its own policy directly. An
 extension point nobody has extended is an extension point whose Protocol nobody
 has read from the outside, and writing the two found nothing wrong with either
 Protocol — which is worth recording as a result rather than assumed.
+
+Since RF-43 GLEIPNIR's own policy is installed as a driver too,
+`gleipnir.licence/v1`. The worker takes a run's licence decision through the
+driver `DRAUPNIR_POLICY_DRIVER` names, and a release it clears renders its
+copyright policy under the version the decision recorded, which has to be one
+`licence.by_version` holds; the reference driver's is not.
 
 Every driver passes the published conformance harness, which checks that
 `render` is pure by rendering three times, rendering with the network removed,
@@ -291,6 +301,14 @@ The evidence:
   a connection with no client certificate, one from another CA, and TLS 1.2.
 - `tests/integration/test_transport.py` passes a request through the proxy to
   the API over mTLS. The API refuses the same proxy without its certificate.
+  It reaches the API through the test's host, not the address a deployment
+  uses.
+- `python tasks.py images-transport`, stage 3.1a, starts both built images the
+  way `deploy/units/draupnir-run.sh` starts them — one network, the addresses
+  `deploy/lib.sh` gives them — and proxies a request through to the API over
+  mTLS (RF-44). Until RF-44 the proxy's upstream was its own container's
+  loopback, so on a commissioned host every proxied request answered 502; and
+  until RF-45 the console image could not be built at all.
 - The cryptographic inventory's TLS row is derived from what
   `docker/nginx.conf` declares, not from whether a certificate path is set.
 - `install.sh --check` loads every certificate in the image that will read it.
@@ -415,9 +433,12 @@ when a platform module nothing reaches is missing from this table.
 
 A module is REACHABLE when it is imported, directly or through other modules,
 from something a deployment runs:
-- the API application;
-- the worker;
-- `draupnirctl`;
+- the API application, `draupnir.api.app`, and `draupnir.api.serve`, which
+  serves it over mTLS and is the API image's command (RF-37);
+- the worker, `draupnir.worker.__main__`;
+- `draupnirctl`, through `draupnirctl.__main__`;
+- the approver's signing agent, `draupnir.gleipnir.signing_agent`, which runs
+  on the approver's own machine rather than on the forge (RF-40);
 - an installed plug-in's entry point;
 - a migration.
 
@@ -486,10 +507,20 @@ module, or only by a script, is the same state:
 | `draupnir.interfaces.testing.fixtures` | **NOT REACHABLE** | by design, as above |
 | `draupnir.interfaces.testing.harness` | **NOT REACHABLE** | by design, as above |
 
-Eleven of these are not deployment code by design. The other fifteen are
-platform code a running deployment never loads, and seven are the security,
-federation, evaluation and export controls this document otherwise marks
-IMPLEMENTED — which is what IMPLEMENTED alone could not say.
+Of the 21 modules marked NOT REACHABLE, 8 are not deployment code by design and
+13 are platform code a running deployment never loads. Seven of those thirteen
+are the federation, evaluation, export, merge and retry controls this document
+otherwise marks IMPLEMENTED — which is what IMPLEMENTED alone could not say.
+
+**Re-run after RF-45.** The analysis was run again on 17 September 2026, once
+RF-32 to RF-45 had landed. No mark changed: the same modules are unreachable,
+and every module those findings added is reachable — among them
+`gleipnir.clearance`, the projections of RF-41 and RF-42, and the signing agent.
+What had gone stale was the prose beside the tables. The roots above named
+neither `draupnir.api.serve` nor the signing agent, both of which the analysis
+already counted, and the summary's counts added up to 26 against 21 marks.
+`tests/unit/test_reachability.py` now derives both, so neither can go stale by
+hand again.
 
 ---
 

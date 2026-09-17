@@ -3311,6 +3311,15 @@ is fully implemented. The gap is between the UX inventory and the API surface.
 > Python: 2,087 unit, property and contract tests and 221 integration tests
 > pass. Frontend: 995. Journeys: 43 pass; the three that fail are RF-35 and
 > RF-36.
+>
+> **Amended after RF-45.** Re-checked once RF-32 to RF-45 had closed. The
+> four screens built and the five read only are as recorded: nothing since
+> added an operation for S05, S22, S23, S24 or S25, and
+> `tests/unit/test_screen_inventory.py` still holds `draupnir-ux.md` to
+> `docs/api/screen-actions.json`. One screen outside the nine changed: S13's
+> approval, which could not succeed until RF-40. The three journeys this
+> block records as failing were closed by RF-35 and RF-36, and the journeys
+> now pass 53 of 53.
 
 ---
 
@@ -3411,6 +3420,12 @@ populated state is not what the dashboard is named for. The reconciliation marks
 > Python: 2,100 unit, property and contract tests, and 221
 > integration tests, pass. CON-B's journeys and scans: 12 of 12. The web
 > typecheck, lint and formatting are clean.
+>
+> **Amended after RF-45.** Re-checked once RF-32 to RF-45 had closed: nothing
+> since changed CON-B, the fabric metrics or the baseline setting. RF-43 added
+> a worker setting of its own, `DRAUPNIR_POLICY_DRIVER`, which `install.sh`
+> writes and a unit test holds to the installer's text, the way this finding
+> holds the fabric baseline.
 
 ---
 
@@ -3521,6 +3536,14 @@ real cost, and it is the reason to do it deliberately rather than never.
 > the axe sweep over every story. Stage 2.9: 8 of 8. Journeys: 47 of 50.
 > The three that fail are the same three as before this change: J2's two,
 > RF-35, and sign-in, RF-36.
+>
+> **Amended after RF-45.** RF-40 and RF-41 added two reasons a decision on
+> `/gates/:id` is unavailable: no signing agent answering with the approver's
+> key, and no recorded evidence. Both follow this finding's rule — the control
+> stays a focus stop and carries the reason as its accessible description.
+> `keyboard-pass.md` said the approval screen's controls were always available
+> when the walk reached them; it now says what can make them unavailable. The
+> three journeys recorded above as failing were closed by RF-35 and RF-36.
 
 ---
 
@@ -3660,6 +3683,40 @@ is a sample, and it is counted in the axe sweep and the visual baselines.
 > the acceptance pack checks. Unit, property and contract in full:
 > 2,114. Visual stage: 8 of 8 shards, the renamed baselines
 > compared. JARNGREIPR's Vitest: 1,028.
+>
+> **Re-run after RF-45.** `python -m scripts.reachability` was run again on
+> 17 September 2026, once RF-32 to RF-45 had landed. **No mark changed**: the
+> same 21 modules are unreachable, and every module those findings added is
+> reachable, `gleipnir.clearance` and the projections of RF-41 and RF-42
+> among them.
+>
+> What had gone stale was the prose beside the tables:
+> - the list of roots named neither `draupnir.api.serve` (RF-37) nor the
+>   approver's signing agent (RF-40), both of which the analysis already
+>   counted;
+> - the summary said eleven modules were unreachable by design and fifteen
+>   were platform code — 26, against 21 marks. The marks say 8 and 13.
+>
+> Both are now derived. `tests/unit/test_reachability.py` fails if a root the
+> script starts from is missing from the section, or if a summary count
+> disagrees with the marks it summarises.
+>
+> The reconciliation's other sections were brought up to RF-45 in the same
+> pass:
+> - §5.1, the worker's corpus half (RF-43);
+> - §7, `gate_result` and `source` projected, and migration 0007 (RF-41,
+>   RF-42);
+> - §8.1, which entries a projection folds, and the source's residency;
+> - §8.2, GLEIPNIR's policy installed as a driver (RF-43);
+> - §9.1–9.5, stage 3.1a's evidence (RF-44, RF-45).
+>
+> Results: the unit stage, 1,739 at 90.20%, the two new reachability tests
+> among them; the acceptance pack regenerates unchanged. The first run of it
+> failed on this machine rather than on the change: Windows Smart App Control
+> had begun refusing `psycopg_binary`'s unsigned `pq` extension, so the one
+> unit test that starts the application's lifespan could not import a
+> PostgreSQL driver and coverage read 89.99%. The user turned Smart App
+> Control off, and the stage passed.
 
 ---
 
@@ -3757,6 +3814,13 @@ diff of.
 > Python: 2,106 unit and contract tests pass, including the pipeline
 > consistency tests `procedure` now has to satisfy. The acceptance pack
 > checks: 90 criteria.
+>
+> **Amended after RF-45.** Re-checked once RF-32 to RF-45 had closed. The
+> rule stands: nothing under `docs/acceptance/evidence/` is committed, and no
+> stage added since writes there. RF-44 added a stage 3.1a check,
+> `python tasks.py images-transport`; it records nothing, and
+> `tests/unit/test_documentation.py` holds it to the workflow the way it holds
+> `procedure`.
 
 ---
 
@@ -5429,11 +5493,14 @@ carried the licence decision to the release. RF-42 belongs with RF-41, one more
 table only the seed writes. RF-43 belongs with the first group: until it lands,
 a run submitted through the console never reaches the pipeline the rest of this
 register repairs. RF-44 surfaced while RF-37 started the proxy for the first
-time, and belongs with the first group: until it lands, a commissioned console
-answers every request it proxies with a 502.
+time, and belonged with the first group: until it landed, a commissioned
+console answered every request it proxied with a 502. RF-45 surfaced while
+RF-44 started the console image for the first time, and belonged with it: the
+image could not be built.
 
 **Throughout, the documentation.** RF-27 through RF-31 should be amended as each
-finding is closed, not batched at the end. The reconciliation in particular
-should be re-run against the third mark this audit proposes — *reachable* —
-because the nineteen orphan modules are the single most useful thing it could
-say about the state of this repository, and it currently cannot say it.
+finding is closed, not batched at the end. When this was written the
+reconciliation could not say which modules a running deployment reaches. RF-30
+gave it the mark, *reachable*, derived by `scripts/reachability.py` and held to
+the document by a test. It was re-run once RF-45 had closed, and RF-27 to
+RF-31 were amended with it: see the amendment at the end of each.

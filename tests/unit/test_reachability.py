@@ -132,3 +132,51 @@ def test_every_unreachable_platform_module_is_named_in_the_reconciliation() -> N
         "platform modules nothing a deployment runs reaches, and the reconciliation "
         f"does not name: {missing}"
     )
+
+
+NOTED = re.compile(
+    r"^\| `(draupnir\.[\w.]+)` \| \*\*NOT REACHABLE\*\* \| (.*?) \|\s*$", re.MULTILINE
+)
+SUMMARY = re.compile(
+    r"Of the (\d+) modules marked NOT REACHABLE, (\d+) are not deployment code by design "
+    r"and (\d+) are platform code"
+)
+
+
+def _section() -> str:
+    """The reconciliation's Reachability section, and nothing after it."""
+    text = RECONCILIATION.read_text(encoding="utf-8").replace("\r\n", "\n")
+    return text.split("## Reachability", 1)[1].split("\n---\n", 1)[0]
+
+
+def test_the_section_names_every_root_the_analysis_starts_from() -> None:
+    """Re-run after RF-45. The roots the prose listed had fallen behind the script's.
+
+    `draupnir.api.serve` (RF-37) and the signing agent (RF-40) were roots the
+    analysis counted and the section did not name, so a reader asking
+    "reachable from what?" was given a shorter answer than the marks rest on.
+    """
+    section = _section()
+    missing = [entry for entry in reachability.ENTRY_POINTS if f"`{entry}`" not in section]
+
+    assert missing == [], f"the Reachability section does not name these roots: {missing}"
+
+
+def test_the_summary_counts_are_the_marks_counted() -> None:
+    """The figures beside the tables are derived from them, not written.
+
+    They said eleven by design and fifteen platform modules -- 26 -- against 21
+    marks: the drift RF-30 made the tables themselves immune to, one paragraph
+    away from them.
+    """
+    section = _section()
+    notes = dict(NOTED.findall(section))
+    by_design = sum(1 for note in notes.values() if note.startswith("by design"))
+
+    stated = SUMMARY.search(" ".join(section.split()))
+    assert stated, "the Reachability section no longer states its summary counts"
+    total, designed, platform = (int(value) for value in stated.groups())
+
+    assert total == len(notes) == len(reachability.unreachable())
+    assert designed == by_design
+    assert platform == total - by_design
