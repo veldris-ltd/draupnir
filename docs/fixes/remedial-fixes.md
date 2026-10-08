@@ -5796,8 +5796,8 @@ because the job stops at the first failure, stage 3 — which builds and pushes
 the images — never runs. RF-08's object-store seal has no real-MinIO evidence
 until this passes.
 
-`docker/compose.dev.yaml` pins the same registry and has the same problem for
-`make dev` on a clean machine. It is not changed here.
+`docker/compose.dev.yaml` pinned the same registry, with the same result for
+`make dev` on a clean machine.
 
 **Prompt**
 
@@ -5814,8 +5814,14 @@ until this passes.
 > (`sha256:5966…5cd0`, RELEASE.2026-09-22T19-25-18Z). Chainguard is already the
 > console image's base registry; its entrypoint is `minio`, so testcontainers'
 > `server /data` command runs unchanged. Both files: 21 passed, where 13 had
-> errored. The development stack's compose file remains open, and wants the
-> same image or an equivalent decision.
+> errored.
+>
+> **The development stack uses the same image.** It carries `mc` and a shell,
+> so the healthcheck and `minio-init` run from it as well, and the compose file
+> has one pin where it had two. It runs as uid 65532 rather than root, so a
+> `minio-data` volume written by an older root image has to be removed or
+> re-owned once; the compose file says so. `make dev`'s MinIO, the healthcheck
+> and the bucket's creation with versioning were run from a clean volume.
 
 ### RF-52 — P1 — A fresh production database cannot record anything
 
@@ -6154,7 +6160,7 @@ Rendered for a 56-element run and read against the estate:
 | RF-48 | P1 | The API image starts and cannot create a database engine: distroless carries no `libz.so.1` — **done**; the builder stages the library and the runtime carries it, a contract test holds the runtime stage to it, and the pipeline's own check passes against the rebuilt image |
 | RF-49 | P1 | Nothing the deployment runs can start on ALVISS: the wrapper aborts under bash 3.2 and the scripts are not executable — **done** |
 | RF-50 | P1 | The worker cannot write the vault, and the API cannot read it — **done**; the write through ALVISS's podman machine needs one check on the host |
-| RF-51 | P5 | The integration stage cannot pull MinIO, so the pipeline never builds an image — **done**; the development compose file is still open |
+| RF-51 | P5 | The integration stage cannot pull MinIO, so the pipeline never builds an image — **done**; the development stack uses the same image |
 | RF-52 | P1 | A fresh production database cannot record anything: only the seed creates a site |
 | RF-53 | P1 | The image ships no drivers, and the worker never asks for Slurm |
 | RF-54 | P1 | The fifty-six element array runs a command that does not exist, and no element is ever observed |
