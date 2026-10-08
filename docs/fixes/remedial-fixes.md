@@ -5669,6 +5669,441 @@ for, one release later than it should have been caught.
 > opposite direction, and the reason the whole of stage 3 is now worth
 > watching rather than assuming.
 
+### Second pass: the Forge as deployed
+
+Every finding above was marked done when this pass started. It asked a
+narrower question than the first audit: not whether each fix exists and is
+tested, but whether the platform does its job once `deploy/` has put it on
+ALVISS and pointed it at the estate. It was run at `73bd0fc` (`dev`) on an
+Apple Silicon Mac — the same kind of machine as ALVISS — by building both
+images, starting them with the wrapper's flags, driving `draupnir-run.sh` under
+macOS's own `/bin/bash`, rendering the sbatch and slurmrestd submissions for a
+56-element run, and following each control from a route or a worker tick.
+
+Most fixes hold in code. The findings below are almost all of one kind, the
+mirror of section 2's: **a correct component that the deployment does not give
+what it needs** — a mount, a key, a driver, a row — and that the suite cannot
+see, because CI runs bash 5 on Linux, stubs the scheduler and the stores, and
+sets `DRAUPNIR_DEV`.
+
+### RF-49 — P1 — Nothing the deployment runs can start on ALVISS
+
+Two defects, either of which stops every deploy.
+
+**The wrapper aborts under macOS bash.** All three launchd agents exec
+`deploy/units/draupnir-run.sh`, whose `#!/usr/bin/env bash` finds `/bin/bash`
+on launchd's PATH — 3.2 on every Mac. Under `set -u`, bash before 4.4 treats
+`"${a[@]}"` on an empty array as unbound, and every unit leaves at least one of
+the wrapper's six arrays empty (`command` on api and web, `publish` on the
+worker, `mounts` on all but the worker):
+
+```
+$ /bin/bash deploy/units/draupnir-run.sh draupnir-api
+deploy/units/draupnir-run.sh: line 300: mounts[@]: unbound variable
+```
+
+KeepAlive restarts it every five seconds, for ever. Linux CI's bash 5 runs the
+same script cleanly, and nine tests in `tests/contract/test_deploy.py` fail on
+any Mac for this reason alone.
+
+**The scripts the pipeline runs are not executable.** Every `deploy/*.sh` is
+committed as mode `100644`. `deploy.yaml` runs `./deploy/rollout.sh` and
+`./deploy/rollback.sh` directly, which is `Permission denied`; the previous
+revision is read with `./deploy/current-revision.sh … || true`, which fails
+silently and leaves rollback with no target. The tests invoke the scripts
+through `bash`, which is why none of them noticed.
+
+**Prompt**
+
+> Make the wrapper run under bash 3.2 and commit the scripts executable, and
+> gate both in a way a Linux runner enforces.
+
+**Acceptance criteria**
+
+- Every unit's wrapper reaches podman under macOS `/bin/bash`.
+- A test that runs on Linux fails if an unguarded array expansion returns.
+- Every script in `deploy/` other than the sourced `lib.sh` is `100755` in the
+  index, and a test reads the index rather than the working tree.
+
+> **Status: done.**
+>
+> **Every expansion is guarded.** The `podman run` line expands each array as
+> `${a[@]+"${a[@]}"}`, which is empty when the array is and the array's words
+> when it is not, on 3.2 and 5 alike. The `UNITS` arrays in the other scripts
+> are never empty and were left alone.
+>
+> **Three tests, and each was watched failing on the old scripts.** A read
+> test finds any `"${a[@]}"` outside the guard and outside a comment, so the
+> Linux runner enforces the property without having bash 3.2. A driven test runs
+> the wrapper for each unit under `/bin/bash` when that is older than 4 — every
+> Mac — and asserts podman is reached. A third reads `git ls-files --stage` and
+> fails on any deploy script not committed `100755`.
+>
+> **One macOS-only test failure was the test's, not the product's.**
+> `test_resolves_tells_the_three_answers_apart` built a PATH of the stub and
+> bash's own directory; on a Mac that is `/bin`, which has no `dirname`, so
+> sourcing the installer failed before the question was asked. `/usr/bin` now
+> follows the stub. `test_deploy.py` passes in full on macOS: 114 tests.
+
+### RF-50 — P1 — The worker cannot write the vault, and the API cannot read it
+
+RF-08 made the worker stage every adapter, merged point and quantised format
+into HODD — `_stage` calls `store.put` then `store.seal`
+(`draupnir/worker/stages.py:594-596`) through a `PosixStoreDriver` on the
+vault root (`draupnir/worker/loop.py:1134-1139`). RF-E04, written before it,
+mounted the vault into the worker **read-only**, on the ground that the worker
+only measured it. Both were marked done; together, every `put` fails, `_stage`
+raises `NotStagedError`, and every run that produces an artefact defers for
+ever. `tests/contract/test_deploy.py` asserted the `:ro`.
+
+The API has the opposite gap. `install.sh` writes `DRAUPNIR_VAULT_ROOT` into
+`draupnir.env`, which every container reads, so the API's `store_for` builds a
+POSIX driver for publication's re-hash — on a path its container was never
+given. Every `publishRelease` is 503 `store-unreachable`, and `/readyz` reports
+`degraded` permanently.
+
+**Prompt**
+
+> Give each unit the vault access it uses: the worker read-write, the API
+> read-only, the console none.
+
+**Acceptance criteria**
+
+- The worker's mount is read-write and the API's read-only, driven through the
+  wrapper with a configured vault.
+- The console is given no vault.
+- A missing vault still starts every unit, degraded.
+
+> **Status: done.**
+>
+> `draupnir-run.sh` resolves the vault for the worker (`rw`) and the API
+> (`ro`); the supply-status mount stays the worker's alone. The driven test
+> now asserts the access per unit rather than "worker only, read-only", and
+> RF-E04's status carries an amendment pointing here.
+>
+> **Not settled here:** whether rootless podman's uid 65532 can write an NFS
+> export mapped through a podman machine's virtiofs share on ALVISS. That is a
+> property of Procedure S9's export options and S10's machine, and needs one
+> write on the real host to confirm.
+
+### RF-51 — P5 — The integration stage cannot pull MinIO, so the pipeline never builds an image
+
+`tests/integration/conftest.py` pinned `quay.io/minio/minio@sha256:031f…`.
+Quay now answers `401 UNAUTHORIZED` for it, Docker Hub refuses MinIO's images
+anonymously, and `quay.io/minio/minio:latest` has no manifest. Thirteen tests
+in `test_object_store.py` and `test_preflight.py` error, stage 2.4 is red, and
+because the job stops at the first failure, stage 3 — which builds and pushes
+the images — never runs. RF-08's object-store seal has no real-MinIO evidence
+until this passes.
+
+`docker/compose.dev.yaml` pinned the same registry, with the same result for
+`make dev` on a clean machine.
+
+**Prompt**
+
+> Pin a MinIO build that can be pulled anonymously, by digest, from a registry
+> the build already depends on.
+
+**Acceptance criteria**
+
+- `test_object_store.py` and `test_preflight.py` start MinIO and pass.
+
+> **Status: done.**
+>
+> `cgr.dev/chainguard/minio`, pinned by its multi-arch index digest
+> (`sha256:5966…5cd0`, RELEASE.2026-09-22T19-25-18Z). Chainguard is already the
+> console image's base registry; its entrypoint is `minio`, so testcontainers'
+> `server /data` command runs unchanged. Both files: 21 passed, where 13 had
+> errored.
+>
+> **The development stack uses the same image.** It carries `mc` and a shell,
+> so the healthcheck and `minio-init` run from it as well, and the compose file
+> has one pin where it had two. It runs as uid 65532 rather than root, so a
+> `minio-data` volume written by an older root image has to be removed or
+> re-owned once; the compose file says so. `make dev`'s MinIO, the healthcheck
+> and the bucket's creation with versioning were run from a clean volume.
+
+### RF-52 — P1 — A fresh production database cannot record anything
+
+`ledger_entry.site_id` has a foreign key to `site`
+(`draupnir/core/infrastructure/models.py:261`). The only code that inserts a
+`site` row is `scripts/seed.py` and `scripts/procedure.py:63` — the
+demonstration dataset and the demonstration procedure. Neither the migrations,
+`install.sh`, nor any route creates one; `megingjord.registry.register_site` is
+an in-memory federation registry and touches no table. On the estate's empty
+database, the first ledger append — a submission, an approval, the worker's
+anchor record — fails the constraint.
+
+**Prompt**
+
+> Make registering the local site a step of installation: idempotent, from the
+> installer's own configuration (`DRAUPNIR_SITE_ID` and the rest), and checked
+> by `install.sh --check`.
+
+**Acceptance criteria**
+
+- A migrated, unseeded database accepts a submission once installation has run.
+- Re-running installation does not duplicate or alter the row.
+- `--check` reports a missing site row by name.
+
+> **Status: open.**
+
+### RF-53 — P1 — The image ships no drivers, and the worker never asks for Slurm
+
+Every `veldris-draupnir-*` plug-in is in the `dev` dependency group only
+(`pyproject.toml:123-132`), and `docker/api.Dockerfile` installs with
+`uv sync --no-dev` and never copies `plugins/`. The built image has no train,
+evaluate, merge, quantise, export, store, policy or schedule driver. The
+comment there is right that the local-subprocess scheduler must not ship; it
+excludes the other nine with it.
+
+Independently, the worker's scheduler property falls back to
+`draupnir_local_subprocess.driver` whenever none is injected
+(`draupnir/worker/loop.py:901-917`), and `draupnir/worker/__main__.py:66`
+injects none. `DRAUPNIR_SCHEDULER_URL`, `_TOKEN` and `_USER` are read only by
+`scripts/preflight.py`. RF-E05's own status says nothing constructs the Slurm
+driver with a token.
+
+**Prompt**
+
+> Ship the production drivers in the image and resolve the worker's scheduler
+> from configuration through the entry-point registry, refusing to start —
+> rather than falling back — when the configured driver is absent.
+
+**Acceptance criteria**
+
+- The built image lists every production driver and not local-subprocess.
+- With `DRAUPNIR_SCHEDULER_URL` set, the worker dispatches through slurmrestd.
+- With no scheduler configured outside development, the worker refuses to
+  start and names the setting.
+
+> **Status: open.**
+
+### RF-54 — P1 — The fifty-six element array runs a command that does not exist
+
+`draupnir/worker/array_queue.py:50` sets
+`ELEMENT_COMMAND = "draupnir-array-element"`. Nothing defines it: no console
+script, no module, no document. The array carries no specification and no
+index-to-jurisdiction mapping, only `DRAUPNIR_ARRAY_NAME`, and its working
+directory is `.`. Every element would exit 127.
+
+Separately, nothing in production records `ELEMENT_OBSERVED`, so every element
+stays PENDING in the chain and `requeue_element` refuses every one
+(`array_queue.py:192`). The integration test injects the observation by hand
+(`tests/integration/test_worker_loop.py:867`). RF-13 is therefore not done.
+
+**Prompt**
+
+> Define the element entry point: given the array's run and
+> `SLURM_ARRAY_TASK_ID`, resolve that index's jurisdiction and specification
+> and run it. Record each element's state from the scheduler on every tick.
+
+**Acceptance criteria**
+
+- The array's element command exists in the image and on the appliances'
+  environment, and a test runs it for one index.
+- A 56-element array with three running reports three TRAINING and fifty-three
+  pending, from the scheduler rather than from an injected entry.
+- `requeue_element` succeeds for a FAILED element without a hand-written
+  observation.
+
+> **Status: open.**
+
+### RF-55 — P1 — The trust store, the approver keys and the site signing key never reach a container
+
+`draupnir-run.sh` mounts TLS material and the vault and nothing else.
+
+- **Plug-in trust store.** In the built image, `svalinn.pki.registry({})`
+  raises `TrustStoreError: the trust store at /etc/draupnir/trust is not a
+  directory`. Nothing in `deploy/`, `docker/`, the workflows or the documents
+  provisions it or `plugin-signatures.json`. RF-02's verifier therefore loads
+  no plug-in, and RF-43's licence decision is `worker.policy.unavailable`: every
+  run defers.
+- **Approver keys.** The default store is `/etc/draupnir/approvers`
+  (`draupnir/core/infrastructure/config.py:84`). It is never mounted; every
+  approval is 503 `approver-keys-unavailable`. `docs/runbook.md` describes a
+  host path the container cannot see.
+- **Site signing key.** `DRAUPNIR_SITE_SIGNING_KEY` is a host path written by
+  `install.sh`. It is not mounted, and `_signing_key` is read unconditionally
+  when the worker builds its maintenance duties (`loop.py:1220, 1281`), so
+  every tick's duties fail — chain verification, capacity, retention and corpus
+  work, not only anchoring.
+
+All three fail closed, which is correct; none can succeed as deployed.
+
+**Prompt**
+
+> Mount each into the unit that reads it, read-only, from a configured host
+> path, and have `install.sh --check` refuse an install that lacks one.
+
+**Acceptance criteria**
+
+- Driven through the wrapper: the API gets the approver store and trust store,
+  the worker gets the trust store and the site signing key.
+- In the built image with those mounts, `registry()` loads the signed drivers.
+- `--check` names each missing path.
+
+> **Status: open.**
+
+### RF-56 — P1 — Every deploy rolls itself back, and stage 4 has nowhere to run
+
+- **Smoke cannot pass.** `scripts/smoke.py` uses `urlopen` with the default
+  trust store and no client certificate. Against the console it fails
+  `CERTIFICATE_VERIFY_FAILED` (reproduced); against the API, mTLS refuses it.
+  Stage 4.3 fails, rollback runs, and the rollback's smoke fails the same way.
+- **One runner variable for two kinds of runner.** `ci.yaml`, `deploy.yaml`
+  and `visual-baselines.yaml` all use `runs-on: ${{ vars.DRAUPNIR_RUNNER }}`.
+  Deploy has to run on ALVISS, where `launchctl` and podman are; CI uses
+  `docker/setup-qemu-action` and buildx, which do not run there.
+- `install.sh`'s `verify` curls `http://127.0.0.1:8000/healthz` against an API
+  that serves only mTLS, so commissioning can never confirm health; and it uses
+  `timeout`, which stock macOS does not have, so every dependency check on
+  ALVISS reports "resolves, no answer" without Homebrew coreutils.
+
+**Prompt**
+
+> Make smoke and `install.sh verify` speak the deployment's transport: trust
+> the internal CA and present the proxy's client certificate. Give deploy its
+> own runner variable. Replace `timeout` with something every target host has.
+
+**Acceptance criteria**
+
+- Smoke passes against the stage 3.1a pair over mTLS and fails against a
+  broken one.
+- `deploy.yaml` runs on a runner distinct from CI's.
+- `install.sh --check` runs to completion on a Mac with no Homebrew coreutils.
+
+> **Status: open.**
+
+### RF-57 — P1 — The API cannot trust the internal CA for MEGINGJORD
+
+JWKS fetching (`draupnir/svalinn/egress.py:313`) and the authorization-code
+exchange (`draupnir/api/routers/auth.py:291`) use httpx's default certifi
+trust. In the built image, a server certified by the internal CA fails
+`CERTIFICATE_VERIFY_FAILED: unable to get local issuer`. Nothing sets
+`SSL_CERT_FILE` or passes `DRAUPNIR_INTERNAL_CA` to those clients, so against
+an internal-CA MEGINGJORD every token is 401 and sign-in fails.
+
+Related, in `install.sh:120`: the default issuer is
+`https://megingjord.veldris.internal`, outside the site zone, which `lib.sh`
+says does not resolve at Sindri.
+
+**Prompt**
+
+> Verify every outbound TLS connection the API and worker make against the
+> internal CA when one is configured.
+
+**Acceptance criteria**
+
+- In the built image, the JWKS fetch succeeds against a server certified by a
+  test internal CA and fails against one that is not.
+
+> **Status: open.**
+
+### RF-58 — P1 — Submissions fail against real Slurm on the estate
+
+Rendered for a 56-element run and read against the estate:
+
+- **slurmrestd's responses are misread** (pinned to v0.0.40). `find` takes
+  `str()` of `array_job_id`, a `{set, infinite, number}` structure in v0.0.40,
+  so the handle is a dictionary's repr and every poll fails: a submitted run
+  stays QUEUED for ever. `_from_accounting` reads `job_state` where slurmdb
+  returns `state.current`; `_exit_code` reads `signal.signal_id` where v0.0.40
+  has `signal.id.number`. Checked against the v0.0.40 schema, not a live
+  slurmrestd; the repository's stubs use simplified shapes.
+- **No PATH over REST.** `SlurmRestDriver`'s script is `#!/bin/bash` and the
+  command; the job environment is exactly the plan's, with no `PATH` and no
+  preamble, so `llamafactory-cli` in `/forge/venv/bin` is not found. The sbatch
+  shim's preamble exists but nothing configures it.
+- **Container-local paths.** `--chdir` and `--output` are under
+  `/app/build/worker/<uuid>`, inside the worker's container, which no appliance
+  has. `DRAUPNIR_WORKER_SCRATCH` is not set by `install.sh`.
+- **Success recorded as failure.** LLaMA-Factory writes to `output/<name>`; the
+  worker looks for `adapter_model.safetensors` in the working directory. A job
+  PENDING on first poll later transitions with no plan, recording no expected
+  artefacts (`stages.py:752-754`).
+- **A partition the estate does not have.** Export and quantise go through the
+  same scheduler with `partition="export"` (`stages.py:1222-1235`); the `Venue`
+  table is never used for routing.
+
+**Prompt**
+
+> Make one real submission to the estate's slurmrestd succeed end to end, and
+> make the conformance stubs return the version's real response shapes.
+
+**Acceptance criteria**
+
+- The slurmrestd driver's stubs are v0.0.40 responses, and `find`, accounting
+  and exit codes pass against them.
+- A rendered job names an appliance-visible working directory and a PATH that
+  finds `llamafactory-cli`.
+- Export and quantise name a partition the estate has.
+- A training job that succeeds is recorded with its artefact.
+
+> **Status: open.**
+
+### RF-59 — P2 — Controls that hold in code and are weaker than documented
+
+- **Publication does not verify the approval's signature.** `verify_approval`
+  checks only that `signature` is non-empty (`skidbladnir/publish.py:329`); the
+  happy-path fixture approves with `"sig"`. RF-06 verifies at decision time, so
+  a forged approval needs a ledger write — but AC-S8 says publication checks.
+- **The signed approval does not bind the artefact.** The payload omits
+  `artefact_sha256`; the digest is attached server-side after verification.
+- **The anchor countersignature is not verified**, and a missing `anchoredAt`
+  falls back to the local clock, refreshing freshness
+  (`gullinbursti/federation.py:212, 240`).
+- **Two publishers can both publish.** The `If-Match` check, the re-hash and
+  the append are separate transactions with no re-check under the lock.
+- **Array and fabric-probe dispatches skip the leak check and the sandbox**
+  (`worker/array_queue.py:134`, `worker/duties.py:388`); the guard test counts
+  call sites in `stages.py` only.
+
+**Prompt**
+
+> Close each gap at the point the documentation says the control is enforced.
+
+**Acceptance criteria**
+
+- Publication refuses an approval whose signature does not verify.
+- A concurrent second publish is refused, not recorded.
+- Every plan the worker dispatches carries the sandbox and the leak check, and
+  the guard test covers every dispatch site.
+
+> **Status: open.**
+
+### RF-60 — P4 — Edge contracts that fail under ordinary operation
+
+- **The event listener never reconnects.** After its PostgreSQL connection
+  drops, `LedgerListener` keeps `ready` true and delivers nothing; reproduced
+  by killing its backend. `/readyz` does not check it. The site stream does not
+  check `Last-Event-ID` before responding, so a resync loops.
+- **Pagination loops on NULL sort keys.** `_paginate` encodes NULL as
+  `datetime.min` while SQL compares `'-infinity'`; `/v1/models`' unpublished
+  tail returns the same page for ever, and approvals skip NULL `started_at`
+  rows. The approvals query's artefact join repeats a run once per artefact.
+- **A recovered appliance stays down** while any other is down: the estate is
+  narrowed from the previous estate, never rebuilt (`worker/loop.py:1396`).
+- **`draupnirctl` cannot authenticate.** It sends no `Authorization` header or
+  cookie, so since RF-01 every command is 401 against a deployment.
+- **An idempotency key stays in flight for 24 hours** after a crash between
+  reserve and complete.
+
+**Prompt**
+
+> Fix each, with a test that reproduces the failure first.
+
+**Acceptance criteria**
+
+- The listener reconnects after its connection is killed, and `/readyz`
+  reports it while it is down.
+- Paging `/v1/models` over a table of unpublished artefacts terminates and
+  returns each row once.
+- An appliance that returns is placed on again while another is down.
+- `draupnirctl` authenticates with a bearer token.
+
+> **Status: open.**
+
 ---
 
 ## 5  Summary
@@ -5676,18 +6111,18 @@ for, one release later than it should have been caught.
 | ID | Severity | Finding |
 |---|---|---|
 | RF-01 | P1 | No authentication layer; the API 401s everything in production — **done** |
-| RF-02 | P1 | No signature verifier wired; zero plug-ins load in production — **done** |
+| RF-02 | P1 | No signature verifier wired; zero plug-ins load in production — **done**; **as deployed, no trust store reaches a container — RF-55** |
 | RF-03 | P1 | No reverse proxy, no TLS; `/auth/login` does not exist — **done** |
 | RF-04 | P1 | No image is published; rollback passes a version string as a revision — **done**; image signing outstanding |
 | RF-05 | P2 | `publishRelease` enforces none of AC-S8, AC-F9 or AC-S13 — **done** |
 | RF-06 | P2 | Approval signatures unverified; approver-role fact hard-coded — **done** |
 | RF-07 | P2 | Nothing anchors the chain; the anchor control never blocks — **done** |
-| RF-08 | P2 | Artefacts never reach HODD or MinIO; the S3 seal is in-process — **done** |
+| RF-08 | P2 | Artefacts never reach HODD or MinIO; the S3 seal is in-process — **done**; **as deployed, the worker's vault was read-only — RF-50** |
 | RF-09 | P2 | Secrets broker, egress allow-list and sandbox profile uncalled — **done** |
 | RF-10 | P3 | The worker dispatches a stand-in; evaluation is synthetic — **done** |
 | RF-11 | P3 | `submitRun` validates nothing; the tier table is unconsulted — **done** |
 | RF-12 | P3 | Corpus ingest and curation are accepted and never performed — **done** |
-| RF-13 | P3 | The 56-element array is not built; `getArray` fabricates it — **done**; the requeue refuses over slurmrestd |
+| RF-13 | P3 | The 56-element array is not built; `getArray` fabricates it — **done**; the requeue refuses over slurmrestd; **reopened: the element command does not exist and no element is ever observed — RF-54** |
 | RF-14 | P4 | The idempotency store is process-local — **done** |
 | RF-15 | P4 | The event stream is process-local, one-kind, and not a stream — **done** |
 | RF-16 | P4 | `listApprovals` and `listModels` ignore their cursor — **done**; a malformed cursor was silently ignored too |
@@ -5717,12 +6152,24 @@ for, one release later than it should have been caught.
 | RF-40 | P3 | The console's approval can never be accepted: no `decidedAt`, and a placeholder signature — **done**; the approver's local signing agent signs the payload the API verifies, S13 says before the dialog when no key is reachable, and J3 approves end to end |
 | RF-41 | P3 | Gate results are read from a table only the seed writes, so an estate's approval queue shows no evidence — **done**; `gate_result` is projected from the outcomes the chain records, the seed inserts no row, and S13 offers no decision on an empty evidence table |
 | RF-42 | P3 | The licence register is read from a table only the seed writes, so a registered source appears nowhere — **done**; `source` is projected from the registrations and the corpus transitions the chain records, the seed inserts no row, and `registerSource` records its residency constraint |
-| RF-43 | P1 | Nothing but the demonstration procedure takes a run's licence decision, so a submitted run stays at DRAFT — **done**; the worker registers a submitted run's corpus and takes GLEIPNIR's licence decision through the installed `draupnir.policy` driver, sharing one implementation with the procedure; base licences are declared, and Tier A's Gemma terms are refused by the policy in force |
+| RF-43 | P1 | Nothing but the demonstration procedure takes a run's licence decision, so a submitted run stays at DRAFT — **done**; the worker registers a submitted run's corpus and takes GLEIPNIR's licence decision through the installed `draupnir.policy` driver, sharing one implementation with the procedure; base licences are declared, and Tier A's Gemma terms are refused by the policy in force; **as deployed, the policy driver cannot load — RF-55** |
 | RF-44 | P1 | The console proxy cannot reach the API on a commissioned host: its upstream 127.0.0.1 is its own container's loopback — **done**; the units share a container network with fixed addresses, the proxy passes to the API's, and stage 3.1a starts both images and proxies a request through to it over mTLS |
 | RF-45 | P1 | The console image cannot be built: `web.Dockerfile` does not carry the file `vite.config.ts` reads — **done**; the image copies `web/scripts`, and a contract test holds it to what the console build reads |
 | RF-46 | P4 | The first readiness probe of a process does work its timeout cannot bound — **done**; every check's setup happens at startup, a failed setup degrades, and a test reads the checks for imports |
 | RF-47 | P3 | The visual gate forgives more than a regression costs: 9,344 pixels of licence per story — **done**; the budget is zero, a one-pixel change was watched failing stage 2.9 on CI while 218 other stories matched exactly, and a test reads the configuration so the budget cannot return; the win32 baselines are stale and need re-recording by hand |
 | RF-48 | P1 | The API image starts and cannot create a database engine: distroless carries no `libz.so.1` — **done**; the builder stages the library and the runtime carries it, a contract test holds the runtime stage to it, and the pipeline's own check passes against the rebuilt image |
+| RF-49 | P1 | Nothing the deployment runs can start on ALVISS: the wrapper aborts under bash 3.2 and the scripts are not executable — **done** |
+| RF-50 | P1 | The worker cannot write the vault, and the API cannot read it — **done**; the write through ALVISS's podman machine needs one check on the host |
+| RF-51 | P5 | The integration stage cannot pull MinIO, so the pipeline never builds an image — **done**; the development stack uses the same image |
+| RF-52 | P1 | A fresh production database cannot record anything: only the seed creates a site |
+| RF-53 | P1 | The image ships no drivers, and the worker never asks for Slurm |
+| RF-54 | P1 | The fifty-six element array runs a command that does not exist, and no element is ever observed |
+| RF-55 | P1 | The trust store, the approver keys and the site signing key never reach a container |
+| RF-56 | P1 | Every deploy rolls itself back; deploy and CI share one runner; `install.sh` cannot verify on ALVISS |
+| RF-57 | P1 | The API cannot trust the internal CA for MEGINGJORD |
+| RF-58 | P1 | Submissions fail against real Slurm: slurmrestd responses misread, no PATH, container paths, wrong partition |
+| RF-59 | P2 | Publication, approval binding, anchor countersignature and dispatch controls are weaker than documented |
+| RF-60 | P4 | The listener never reconnects, pagination loops, a recovered appliance stays down, `draupnirctl` cannot authenticate |
 
 ---
 
@@ -5784,3 +6231,16 @@ reconciliation could not say which modules a running deployment reaches. RF-30
 gave it the mark, *reachable*, derived by `scripts/reachability.py` and held to
 the document by a test. It was re-run once RF-45 had closed, and RF-27 to
 RF-31 were amended with it: see the amendment at the end of each.
+
+**The second pass, RF-49 to RF-60.** RF-49 and RF-51 come first and are done:
+until they landed nothing started on ALVISS and the pipeline never built an
+image, so nothing else here could be observed on the estate. RF-50 is done with
+them. Then RF-52, RF-53 and RF-55 — a site row, the drivers in the image, and
+the keys in the containers — which are the difference between a deployment that
+starts and one that can take a run. RF-56 and RF-57 belong with them, because
+until smoke passes every deploy rolls back, and until the internal CA is trusted
+nobody can sign in. RF-54 and RF-58 are the run pipeline against real Slurm,
+and should be done together with RF-E10, RF-E11 and RF-E12 in the estate
+register, from one end-to-end submission to the estate's slurmrestd. RF-59 and
+RF-60 follow, and none of them should wait for the end: each is a reproduction
+away from a test.

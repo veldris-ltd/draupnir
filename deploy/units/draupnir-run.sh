@@ -176,21 +176,27 @@ case "${UNIT}" in
     ;;
 esac
 
-# The vault, for the unit that reads it. Only the worker does: SAD 11.3's
-# capacity alarm is a periodic duty, and the API and the console have no
-# business holding a file handle on ANDVARI's export.
+# The vault, for the units that use it, each with the access it needs (RF-50).
 #
-# Read-only into the container even though the host mount is read-write. The
-# worker measures the vault and writes nothing to it; `vault_admin.py
-# reconcile --apply` is the thing that writes, and it runs on the host rather
-# than in here. A mount that is writable by something that never writes is a
-# mount that can be written by accident.
+# The worker writes: since RF-08 it stages every adapter, merged point and
+# quantised format into HODD with `put` and `seal`, and a read-only mount made
+# every one of those fail, so every run that produced an artefact deferred for
+# ever. The API reads: `publishRelease` fetches and re-hashes the bytes it is
+# about to release, and draupnir.env -- which every container reads -- tells it
+# a vault exists, so without the mount every publication was 503
+# store-unreachable. It is read-only, because the API never writes an artefact.
+# The console has no business holding a file handle on ANDVARI's export.
 #
 # Mounted at the same path inside as outside, so a message naming a path means
 # the same thing wherever it is read. Absent when the host has no vault, which
 # is why a development machine starts unchanged.
 mounts=()
-if [[ "${UNIT}" == "draupnir-worker" ]]; then
+case "${UNIT}" in
+  draupnir-worker) vault_access="rw" ;;
+  draupnir-api) vault_access="ro" ;;
+  *) vault_access="" ;;
+esac
+if [[ -n "${vault_access}" ]]; then
   # The vault root is in draupnir.env, which podman reads for the container and
   # this script does not. Read the one key rather than sourcing the file: the
   # installer guarantees draupnir.env holds no credential, but a wrapper that
@@ -202,7 +208,7 @@ if [[ "${UNIT}" == "draupnir-worker" ]]; then
   fi
 
   if [[ -n "${vault_root}" && -d "${vault_root}" ]]; then
-    mounts+=("--volume" "${vault_root}:${vault_root}:ro")
+    mounts+=("--volume" "${vault_root}:${vault_root}:${vault_access}")
   elif [[ -n "${vault_root}" ]]; then
     # Not fatal: SAD 11.2 row 4 makes a missing vault a degraded mode rather
     # than a stop, and the worker reports it as a finding every tick. Said
@@ -210,8 +216,10 @@ if [[ "${UNIT}" == "draupnir-worker" ]]; then
     echo "${UNIT}: ${vault_root} is not mounted; starting without it." >&2
     echo "  the vault capacity duty will report it every tick (runbook section 4)." >&2
   fi
+fi
 
-  # The supply status file, on the same terms and for the same unit. SAD 11.2's
+if [[ "${UNIT}" == "draupnir-worker" ]]; then
+  # The supply status file, for the worker only. SAD 11.2's
   # last row makes the worker the thing that acts on a mains transfer, and it
   # cannot read a file on the host from inside a container.
   #
@@ -297,6 +305,12 @@ fi
 # disagree with the unit about which image it holds. `--pull=never` because
 # rollout.sh pulls deliberately and a start that silently pulls is a start that
 # can change the running revision without a rollout.
+#
+# Every array is expanded as `${a[@]+"${a[@]}"}` rather than `"${a[@]}"`
+# (RF-49). Each unit leaves at least one of them empty, and under `set -u` the
+# bash that launchd finds on ALVISS -- macOS's /bin/bash, 3.2 -- treats an empty
+# array as unbound and exits before podman is reached. Bash 4.4 and later do
+# not, which is why Linux CI never saw it.
 exec "${PODMAN}" run \
   --rm \
   --name "${UNIT}" \
@@ -305,10 +319,10 @@ exec "${PODMAN}" run \
   --cap-drop=ALL \
   --security-opt=no-new-privileges \
   --tmpfs /tmp:rw,noexec,nosuid,size=64m \
-  "${env_files[@]}" \
-  "${mounts[@]}" \
-  "${tls[@]}" \
-  "${network[@]}" \
-  "${publish[@]}" \
+  ${env_files[@]+"${env_files[@]}"} \
+  ${mounts[@]+"${mounts[@]}"} \
+  ${tls[@]+"${tls[@]}"} \
+  ${network[@]+"${network[@]}"} \
+  ${publish[@]+"${publish[@]}"} \
   "${image}" \
-  "${command[@]}"
+  ${command[@]+"${command[@]}"}
