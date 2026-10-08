@@ -389,6 +389,12 @@ Two further problems in the same three lines:
 > vault warns and starts anyway, because SAD 11.2 row 4 makes it a degraded
 > mode rather than a stop.
 >
+> **Amended by RF-50 in [remedial-fixes.md](remedial-fixes.md).** The
+> read-only split predates RF-08, which made the worker stage and seal every
+> artefact into the vault; a read-only mount then deferred every run that
+> produced one. The worker's mount is now read-write, and the API is given the
+> vault read-only, because publication re-hashes the bytes it releases.
+>
 > `scripts/vault_admin.py` defaulted to `/mnt/hodd`, a path this repository
 > invented that exists on no host in the estate; `docs/runbook.md` section 4
 > sent an operator there during the incident that section is written for. Both

@@ -137,6 +137,90 @@ def test_an_unknown_unit_is_refused_rather_than_guessed() -> None:
     assert "unknown unit" in result.stderr
 
 
+#: macOS's own bash, which is what `#!/usr/bin/env bash` finds on launchd's PATH.
+MACOS_BASH = Path("/bin/bash")
+
+
+def _old_bash_present() -> bool:
+    """Whether /bin/bash is older than 4, as it is on every Mac."""
+    if not MACOS_BASH.exists():
+        return False
+    probe = [str(MACOS_BASH), "-c", "[[ ${BASH_VERSINFO[0]} -lt 4 ]]"]
+    return subprocess.run(probe, check=False).returncode == 0  # noqa: S603
+
+
+def _unguarded_arrays(script: str) -> list[str]:
+    """Every `"${a[@]}"` outside a comment that is not inside the guard."""
+    code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
+    guarded = re.sub(r'\$\{(\w+)\[@\]\+"\$\{\1\[@\]\}"\}', "", code)
+    return re.findall(r'"\$\{(\w+)\[@\]\}"', guarded)
+
+
+def test_the_wrapper_expands_no_array_bash_3_2_calls_unbound() -> None:
+    """RF-49. Read rather than driven, so a Linux runner with bash 5 enforces it.
+
+    Under `set -u`, bash before 4.4 calls an empty array unbound, and every unit
+    leaves at least one of the wrapper's arrays empty. ALVISS runs the wrapper
+    with macOS's /bin/bash, 3.2, so a bare `"${a[@]}"` stopped every unit there
+    before podman was reached, while CI's bash 5 started them all.
+    """
+    script = (UNITS_DIR / "draupnir-run.sh").read_text(encoding="utf-8")
+    assert _unguarded_arrays(script) == [], (
+        'draupnir-run.sh expands an array without the ${a[@]+"${a[@]}"} guard, '
+        "which macOS /bin/bash 3.2 refuses when the array is empty"
+    )
+
+
+@pytest.mark.skipif(
+    not _old_bash_present(),
+    reason="no bash older than 4 at /bin/bash; the read check above covers this",
+)
+@pytest.mark.parametrize("unit", units())
+def test_every_unit_starts_under_macos_bash(unit: str, tmp_path: Path) -> None:
+    """RF-49, driven: the wrapper reaches podman under bash 3.2."""
+    result = subprocess.run(  # noqa: S603
+        [str(MACOS_BASH), str(UNITS_DIR / "draupnir-run.sh"), unit],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        env={
+            **os.environ,
+            "DRAUPNIR_PLATFORM": "linux",
+            "DRAUPNIR_CONFIG_DIR": str(tmp_path / "config"),
+            "DRAUPNIR_STATE_DIR": str(tmp_path / "state"),
+            "DRAUPNIR_PODMAN": "echo",
+            f"DRAUPNIR_IMAGE_{unit.replace('-', '_')}": "registry.invalid/image:test",
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    assert "run --rm" in result.stdout
+
+
+def test_every_script_the_pipeline_runs_is_committed_executable() -> None:
+    """RF-49. deploy.yaml runs `./deploy/rollout.sh`; mode 100644 is Permission denied.
+
+    The other tests here call the scripts through bash, which is exactly why
+    none of them noticed. Read from the index, because the working tree's mode
+    is whatever the checkout's filesystem made of it.
+    """
+    git = shutil.which("git")
+    if git is None:
+        pytest.skip("git is not on PATH")
+    listed = subprocess.run(  # noqa: S603
+        [git, "ls-files", "--stage", "deploy"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    modes = {line.split("\t", 1)[1]: line.split()[0] for line in listed}
+    scripts = sorted(path for path in modes if path.endswith(".sh") and path != "deploy/lib.sh")
+    assert scripts, "no deploy scripts found in the index"
+    not_executable = [path for path in scripts if modes[path] != "100755"]
+    assert not_executable == [], f"committed without the executable bit: {not_executable}"
+
+
 def test_no_script_keeps_its_own_copy_of_the_unit_list() -> None:
     """Four copies of a fact is how one of them becomes false."""
     for name in SCRIPTS:
@@ -600,7 +684,10 @@ def test_resolves_tells_the_three_answers_apart(tmp_path: Path) -> None:
 
     with_stub = f"{resolver_stub(tmp_path / 'bin', knows='andvari.sindri.veldris.internal')}"
     bash_dir = str(Path(BASH).parent)
-    path = f"{with_stub}{os.pathsep}{bash_dir}"
+    # /usr/bin as well, after the stub: sourcing the installer needs `dirname`,
+    # which is beside bash on Linux and Git for Windows but only in /usr/bin on
+    # macOS, where bash is /bin/bash. The stub comes first, so it still answers.
+    path = os.pathsep.join([with_stub, bash_dir, "/usr/bin"])
 
     assert ask("andvari.sindri.veldris.internal", path=path) == 0, (
         "a name that resolves reported otherwise"
@@ -742,11 +829,14 @@ def test_the_vault_root_can_be_emptied_for_a_forge_without_one() -> None:
 
 @requires_bash
 @pytest.mark.parametrize("unit", units())
-def test_only_the_worker_is_given_the_vault(unit: str, tmp_path: Path) -> None:
-    """The API and the console have no business holding a handle on the export.
+def test_each_unit_is_given_the_vault_it_uses(unit: str, tmp_path: Path) -> None:
+    """The worker writes the vault, the API reads it, the console never sees it.
 
-    Driven rather than read: the wrapper resolves the root from draupnir.env,
-    and whether that resolution reaches the podman arguments is the property.
+    RF-50. The worker stages and seals artefacts, so a read-only mount deferred
+    every run that produced one. The API re-hashes the bytes it publishes, so no
+    mount refused every publication. Driven rather than read: the wrapper
+    resolves the root from draupnir.env, and whether that resolution reaches the
+    podman arguments is the property.
     """
     assert BASH is not None
     config = tmp_path / "config"
@@ -771,12 +861,15 @@ def test_only_the_worker_is_given_the_vault(unit: str, tmp_path: Path) -> None:
             f"DRAUPNIR_IMAGE_{unit.replace('-', '_')}": "registry.invalid/image:test",
         },
     )
-    mounted = f"--volume {vault}:{vault}:ro" in result.stdout
+    assert result.returncode == 0, result.stderr
+    expected = {"draupnir-worker": "rw", "draupnir-api": "ro"}.get(unit)
 
-    if unit == "draupnir-worker":
-        assert mounted, f"the worker was not given the vault:\n{result.stdout}"
+    if expected is None:
+        assert str(vault) not in result.stdout, f"{unit} was given the vault and does not use it"
     else:
-        assert not mounted, f"{unit} was given the vault and does not read it"
+        assert f"--volume {vault}:{vault}:{expected}" in result.stdout, (
+            f"{unit} was not given the vault {expected}:\n{result.stdout}"
+        )
 
 
 @requires_bash
