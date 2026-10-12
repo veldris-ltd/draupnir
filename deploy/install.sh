@@ -96,16 +96,13 @@ TLS_PRIVATE_KEY="${DRAUPNIR_TLS_PRIVATE_KEY-}"
 
 # The internal signing CA of Decision S9, and the certificates the two mutually
 # authenticated hops present (SAD 9.5, RF-37): the proxy's client certificate
-# to the API, the API's own server certificate, and GULLINBURSTI's site
-# certificate to MEGINGJORD. The last pair is required only where a registry is
-# configured.
+# to the API and the API's own server certificate. GULLINBURSTI's certificate
+# to MEGINGJORD is in its bundle (MEGINGJORD_BUNDLE, below).
 INTERNAL_CA="${DRAUPNIR_INTERNAL_CA-}"
 PROXY_CLIENT_CERTIFICATE="${DRAUPNIR_PROXY_CLIENT_CERTIFICATE-}"
 PROXY_CLIENT_PRIVATE_KEY="${DRAUPNIR_PROXY_CLIENT_PRIVATE_KEY-}"
 API_TLS_CERTIFICATE="${DRAUPNIR_API_TLS_CERTIFICATE-}"
 API_TLS_PRIVATE_KEY="${DRAUPNIR_API_TLS_PRIVATE_KEY-}"
-FEDERATION_CLIENT_CERTIFICATE="${DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE-}"
-FEDERATION_CLIENT_PRIVATE_KEY="${DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY-}"
 
 # Who issues the tokens this control plane trusts, and who they are addressed
 # to. MEGINGJORD is the identity provider for the Forge Matrix (SAD 9.3).
@@ -148,19 +145,20 @@ RING_MEMBERS="${DRAUPNIR_RING_MEMBERS-}"
 SUPPLY_STATUS="${DRAUPNIR_WORKER_SUPPLY_STATUS-}"
 
 # Where MEGINGJORD answers, and the key this forge signs its chain head with.
-# Both empty at Sindri today, and truthfully so: VLD-INF-SINDRI-001 gap G-E21
-# has the WireGuard link to Veldris_NXT unbuilt, so the name does not resolve.
+# Empty at Sindri today, and truthfully so: VLD-INF-SINDRI-001 gap G-E21 has the
+# WireGuard link to Veldris_NXT unbuilt, so the name does not resolve. With
+# none, the anchor duty alarms saying the chain is anchored nowhere, which is
+# what is true (SAD 11A.3).
 #
-# Both or neither. A registry with no key submits unsigned heads, which
-# MEGINGJORD refuses in as many words -- "an unsigned head is not a claim about
-# a chain, it is a packet" -- and a stream of rejections reads like a broken
-# tunnel rather than a missing setting. With neither, the anchor duty alarms
-# saying the chain is anchored nowhere, which is what is true (SAD 11A.3).
-#
-# The key names itself: the identifier MEGINGJORD knows it by is derived from
-# the public half, so there is no second setting to keep in step with it.
-REGISTRY_URL="${DRAUPNIR_REGISTRY_URL-}"
-SITE_SIGNING_KEY="${DRAUPNIR_SITE_SIGNING_KEY-}"
+# Since G8 all of it is one folder: the bundle MEGINGJORD's installer writes for
+# this site (/etc/megingjord/sites/<name>/ on the MEGINGJORD server), copied
+# here and completed by running its enrol.sh. It holds where MEGINGJORD answers,
+# the CA its certificate is verified against, this site's certificate and keys,
+# and the identity MEGINGJORD registered them under. Empty means no federation
+# link. PUBLIC_ORIGIN is this console's https address, which a release
+# registered with MEGINGJORD names its documents by.
+MEGINGJORD_BUNDLE="${DRAUPNIR_MEGINGJORD_BUNDLE-}"
+PUBLIC_ORIGIN="${DRAUPNIR_PUBLIC_ORIGIN-}"
 
 # Where the secrets this estate brokers to jobs are held: a JSON object of name
 # to value, readable only by the worker's user. Empty at Sindri, which brokers
@@ -302,13 +300,12 @@ resolve.
 Environment: DRAUPNIR_SITE_DOMAIN, DRAUPNIR_POSTGRES_HOST,
 DRAUPNIR_OBJECT_STORE_HOST, DRAUPNIR_VAULT_ROOT, DRAUPNIR_SCHEDULER_URL,
 DRAUPNIR_PROMETHEUS_URL, DRAUPNIR_WORKER_SUPPLY_STATUS, DRAUPNIR_RING_MEMBERS,
-DRAUPNIR_REGISTRY_URL, DRAUPNIR_SITE_SIGNING_KEY, DRAUPNIR_SECRET_STORE,
+DRAUPNIR_MEGINGJORD_BUNDLE, DRAUPNIR_PUBLIC_ORIGIN, DRAUPNIR_SECRET_STORE,
 DRAUPNIR_INCOMING_ROOT, DRAUPNIR_EVALUATION_SETS,
 DRAUPNIR_OIDC_ISSUER, DRAUPNIR_OIDC_AUDIENCE,
 DRAUPNIR_TLS_CERTIFICATE, DRAUPNIR_TLS_PRIVATE_KEY, DRAUPNIR_INTERNAL_CA,
 DRAUPNIR_PROXY_CLIENT_CERTIFICATE, DRAUPNIR_PROXY_CLIENT_PRIVATE_KEY,
 DRAUPNIR_API_TLS_CERTIFICATE, DRAUPNIR_API_TLS_PRIVATE_KEY,
-DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE, DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY,
 DRAUPNIR_ACCELERATOR, DRAUPNIR_POLICY_DRIVER, the DRAUPNIR_FABRIC_* probe
 settings and the DRAUPNIR_*_DIR paths override the defaults. DRAUPNIR_FABRIC_BASELINE_GBPS is
 the figure acceptance test A3 measured; leave it at 0 until there is one, and
@@ -551,9 +548,12 @@ check_tls() {
   [[ -z "${PROXY_CLIENT_PRIVATE_KEY}" ]] && missing+=("DRAUPNIR_PROXY_CLIENT_PRIVATE_KEY")
   [[ -z "${API_TLS_CERTIFICATE}" ]] && missing+=("DRAUPNIR_API_TLS_CERTIFICATE")
   [[ -z "${API_TLS_PRIVATE_KEY}" ]] && missing+=("DRAUPNIR_API_TLS_PRIVATE_KEY")
-  if [[ -n "${REGISTRY_URL}" ]]; then
-    [[ -z "${FEDERATION_CLIENT_CERTIFICATE}" ]] && missing+=("DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE")
-    [[ -z "${FEDERATION_CLIENT_PRIVATE_KEY}" ]] && missing+=("DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY")
+  if [[ -n "${MEGINGJORD_BUNDLE}" ]]; then
+    local part
+    for part in megingjord.toml site.crt site-mtls.key site-signing.key enrol-request.json; do
+      [[ -e "${MEGINGJORD_BUNDLE}/${part}" ]] \
+        || missing+=("${MEGINGJORD_BUNDLE}/${part} (run enrol.sh in the bundle; site.crt is the certificate MEGINGJORD's administrator returns)")
+    done
   fi
   if ((${#missing[@]})); then
     fail "$(printf 'the TLS material is not configured: %s is not set. SAD 9.5 is TLS 1.3 only, with mTLS between control plane components, and the session cookie is marked Secure -- over plain HTTP a browser will not send it, so signing in appears to work and every request after it is anonymous. Obtain the certificates from the Veldris internal CA (docs/runbook.md, Certificates), or set DRAUPNIR_DEV=1 on a machine with no real data.' "$(IFS=', '; echo "${missing[*]}")")"
@@ -585,9 +585,8 @@ check_tls() {
   info "tls: the console proxy loads its certificate, its client certificate and the CA"
 
   check_python_end "the API" server "${API_TLS_CERTIFICATE}" "${API_TLS_PRIVATE_KEY}" "${api_image}"
-  if [[ -n "${REGISTRY_URL}" ]]; then
-    check_python_end "GULLINBURSTI" client \
-      "${FEDERATION_CLIENT_CERTIFICATE}" "${FEDERATION_CLIENT_PRIVATE_KEY}" "${api_image}"
+  if [[ -n "${MEGINGJORD_BUNDLE}" ]]; then
+    check_bundle "${api_image}"
   fi
 }
 
@@ -620,6 +619,22 @@ check_python_end() {
     fail "$(printf '%s does not load its TLS material:\n%s' "${who}" "${checked}")"
   fi
   info "tls: ${who} loads its certificate, which the internal CA issued"
+}
+
+# GULLINBURSTI's bundle, loaded as the API and the worker will load it (G8):
+# MEGINGJORD's site certificate and its key, the head-signing key, the server's
+# CA and the identity MEGINGJORD registered, in the image that will use them.
+# Its certificate is issued under MEGINGJORD's federation root, not the internal
+# CA, so it is not one of the ends check_python_end judges.
+check_bundle() {
+  local image="$1" checked
+  if ! checked="$("${PODMAN}" run --rm --pull=never --read-only \
+    --entrypoint /app/.venv/bin/python \
+    --volume "${MEGINGJORD_BUNDLE}:/etc/draupnir/megingjord:ro" \
+    "${image}" -m draupnir.api.federation /etc/draupnir/megingjord 2>&1)"; then
+    fail "$(printf 'GULLINBURSTI does not load its MEGINGJORD bundle:\n%s' "${checked}")"
+  fi
+  info "federation: ${checked}"
 }
 
 # A socket answering proves the machine is on. It does not prove there is a
@@ -734,8 +749,8 @@ DRAUPNIR_SCHEDULER_URL=${SCHEDULER_URL}
 DRAUPNIR_PROMETHEUS_URL=${PROMETHEUS_URL}
 DRAUPNIR_WORKER_SUPPLY_STATUS=${SUPPLY_STATUS}
 DRAUPNIR_RING_MEMBERS=${RING_MEMBERS}
-DRAUPNIR_REGISTRY_URL=${REGISTRY_URL}
-DRAUPNIR_SITE_SIGNING_KEY=${SITE_SIGNING_KEY}
+DRAUPNIR_MEGINGJORD_BUNDLE=${MEGINGJORD_BUNDLE}
+DRAUPNIR_PUBLIC_ORIGIN=${PUBLIC_ORIGIN}
 DRAUPNIR_SECRET_STORE=${SECRET_STORE}
 DRAUPNIR_INCOMING_ROOT=${INCOMING_ROOT}
 DRAUPNIR_EVALUATION_SETS=${EVALUATION_SETS}
@@ -747,8 +762,6 @@ DRAUPNIR_PROXY_CLIENT_CERTIFICATE=${PROXY_CLIENT_CERTIFICATE}
 DRAUPNIR_PROXY_CLIENT_PRIVATE_KEY=${PROXY_CLIENT_PRIVATE_KEY}
 DRAUPNIR_API_TLS_CERTIFICATE=${API_TLS_CERTIFICATE}
 DRAUPNIR_API_TLS_PRIVATE_KEY=${API_TLS_PRIVATE_KEY}
-DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE=${FEDERATION_CLIENT_CERTIFICATE}
-DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY=${FEDERATION_CLIENT_PRIVATE_KEY}
 DRAUPNIR_OIDC_AUDIENCE=${OIDC_AUDIENCE}
 DRAUPNIR_OIDC_JWKS_URL=${OIDC_JWKS_URL}
 DRAUPNIR_ACCELERATOR=${ACCELERATOR}

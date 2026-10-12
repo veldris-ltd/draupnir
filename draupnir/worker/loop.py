@@ -145,6 +145,12 @@ ANCHOR_SUBMITTED = _ANCHOR_SUBMITTED
 #: because a worker tick must not block on a link that is down.
 REGISTRY_TIMEOUT_SECONDS = 10.0
 
+#: How many entries one tick offers MEGINGJORD at most. A forge returning from
+#: a long partition catches up over several ticks rather than holding one
+#: transaction open across thousands of round trips, and MEGINGJORD's per-site
+#: rate limit (its threat M12) is met as a pace rather than a wall.
+BACKLOG = 200
+
 
 def _corpus_queue(ledger: LedgerRepository) -> tuple[Any, ...]:
     """Every accepted corpus request no outcome has closed, oldest first.
@@ -258,11 +264,12 @@ class WorkerSettings:
     #: Set false to run the runs and skip the periodic duties, which is what a
     #: second worker on the same site should do: one of them verifies.
     perform_duties: bool = True
-    #: Where MEGINGJORD answers. Empty means this forge has no federation link,
-    #: and the anchor duty says so rather than pretending -- which is the
-    #: honest state for a development machine and for a forge whose WireGuard
-    #: tunnel is not built yet (RF-E21).
-    registry_url: str = ""
+    #: The bundle MEGINGJORD's installer wrote for this forge (see
+    #: `config.Settings.megingjord_bundle`). `None` means this forge has no
+    #: federation link, and the anchor duty says so rather than pretending --
+    #: which is the honest state for a development machine and for a forge
+    #: whose WireGuard tunnel is not built yet (RF-E21).
+    megingjord_bundle: Path | None = None
     #: Where a curator drops a jurisdiction's retrieved sources, one directory
     #: per ISO 3166-1 alpha-3 code. `None` means this worker performs no
     #: ingest, and the duty says so against the request rather than leaving it
@@ -299,20 +306,13 @@ class WorkerSettings:
     #: key store reached over mTLS (SAD 9.5); what the broker hands out does not
     #: change with it.
     secret_store: Path | None = None
-    #: The site's Ed25519 signing key, in PKCS#8 PEM. An unsigned head is
-    #: refused by MEGINGJORD in as many words -- "not a claim about a chain, it
-    #: is a packet" -- so a forge with no key has no federation link rather
-    #: than an anonymous one. The key names itself: `signing.key_id` derives
-    #: the identifier from the public half, so there is no second setting to
-    #: keep in step with it.
+    #: The site's Ed25519 head-signing key, in PKCS#8 PEM: the bundle's
+    #: `site-signing.key`, made at this forge by `enrol.sh`. An unsigned head
+    #: is refused by MEGINGJORD, so a forge with no key has no federation link
+    #: rather than an anonymous one. The site certificate, its key and the CA
+    #: MEGINGJORD is verified against come from the same bundle (SAD 9.5,
+    #: RF-37), so the link is mutually authenticated or absent.
     signing_key: Path | None = None
-    #: GULLINBURSTI's site certificate and its key, from the MEGINGJORD
-    #: internal PKI, and the CA MEGINGJORD's own certificate is verified
-    #: against. SAD 9.5 makes the link mutually authenticated, so a forge with
-    #: a registry and none of these has no federation link rather than an
-    #: unauthenticated one (RF-37).
-    federation_certificate: Path | None = None
-    federation_private_key: Path | None = None
     internal_ca: Path | None = None
     #: The `draupnir.policy` driver, by its versioned entry point name, that a
     #: run's licence decision is taken through (RF-43). Named rather than
@@ -332,7 +332,7 @@ class WorkerSettings:
         source = os.environ if environ is None else environ
         shared = get_settings()
         supply = source.get("DRAUPNIR_WORKER_SUPPLY_STATUS", "").strip()
-        signing_key = source.get("DRAUPNIR_SITE_SIGNING_KEY", "").strip()
+        bundle = source.get("DRAUPNIR_MEGINGJORD_BUNDLE", shared.megingjord_bundle).strip()
         secret_store = source.get("DRAUPNIR_SECRET_STORE", "").strip()
         incoming = source.get("DRAUPNIR_INCOMING_ROOT", "").strip()
         evaluation_sets = source.get("DRAUPNIR_EVALUATION_SETS", "").strip()
@@ -371,14 +371,8 @@ class WorkerSettings:
             vault_root=Path(vault) if vault else None,
             perform_duties=source.get("DRAUPNIR_WORKER_DUTIES", "1").strip()
             not in {"0", "false", "FALSE", "no"},
-            registry_url=source.get("DRAUPNIR_REGISTRY_URL", "").strip(),
-            signing_key=Path(signing_key) if signing_key else None,
-            federation_certificate=_path_or_none(
-                source.get("DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE", "")
-            ),
-            federation_private_key=_path_or_none(
-                source.get("DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY", "")
-            ),
+            megingjord_bundle=Path(bundle) if bundle else None,
+            signing_key=Path(bundle) / "site-signing.key" if bundle else None,
             internal_ca=_path_or_none(source.get("DRAUPNIR_INTERNAL_CA", shared.internal_ca)),
             secret_store=Path(secret_store) if secret_store else None,
             incoming_root=Path(incoming) if incoming else None,
@@ -573,6 +567,55 @@ class Maintenance:
             key_id=signed.key_id,
         )
 
+    def _heads(self) -> Any:
+        """Every head MEGINGJORD needs from this site, in order. G8.
+
+        MEGINGJORD accepts a sequence only at its own head plus one, naming the
+        hash it holds as its predecessor (VLD-SAD-MEGINGJORD-001 12.2 rules 6
+        and 7). So this asks it where it is and offers each entry after that,
+        each naming the entry before it, up to the chain's head. A forge it has
+        never heard from starts at the head it has now, naming no predecessor:
+        what came before is this site's own ledger and stays there.
+
+        A registry that cannot say where it is (a test double, or a link that
+        is down) is offered the head alone, which queues as it always did.
+        """
+        current = self._head()
+        if current is None or self.chain is None:
+            return current
+        asked = getattr(self.registry, "head", None)
+        if asked is None:
+            return current
+
+        from dataclasses import replace
+
+        from draupnir.gullinbursti.protocol import RemoteHead
+
+        known = asked()
+        if not isinstance(known, RemoteHead):
+            return current
+        if known.seq is None:
+            return replace(current, previous_hash=None)
+        if known.seq >= current.head.seq:
+            return current
+        last = min(current.head.seq, known.seq + BACKLOG)
+        heads = tuple(
+            self._submission(entry, like=current)
+            for entry in self.chain.stream(known.seq + 1, last)
+        )
+        return heads or current
+
+    def _submission(self, entry: Any, *, like: Any) -> Any:
+        """One ledger entry offered for anchoring, signed as `_head` signs."""
+        from dataclasses import replace
+
+        from draupnir.core.domain.ledger import ChainHead
+        from draupnir.svalinn.signing import sign_chain_head
+
+        head = ChainHead(site_id=like.head.site_id, seq=entry.seq, entry_hash=entry.entry_hash)
+        signed = sign_chain_head(head, self.signing_key)
+        return replace(like, head=head, previous_hash=entry.prev_hash, signature=signed.signature)
+
     def _drain_corpus_queue(self, *, now: datetime) -> tuple[Finding | None, tuple[Any, ...]]:
         """Do the corpus work the chain says was accepted. RF-12.
 
@@ -688,7 +731,7 @@ class Maintenance:
             finding, recorded = duties.anchor(
                 self.agent,
                 self.registry,
-                self._head(),
+                self._heads(),
                 now=now,
                 last_anchored_at=self.last_anchored_at,
             )
@@ -1282,7 +1325,15 @@ class Worker:
 
     @cached_property
     def _key_id(self) -> str:
-        """What MEGINGJORD knows this site's key by. Derived, never configured."""
+        """What MEGINGJORD knows this site's key by.
+
+        The identifier MEGINGJORD registered, where the link has one (G8): it
+        chose the name at enrolment, so deriving another here would sign every
+        head under a key MEGINGJORD has never heard of.
+        """
+        bundle = getattr(self._registry, "bundle", None)
+        if bundle is not None:
+            return str(bundle.key_id)
         if self._signing_key is None:
             return ""
 
@@ -1303,60 +1354,24 @@ class Worker:
         """
         if self._injected_registry is not None:
             return self._injected_registry
-        if not self.settings.registry_url or self.settings.signing_key is None:
-            # Both or neither. A registry URL with no key would submit unsigned
-            # heads, which MEGINGJORD refuses in as many words -- "not a claim
-            # about a chain, it is a packet" -- so the duty's "no federation
-            # link configured" alarm is a truer description of that deployment
-            # than a stream of rejections would be.
+        if self.settings.megingjord_bundle is None:
             return None
 
-        import httpx
-
-        from draupnir.gullinbursti.federation import RemoteRegistry
+        from draupnir.api.federation import megingjord_link
+        from draupnir.gullinbursti.protocol import BundleError
         from draupnir.svalinn import transport
-        from draupnir.svalinn.egress import (
-            FEDERATION_POLICY,
-            FEDERATION_PURPOSE,
-            BrokeredClient,
-        )
 
-        # Mutually authenticated or not at all (SAD 9.5, RF-37). The client
-        # used to be a bare `httpx.Client`: it verified MEGINGJORD against the
-        # public trust store, which holds no Veldris CA, and presented nothing,
-        # so the registry could not tell this forge from anyone who had its
-        # signing key. A forge without its site certificate has no federation
-        # link, which is what the anchor duty then reports.
-        certificate = self.settings.federation_certificate
-        private_key = self.settings.federation_private_key
-        authority = self.settings.internal_ca
-        if certificate is None or private_key is None or authority is None:
-            logger.error(
-                "worker.federation.unauthenticated",
-                reason=(
-                    "a registry is configured and GULLINBURSTI's site certificate, its key "
-                    "or the internal CA is not, so nothing is submitted"
-                ),
-            )
-            return None
+        # Mutually authenticated or not at all (SAD 9.5, RF-37), from the bundle
+        # MEGINGJORD's installer wrote and `enrol.sh` completed here. A bundle
+        # that is configured and unusable is logged and leaves the forge with
+        # no federation link, which is what the anchor duty then reports.
         try:
-            context = transport.client_context(
-                certificate=str(certificate),
-                private_key=str(private_key),
-                server_ca=str(authority),
+            return megingjord_link(
+                self.settings.megingjord_bundle, timeout=REGISTRY_TIMEOUT_SECONDS
             )
-        except transport.TransportError as unreadable:
-            logger.error("worker.federation.unauthenticated", reason=str(unreadable))
+        except (BundleError, transport.TransportError) as unusable:
+            logger.error("worker.federation.unusable", reason=str(unusable))
             return None
-
-        return RemoteRegistry(
-            base_url=self.settings.registry_url,
-            client=BrokeredClient(
-                inner=httpx.Client(timeout=REGISTRY_TIMEOUT_SECONDS, verify=context),
-                purpose=FEDERATION_PURPOSE,
-                approving_policy=FEDERATION_POLICY,
-            ),
-        )
 
     def _vault(self) -> CheckedVault | None:
         """The vault the capacity duty reads, if this installation has one."""

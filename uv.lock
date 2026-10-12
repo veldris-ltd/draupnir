@@ -1433,6 +1433,7 @@ dependencies = [
     { name = "typer" },
     { name = "uuid6" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "veldris-shared-protocol" },
 ]
 
 [package.optional-dependencies]
@@ -1484,6 +1485,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.15" },
     { name = "uuid6", specifier = ">=2024.7.10" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
+    { name = "veldris-shared-protocol", path = "vendor/veldris_shared_protocol-1.2.0-py3-none-any.whl" },
 ]
 provides-extras = ["testing"]
 
@@ -1625,6 +1627,20 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "veldris-draupnir", editable = "." }]
+
+[[package]]
+name = "veldris-shared-protocol"
+version = "1.2.0"
+source = { path = "vendor/veldris_shared_protocol-1.2.0-py3-none-any.whl" }
+dependencies = [
+    { name = "cryptography" },
+]
+wheels = [
+    { filename = "veldris_shared_protocol-1.2.0-py3-none-any.whl", hash = "sha256:da092b11f9096ef8c182d5ca76424ca59242d78ec1df64993425b8bee6cfb96b" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "cryptography", specifier = ">=48" }]
 
 [[package]]
 name = "watchfiles"

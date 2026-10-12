@@ -796,7 +796,8 @@ settings go in `~/.config/draupnir/draupnir.env`:
 | `DRAUPNIR_INTERNAL_CA` | The internal CA's certificate |
 | `DRAUPNIR_PROXY_CLIENT_CERTIFICATE`, `DRAUPNIR_PROXY_CLIENT_PRIVATE_KEY` | What the console proxy presents to the API |
 | `DRAUPNIR_API_TLS_CERTIFICATE`, `DRAUPNIR_API_TLS_PRIVATE_KEY` | The API's server certificate, which must carry the name `draupnir-api` |
-| `DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE`, `DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY` | GULLINBURSTI's site certificate, required where `DRAUPNIR_REGISTRY_URL` is set |
+| `DRAUPNIR_MEGINGJORD_BUNDLE` | The folder MEGINGJORD's installer wrote for this site, completed here by its `enrol.sh`: GULLINBURSTI's site certificate and keys, MEGINGJORD's CA and address, and the identity MEGINGJORD registered. Empty where this forge is not federated |
+| `DRAUPNIR_PUBLIC_ORIGIN` | The console's https address, which a release registered with MEGINGJORD names its documents by. Empty takes the origin of `DRAUPNIR_OIDC_REDIRECT_URI` |
 
 `install.sh --check` loads them rather than looking for the files. It runs
 `nginx -t` in the console image with each file mounted where

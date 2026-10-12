@@ -1581,9 +1581,14 @@ def test_the_installer_refuses_to_commission_without_tls() -> None:
         "DRAUPNIR_INTERNAL_CA",
         "DRAUPNIR_PROXY_CLIENT_CERTIFICATE",
         "DRAUPNIR_API_TLS_CERTIFICATE",
-        "DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE",
     ):
         assert setting in block, f"--check does not require {setting}"
+    # GULLINBURSTI's certificate to MEGINGJORD is in its bundle since G8: every
+    # file of it is required where a bundle is configured, and the bundle is
+    # loaded in the API image as the two units will load it.
+    for part in ("site.crt", "site-mtls.key", "site-signing.key", "enrol-request.json"):
+        assert part in block, f"--check does not require the bundle's {part}"
+    assert "check_bundle" in block, "the bundle is not loaded as the units will load it"
     assert "fail " in block, "a missing certificate warns rather than refusing"
     assert "DRAUPNIR_DEV" in block, (
         "there is no escape for a developer machine, so the check will be deleted"
@@ -2021,3 +2026,19 @@ def test_the_api_image_carries_the_library_psycopg_needs_from_the_system() -> No
         "package manager to install it: without this the API image starts and then "
         "fails to create its database engine."
     )
+
+
+def test_both_units_that_speak_to_megingjord_are_given_its_bundle() -> None:
+    """G8. The worker anchors and the API registers releases: both need it.
+
+    Mounted whole and read-only, so a unit cannot present one forge's
+    certificate with another's key, and the setting points at the mount rather
+    than the host path.
+    """
+    runner = (DEPLOY / "units" / "draupnir-run.sh").read_text(encoding="utf-8")
+    block = runner.split("# MEGINGJORD's bundle,", 1)[1].split("\nesac", 1)[0]
+
+    assert "draupnir-api | draupnir-worker)" in block
+    assert '"${bundle}:/etc/draupnir/megingjord:ro"' in block
+    assert "DRAUPNIR_MEGINGJORD_BUNDLE=/etc/draupnir/megingjord" in block
+    assert "FEDERATION_CLIENT" not in runner, "the retired certificate mounts are still there"

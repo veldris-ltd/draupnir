@@ -764,6 +764,9 @@ def m10_release(procedure: Procedure, scheduler: Any) -> Mapping[str, Any]:
             "decided_at": datetime.now(UTC).isoformat(),
             "artefact_sha256": procedure.artefacts["nvfp4"],
             "formats": list(FORMATS),
+            # What was released, as the console's approval records it: the name
+            # MEGINGJORD registers the release under, and its jurisdiction (G8).
+            "model": procedure.model,
         },
     )
     return _evidence(

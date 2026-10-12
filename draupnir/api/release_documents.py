@@ -44,7 +44,13 @@ from datetime import datetime
 from typing import Any, Final, Literal
 
 from draupnir import __version__
-from draupnir.api.schemas import AttestationOut, LineageOut, ModelDetailOut, ReleasePackageOut
+from draupnir.api.schemas import (
+    AttestationOut,
+    LineageOut,
+    ModelDetailOut,
+    RegistrationOut,
+    ReleasePackageOut,
+)
 from draupnir.core.domain.ledger import canonical
 from draupnir.gleipnir import copyright as copyright_policy
 from draupnir.hamarr import tiers
@@ -137,6 +143,16 @@ def attestation(found: LineageOut, *, site_id: str, issued_at: datetime) -> Atte
         "nodes": list(found.nodes),
         "approval": dict(found.approval),
     }
+    # Only once registered, so the lineage of a release registered nowhere is
+    # the document it always was, byte for byte.
+    if found.registration is not None:
+        payload["federation"] = {
+            "registeredModelId": found.registration.model_id,
+            "receiptId": found.registration.receipt_id,
+            "anchorSeq": found.registration.anchor_seq,
+            "anchorReceipt": dict(found.registration.receipt),
+            "estatePosture": dict(found.registration.estate_posture),
+        }
     digest = hashlib.sha256(canonical(payload)).hexdigest()
     return AttestationOut(
         artefact=found.artefact,
@@ -257,6 +273,8 @@ def card(
     decided = lineage.approval.get("decided_at")
     if decided:
         provenance["approvedAt"] = decided
+    if release.registration is not None:
+        provenance.update(_registered(release.registration))
 
     compliance: dict[str, Any] = {
         "trainingContentSummary": release.training_summary_uri,
@@ -283,6 +301,30 @@ def card(
         evaluation=evaluation,
         compliance=compliance,
     )
+
+
+def _registered(registration: RegistrationOut) -> dict[str, str]:
+    """The card's two federation facts, in words (AC-R7, AC-I1i).
+
+    The receipt is named, not reproduced: the signed document travels in the
+    lineage attestation, where a purchaser verifies it offline, and the card
+    says where it is and what it covers. The posture is MEGINGJORD's own
+    sentences, so a weaker estate reads as weaker here, in its words.
+    """
+    document = registration.receipt.get("document", {})
+    receipt = (
+        f"MEGINGJORD receipt {registration.receipt_id}: sequence {registration.anchor_seq}, "
+        f"{document.get('entry_hash', 'hash not recorded')}, countersigned "
+        f"{document.get('anchored_at', 'at a time not recorded')} under key "
+        f"{document.get('key_id', 'not recorded')}. The signed receipt is in the lineage "
+        "attestation."
+    )
+    posture = registration.estate_posture
+    if posture.get("recorded"):
+        stated = f"{posture.get('profile', '')} {posture.get('root_key', '')}".strip()
+    else:
+        stated = "The estate recorded no posture when this release was registered."
+    return {"anchorReceipt": receipt, "estatePosture": stated}
 
 
 def bill_of_materials(release: ReleasePackageOut, lineage: LineageOut) -> sbom.Sbom:

@@ -223,6 +223,9 @@ class Release(Base):
     # The GLEIPNIR licence policy the corpus was cleared under (RF-34, SAD 10.2).
     # Null for a release that recorded none, which renders no copyright policy.
     licence_policy_version: Mapped[str | None] = mapped_column(Text)
+    #: What MEGINGJORD registered this release as (G8, migration 0008), or
+    #: None where it was registered nowhere.
+    federation: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
 
 class RetentionAction(Base):

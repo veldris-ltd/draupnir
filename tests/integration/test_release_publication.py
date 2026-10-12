@@ -38,6 +38,7 @@ from draupnir.core.domain.sites import SiteScope
 from draupnir.core.domain.states import RunState
 from draupnir.core.infrastructure.orchestration import for_connection
 from draupnir.hodd.stores import PosixStoreDriver, artefact_uri
+from tests.integration import fake_megingjord
 
 pytestmark = pytest.mark.integration
 
@@ -82,7 +83,25 @@ def store(vault: Path) -> PosixStoreDriver:
 
 
 @pytest.fixture(scope="module")
-def api(request: pytest.FixtureRequest, vault: Path) -> Iterator[str]:
+def megingjord(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterator[fake_megingjord.FakeMegingjord]:
+    """MEGINGJORD, over real mutual TLS, that registration goes to (G8, AC-X5)."""
+    yield from fake_megingjord.start(tmp_path_factory.mktemp("megingjord"))
+
+
+@pytest.fixture(autouse=True)
+def registers(megingjord: fake_megingjord.FakeMegingjord) -> fake_megingjord.FakeMegingjord:
+    """Each test starts with MEGINGJORD registering, and nothing asked of it yet."""
+    megingjord.registration = fake_megingjord.FakeMegingjord(bundle=megingjord.bundle).registration
+    megingjord.requests.clear()
+    return megingjord
+
+
+@pytest.fixture(scope="module")
+def api(
+    request: pytest.FixtureRequest, vault: Path, megingjord: fake_megingjord.FakeMegingjord
+) -> Iterator[str]:
     """An API process that can reach the vault.
 
     `DRAUPNIR_VAULT_ROOT` is what makes `hodd.stores.store_for` hand back the
@@ -99,6 +118,12 @@ def api(request: pytest.FixtureRequest, vault: Path) -> Iterator[str]:
         "DRAUPNIR_SITE_ID": SITE,
         "DRAUPNIR_VAULT_ROOT": str(vault),
         "PYTHONIOENCODING": "utf-8",
+        # Registration goes to the fake MEGINGJORD, through the real link: the
+        # bundle, mTLS, the egress broker. The shim resolves its name.
+        **megingjord.environment,
+        "PYTHONPATH": os.pathsep.join(
+            [str(fake_megingjord.SHIM), *filter(None, [os.environ.get("PYTHONPATH")])]
+        ),
     }
     process = subprocess.Popen(  # noqa: S603
         [
@@ -372,7 +397,7 @@ def _release(
                     payload={
                         "seq": int(through),
                         "outcome": "countersigned",
-                        "countersignature": "c" * 64,
+                        "countersignature": fake_megingjord.receipt(int(through), "e" * 64),
                         "reason": "",
                         "anchored_through": int(through),
                         "anchored_at": "2026-03-02T09:05:00+00:00",
@@ -512,6 +537,121 @@ def test_a_published_release_can_be_read_downloaded_and_traced_to_its_approval(
     assert json.loads(lineage)["approval"].get("approver") == "akuma@veldris.internal"
 
 
+def test_a_release_is_registered_with_megingjord_and_carries_what_it_said(
+    api: str,
+    owner_engine: Engine,
+    site: str,
+    store: PosixStoreDriver,
+    tmp_path: Path,
+    registers: fake_megingjord.FakeMegingjord,
+) -> None:
+    """VLD-SAD-MEGINGJORD-001 AC-X5, AC-I1i, AC-R7: G8, across the real link.
+
+    The release is registered with MEGINGJORD before it is published, against
+    the anchor that first covered it, and what MEGINGJORD answered -- the
+    registration, the signed receipt and the estate posture -- is in the
+    release package, its lineage, the lineage document and the model card.
+    """
+    del api, site
+    from shared_protocol import SignedDocument, load_keyring, verify_receipt
+
+    release = _release(owner_engine, store, tmp_path)
+
+    published, body = _publish(release.digest, owner_engine)
+    assert published == 202, body
+
+    (sent,) = registers.registered()
+    document = sent["document"]
+    assert document["site_id"] == fake_megingjord.SITE_ID
+    assert document["manifest_sha256"] == f"sha256:{release.digest}"
+    assert (document["name"], document["version"]) == ("cim-gbr", "1.0")
+    assert document["lineage_uri"] == (
+        f"https://alviss.sindri.veldris.internal/v1/releases/{release.digest}/documents/lineage"
+    )
+
+    status, package = _get(f"/v1/releases/{release.digest}")
+    assert status == 200, package
+    registration = json.loads(package)["registration"]
+    assert registration["modelId"] == "m-1"
+    assert registration["anchorSeq"] == document["anchor_seq"]
+    assert registration["estatePosture"] == dict(fake_megingjord.POSTURE)
+
+    status, lineage = _get(f"/v1/lineage/{release.digest}")
+    assert status == 200, lineage
+    assert json.loads(lineage)["registration"]["estatePosture"]["profile"].startswith("Guided")
+
+    # The lineage document carries the receipt, which verifies offline with the
+    # published anchor key and nothing of MEGINGJORD's (AC-R1).
+    status, attestation = _get(f"/v1/releases/{release.digest}/documents/lineage")
+    assert status == 200, attestation
+    federation = json.loads(attestation)["payload"]["federation"]
+    assert federation["estatePosture"]["root_key"].startswith("The root key is not on the server")
+    keyring = load_keyring(
+        (registers.bundle / "keys" / f"{fake_megingjord.ANCHOR_KEY}.json").read_bytes()
+    )
+    verified = verify_receipt(
+        SignedDocument.from_json(json.dumps(federation["anchorReceipt"])), keyring
+    )
+    assert verified.receipt.seq == registration["anchorSeq"]
+
+    status, card = _get(f"/v1/releases/{release.digest}/documents/model-card")
+    assert status == 200, card
+    text_of_card = card.decode("utf-8")
+    assert "MEGINGJORD receipt r-1" in text_of_card
+    assert "Guided: the root key was made on an offline computer." in text_of_card
+
+
+def test_a_release_megingjord_refuses_is_not_published(
+    api: str,
+    owner: Connection,
+    owner_engine: Engine,
+    site: str,
+    store: PosixStoreDriver,
+    tmp_path: Path,
+    registers: fake_megingjord.FakeMegingjord,
+) -> None:
+    """AC-X6: a quarantined site cannot obtain a receipt, so its release blocks.
+
+    In MEGINGJORD's words, and leaving the chain exactly as it was.
+    """
+    del api, site
+    registers.refuse(
+        "site-cannot-release",
+        409,
+        "the site is QUARANTINED: it cannot obtain a receipt, so it cannot release",
+    )
+    release = _release(owner_engine, store, tmp_path)
+
+    status, body = _publish(release.digest, owner_engine)
+
+    assert status == 409, body
+    assert body["code"] == "release-not-registered", body
+    assert "the site is QUARANTINED" in body["detail"], body
+    assert "Nothing was published" in body["detail"], body
+    assert ("published",) not in entries_for(owner, release.digest)
+
+
+def test_an_unreachable_megingjord_defers_the_release(
+    api: str,
+    owner: Connection,
+    owner_engine: Engine,
+    site: str,
+    store: PosixStoreDriver,
+    tmp_path: Path,
+    registers: fake_megingjord.FakeMegingjord,
+) -> None:
+    """Decision S8: an outage, not a refusal. Nothing is published, and it says why."""
+    del api, site
+    registers.registration = None
+    release = _release(owner_engine, store, tmp_path)
+
+    status, body = _publish(release.digest, owner_engine)
+
+    assert status == 503, body
+    assert body["code"] == "federation-unreachable", body
+    assert ("published",) not in entries_for(owner, release.digest)
+
+
 # ---------------------------------------------------------------------------
 # The four refusals, one control withdrawn at a time
 # ---------------------------------------------------------------------------
@@ -627,3 +767,66 @@ def entries_for(owner: Connection, subject_id: str) -> list[Any]:
             {"site": SITE, "subject": subject_id},
         ).fetchall()
     )
+
+
+def test_a_quarantined_site_shows_it_and_its_release_says_why(
+    api: str, owner_engine: Engine, site: str, store: PosixStoreDriver, tmp_path: Path
+) -> None:
+    """AC-X6 in the console's own reads: the state, MEGINGJORD's reason, the refusal.
+
+    The anchor duty records what MEGINGJORD answered. `listSites` derives the
+    site's standing from it, and a release behind on anchoring is refused with
+    MEGINGJORD's reason rather than only the arithmetic.
+    """
+    del api, site
+    release = _release(owner_engine, store, tmp_path, anchor=False)
+    refusal = (
+        "MEGINGJORD refused (site-not-anchorable): the site is QUARANTINED: an operator "
+        "quarantined it after a second history for seq 5"
+    )
+    with owner_engine.begin() as connection:
+        for_connection(connection, SiteScope(SITE), actor="worker").record(
+            subject_type="site",
+            subject_id=SITE,
+            transition=ANCHOR_SUBMITTED,
+            payload={
+                "seq": 999,
+                "entry_hash": "f" * 64,
+                "outcome": "rejected",
+                "countersignature": "",
+                "reason": refusal,
+                "anchored_through": 0,
+                "anchored_at": "",
+                "problem": "site-not-anchorable",
+            },
+        )
+    try:
+        status, listed = _get("/v1/sites")
+        assert status == 200, listed
+        (here,) = [item for item in json.loads(listed)["items"] if item["id"] == SITE]
+        assert here["anchorState"] == "QUARANTINED"
+        assert here["anchorReason"] == refusal
+
+        status, body = _publish(release.digest, owner_engine)
+        assert status == 409, body
+        assert body["code"] == "anchor-behind", body
+        assert "will not anchor this site's chain" in body["detail"], body
+        assert "the site is QUARANTINED" in body["detail"], body
+    finally:
+        # The site in good standing again, for whatever runs after this.
+        with owner_engine.begin() as connection:
+            for_connection(connection, SiteScope(SITE), actor="worker").record(
+                subject_type="site",
+                subject_id=SITE,
+                transition=ANCHOR_SUBMITTED,
+                payload={
+                    "seq": 1000,
+                    "entry_hash": "f" * 64,
+                    "outcome": "countersigned",
+                    "countersignature": fake_megingjord.receipt(1000, "f" * 64),
+                    "reason": "",
+                    "anchored_through": 1000,
+                    "anchored_at": "2026-03-02T09:10:00+00:00",
+                    "problem": "",
+                },
+            )

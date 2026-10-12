@@ -153,11 +153,7 @@ case "${UNIT}" in
   draupnir-worker)
     publish=()
     command=("-m" "draupnir.worker")
-    tls_file DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE federation.pem
-    tls_file DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY federation.key
     tls_file DRAUPNIR_INTERNAL_CA internal-ca.pem
-    tls_setting DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE federation.pem
-    tls_setting DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY federation.key
     tls_setting DRAUPNIR_INTERNAL_CA internal-ca.pem
     ;;
   draupnir-web)
@@ -217,6 +213,26 @@ if [[ -n "${vault_access}" ]]; then
     echo "  the vault capacity duty will report it every tick (runbook section 4)." >&2
   fi
 fi
+
+# MEGINGJORD's bundle, for the two units that speak to it (G8): the worker
+# anchors the chain, the API registers a release at publish. The folder
+# MEGINGJORD's installer wrote for this site and `enrol.sh` completed here, with
+# its certificate, its keys and the server's CA, mounted whole and read-only:
+# the files belong together, and mounting them one by one is how a unit ends up
+# presenting one forge's certificate with another's key. Absent, the forge has
+# no federation link, which both units then report in their own words.
+case "${UNIT}" in
+  draupnir-api | draupnir-worker)
+    bundle="$(setting DRAUPNIR_MEGINGJORD_BUNDLE)"
+    if [[ -n "${bundle}" && -d "${bundle}" ]]; then
+      mounts+=("--volume" "${bundle}:/etc/draupnir/megingjord:ro")
+      tls+=("--env" "DRAUPNIR_MEGINGJORD_BUNDLE=/etc/draupnir/megingjord")
+    elif [[ -n "${bundle}" ]]; then
+      echo "${UNIT}: DRAUPNIR_MEGINGJORD_BUNDLE is ${bundle}, which is not a folder;" >&2
+      echo "  this forge starts with no federation link (docs/runbook.md, section 7)." >&2
+    fi
+    ;;
+esac
 
 if [[ "${UNIT}" == "draupnir-worker" ]]; then
   # The supply status file, for the worker only. SAD 11.2's

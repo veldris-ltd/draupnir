@@ -66,8 +66,11 @@ from draupnir.api.schemas import (
     SitePage,
     SourceOut,
     SourcePage,
+    registration_of,
 )
+from draupnir.core.domain.federation import ANCHOR_SUBMITTED
 from draupnir.core.domain.ledger import compute_entry_hash
+from draupnir.core.domain.sites import AnchorState, anchor_state_after
 
 # The board's first column, and the corpus a source belongs to (RF-42), are
 # parsed from a run's name by the same function; it moved to the domain so the
@@ -681,20 +684,57 @@ class DatabaseReadModel:
         )
         async with self._factory() as session:
             rows = list((await session.execute(text(sql))).mappings())
-        return SitePage(
-            items=[
+        items: list[SiteOut] = []
+        for row in rows:
+            state, reason, at = await self._anchoring(row)
+            items.append(
                 SiteOut(
                     id=row["id"],
                     name=row["name"],
                     location=row["location"],
                     timezone=row["timezone"],
                     control_plane_uri=row["control_plane_uri"],
-                    anchor_state=row["anchor_state"],
-                    last_anchored_at=row["last_anchored_at"],
+                    anchor_state=state,
+                    last_anchored_at=at,
+                    anchor_reason=reason,
                 )
-                for row in rows
-            ]
+            )
+        return SitePage(items=items)
+
+    async def _anchoring(self, row: Any) -> tuple[str, str | None, Any]:
+        """A site's anchor state, from the latest attempt its chain records. G8.
+
+        The chain, not the `site` row: the anchor duty records every attempt
+        and what MEGINGJORD answered, and nothing kept the row in step with it,
+        so the console showed whatever a seed had written. A site whose chain
+        is not in this database (another forge) keeps what the row says.
+        """
+        sql = (
+            "SELECT payload FROM ledger_entry WHERE site_id = :site_id "
+            "AND subject_type = 'site' AND subject_id = :site_id AND transition = :transition "
+            "ORDER BY seq DESC LIMIT 1"
         )
+        # When it was last countersigned: the latest attempt that anchored
+        # anything, as `Orchestrator.last_anchored_at` reads it.
+        last = (
+            "SELECT max(payload->>'anchored_at') FROM ledger_entry WHERE site_id = :site_id "
+            "AND subject_type = 'site' AND subject_id = :site_id AND transition = :transition "
+            "AND coalesce((payload->>'anchored_through')::bigint, 0) > 0"
+        )
+        bound = {"site_id": row["id"], "transition": ANCHOR_SUBMITTED}
+        async with self._scoped(row["id"]) as session:
+            payload = (await session.execute(text(sql), bound)).scalar_one_or_none()
+            anchored = (await session.execute(text(last), bound)).scalar_one_or_none()
+        if not isinstance(payload, dict):
+            return row["anchor_state"], None, row["last_anchored_at"]
+        at = datetime.fromisoformat(anchored) if anchored else row["last_anchored_at"]
+        state = anchor_state_after(
+            str(payload.get("outcome") or ""),
+            str(payload.get("problem") or ""),
+            anchored_before=at is not None,
+        )
+        reason = None if state is AnchorState.ANCHORED else str(payload.get("reason") or "") or None
+        return str(state), reason, at
 
     # -- search -------------------------------------------------------------
 
@@ -1010,7 +1050,7 @@ class DatabaseReadModel:
             "SELECT rel.model_card_uri, rel.sbom_uri, rel.lineage_uri, "
             "rel.training_summary_uri, rel.copyright_policy_uri, rel.signature, "
             "rel.published_at, rel.anchored_at, ap.approver, ap.sole_approver_exception, "
-            "rel.licence_policy_version, r.name AS run_name, a.uri "
+            "rel.licence_policy_version, rel.federation, r.name AS run_name, a.uri "
             "FROM release rel "
             "JOIN artefact a ON a.id = rel.artefact_id "
             "JOIN approval ap ON ap.id = rel.approval_id "
@@ -1039,6 +1079,7 @@ class DatabaseReadModel:
             approver=row["approver"],
             sole_approver_exception=row["sole_approver_exception"],
             licence_policy_version=row["licence_policy_version"],
+            registration=registration_of(row["federation"]),
         )
 
     # -- ledger entry detail -------------------------------------------------
@@ -1115,7 +1156,7 @@ async def _lineage(model: DatabaseReadModel, site_id: str, artefact: str) -> Lin
                 await session.execute(
                     text(
                         "SELECT ap.approver, ap.decision, ap.decided_at, "
-                        "ap.sole_approver_exception "
+                        "ap.sole_approver_exception, rel.federation "
                         "FROM release rel JOIN approval ap ON ap.id = rel.approval_id "
                         "WHERE rel.artefact_id = :artefact_id"
                     ),
@@ -1237,6 +1278,7 @@ async def _lineage(model: DatabaseReadModel, site_id: str, artefact: str) -> Lin
             if approval_row is not None
             else {}
         ),
+        registration=registration_of(approval_row["federation"]) if approval_row else None,
     )
 
 

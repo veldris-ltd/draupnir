@@ -17,6 +17,7 @@ until the night it mattered.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -604,22 +605,50 @@ def test_an_unmounted_vault_is_a_named_false_check(migrated: str, tmp_path: Path
     assert empty["checks"]["vault"] is False, empty
 
 
-def test_a_severed_federation_link_is_a_named_false_check(migrated: str) -> None:
+def test_a_severed_federation_link_is_a_named_false_check(migrated: str, tmp_path: Path) -> None:
     """SAD 11.2 row 7, on the probe. `docs/runbook.md` section 7.
 
-    The WireGuard link to Veldris_NXT is not built, so this name does not
-    resolve -- which is what a severed link looks like and is exactly the state
-    the estate is in. The check reports it rather than the probe failing.
+    A forge with its MEGINGJORD bundle and no route to MEGINGJORD: the name
+    does not resolve, which is what a severed link looks like and is exactly
+    the state the estate is in until its WireGuard link is up. The check
+    reports it rather than the probe failing.
     """
-    report = _readiness(
-        8940,
-        DRAUPNIR_DATABASE_URL=migrated.replace("postgresql+psycopg", "postgresql+asyncpg"),
-        DRAUPNIR_DATABASE_URL_SYNC=migrated,
-        DRAUPNIR_REGISTRY_URL="https://megingjord.veldris.internal",
-    )
+    from tests.integration import fake_megingjord
+
+    with contextlib.closing(fake_megingjord.start(tmp_path)) as running:
+        bundle = next(running).bundle
+        report = _readiness(
+            8940,
+            DRAUPNIR_DATABASE_URL=migrated.replace("postgresql+psycopg", "postgresql+asyncpg"),
+            DRAUPNIR_DATABASE_URL_SYNC=migrated,
+            DRAUPNIR_MEGINGJORD_BUNDLE=str(bundle),
+        )
 
     assert report["checks"]["federation"] is False, report
     assert report["status"] == "degraded"
+
+
+def test_a_federation_link_that_is_up_is_checked_as_the_site(migrated: str, tmp_path: Path) -> None:
+    """G8. The probe asks MEGINGJORD what it speaks, presenting the site's certificate.
+
+    An anonymous probe would report a link that cannot anchor anything as up:
+    MEGINGJORD answers only a client with a site certificate.
+    """
+    from tests.integration import fake_megingjord
+
+    with contextlib.closing(fake_megingjord.start(tmp_path)) as running:
+        megingjord = next(running)
+        report = _readiness(
+            8942,
+            DRAUPNIR_DATABASE_URL=migrated.replace("postgresql+psycopg", "postgresql+asyncpg"),
+            DRAUPNIR_DATABASE_URL_SYNC=migrated,
+            **megingjord.environment,
+            PYTHONPATH=str(fake_megingjord.SHIM),
+        )
+        asked = list(megingjord.requests)
+
+    assert report["checks"]["federation"] is True, report
+    assert ("GET", "/v1/protocol", None) in asked
 
 
 def test_a_forge_with_no_scheduler_is_ready_rather_than_degraded(migrated: str) -> None:
@@ -636,7 +665,7 @@ def test_a_forge_with_no_scheduler_is_ready_rather_than_degraded(migrated: str) 
         DRAUPNIR_DATABASE_URL=migrated.replace("postgresql+psycopg", "postgresql+asyncpg"),
         DRAUPNIR_DATABASE_URL_SYNC=migrated,
         DRAUPNIR_SCHEDULER_URL="",
-        DRAUPNIR_REGISTRY_URL="",
+        DRAUPNIR_MEGINGJORD_BUNDLE="",
         DRAUPNIR_VAULT_ROOT="",
     )
 

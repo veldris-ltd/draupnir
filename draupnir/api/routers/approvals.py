@@ -18,7 +18,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Path, Query, status
 
-from draupnir.api import telemetry, writing
+from draupnir.api import deps, registration, telemetry, writing
 from draupnir.api.concurrency import (
     ConcurrencyError,
     precondition_read,
@@ -419,19 +419,43 @@ async def publish(
             artefactSha256=artefact,
             reason=type(refusal).__name__,
         )
+        # Behind on anchoring, and why: what MEGINGJORD last said, so a site it
+        # has quarantined is told so rather than only how far behind it is (AC-X6).
+        detail = str(refusal)
+        if isinstance(refusal, publication.StaleAnchorError):
+            detail += registration.last_answer(facts)
         raise ProblemError(
             status=409,
             code=code,
             title="This release may not be published",
-            detail=str(refusal),
+            detail=detail,
         ) from refusal
+
+    # Registered with MEGINGJORD before anything is recorded (G8, AC-X5): it
+    # checks the anchor named carries a receipt it issued, and refuses a site it
+    # has quarantined (AC-X6). Its refusal leaves the chain as it was, like
+    # every refusal above.
+    recorded = dict(approval.payload) if isinstance(approval.payload, dict) else {}
+    released_at = now()
+    try:
+        registered = await registration.register_release(
+            deps.federation(),
+            artefact=artefact,
+            facts=facts,
+            model=str(recorded.get("model") or ""),
+            console=registration.origin(_settings()),
+            released_at=released_at,
+        )
+    except ProblemError as refusal:
+        release(key, ctx)
+        telemetry.log("release.publish.refused", artefactSha256=artefact, reason=refusal.code)
+        raise
 
     with telemetry.span("releases.publish", telemetry.EDGE, artefactSha256=artefact):
         # The release is about the artefact, not about the run: the run reached
         # RELEASED when the approver signed, and this records what was then
         # published under that approval. Two entries because they are two
         # events, and the second is the one an auditor asks about.
-        recorded = dict(approval.payload) if isinstance(approval.payload, dict) else {}
         entry = await recorder.record(
             site_id=ctx.site_id,
             actor=ctx.actor,
@@ -446,6 +470,9 @@ async def publish(
                 # The licence policy the corpus was cleared under (RF-34, SAD
                 # 10.2), so the release keeps it whatever policy is in force later.
                 "licence_policy_version": facts.licence_policy_version,
+                # What MEGINGJORD registered it as: the receipt it was registered
+                # against and the estate posture it was released under (AC-I1i).
+                "federation": registration.registered(registered, facts),
             },
         )
         telemetry.log(
@@ -462,7 +489,7 @@ async def publish(
     out = PublishOut(
         artefact_sha256=artefact,
         model=str(recorded.get("model", "")),
-        released_at=now(),
+        released_at=released_at,
         formats=[str(item) for item in recorded.get("formats", [])],
         manifest=dict(recorded.get("manifest", {})),
     )
@@ -696,3 +723,10 @@ def _decided_at(body: DecisionIn, approved: bool) -> datetime:
             ),
         )
     return body.decided_at
+
+
+def _settings() -> Any:
+    """The process configuration, read at call time like `_fetch` reads it."""
+    from draupnir.core.infrastructure.config import get_settings
+
+    return get_settings()

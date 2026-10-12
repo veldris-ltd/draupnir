@@ -250,6 +250,17 @@ class PublicationFacts:
     #: its LICENCE_CLEARED entry recorded it. RF-34: carried to the release, so
     #: its copyright policy renders under the version in force at release.
     licence_policy_version: str | None = None
+    #: The first countersigned anchor at or beyond `release_seq`: its sequence
+    #: (`anchored_through`) and MEGINGJORD's signed receipt for it
+    #: (`countersignature`). What the release is registered against, and the
+    #: receipt it carries (VLD-SAD-MEGINGJORD-001 AC-X5, AC-R7). `None` while
+    #: the federation has not countersigned that far.
+    covering_anchor: Mapping[str, Any] | None = None
+    #: The latest anchoring attempt, whatever came of it. Where a release is
+    #: refused for want of an anchor, this is what MEGINGJORD last said and
+    #: why -- a quarantine, a fork, a partition -- so the refusal states the
+    #: reason rather than only the arithmetic (AC-X6).
+    last_anchoring: Mapping[str, Any] | None = None
 
 
 def _evidence_from(results: Mapping[str, Any]) -> tuple[Evidence, ...]:
@@ -572,6 +583,8 @@ class Orchestrator:
             release_seq=approval.seq,
             anchored_through=self._anchored_through(),
             licence_policy_version=licence_version,
+            covering_anchor=self.covering_anchor(approval.seq),
+            last_anchoring=self.last_anchoring(),
         )
 
     def _anchor_entries(self) -> tuple[LedgerEntry, ...]:
@@ -632,6 +645,37 @@ class Orchestrator:
             if entry.transition == BASELINE_CAPTURED and isinstance(entry.payload, Mapping):
                 latest[entry.subject_id] = entry.payload
         return tuple(latest.values())
+
+    def covering_anchor(self, seq: int) -> Mapping[str, Any] | None:
+        """The first countersigned anchor at or beyond `seq`. G8.
+
+        The earliest rather than the latest: a release is registered against
+        the anchor that first covered it, so the same release registered twice
+        names the same anchor and MEGINGJORD answers the second as a replay. An
+        anchor covers every entry before it, because each entry names the hash
+        of the one before (SAD 11A.3), so its receipt is evidence for them all.
+        """
+        found: Mapping[str, Any] | None = None
+        lowest = 0
+        for entry in self._anchor_entries():
+            payload = entry.payload if isinstance(entry.payload, dict) else {}
+            try:
+                through = int(payload.get("anchored_through") or 0)
+            except (TypeError, ValueError):
+                continue
+            if through < seq or not payload.get("countersignature"):
+                continue
+            if found is None or through < lowest:
+                found, lowest = payload, through
+        return found
+
+    def last_anchoring(self) -> Mapping[str, Any] | None:
+        """The latest anchoring attempt this site recorded, or `None`. G8."""
+        entries = self._anchor_entries()
+        if not entries:
+            return None
+        payload = entries[-1].payload
+        return payload if isinstance(payload, dict) else None
 
     def last_anchored_at(self) -> datetime | None:
         """When the federation last countersigned this chain, or None. RF-07.

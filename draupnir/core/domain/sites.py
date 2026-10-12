@@ -37,6 +37,36 @@ class AnchorState(StrEnum):
     #: The chain disagrees with an anchor. The forge is read only until
     #: investigated, and no release may leave it (SAD 11A.4).
     DIVERGED = "DIVERGED"
+    #: MEGINGJORD will not anchor this site: an operator there quarantined it,
+    #: or it found a second history (VLD-SAD-MEGINGJORD-001 SAD 10, AC-X6). The
+    #: link is up and the forge cannot obtain a receipt, so it cannot release.
+    QUARANTINED = "QUARANTINED"
+
+
+#: MEGINGJORD's problem types that mean the two records of this chain disagree.
+_DISAGREEMENTS: frozenset[str] = frozenset(
+    {"fork-detected", "chain-discontinuity", "sequence-regression"}
+)
+
+
+def anchor_state_after(outcome: str, problem: str, *, anchored_before: bool) -> AnchorState:
+    """The state an anchoring attempt leaves this site in. G8.
+
+    Derived from what MEGINGJORD answered, which the chain records with every
+    attempt (`site.anchor.submitted`), so the state an operator sees is the
+    chain's and not a side table's. A head MEGINGJORD accepted and has not yet
+    countersigned (its signing key away) changes nothing: the link is up and
+    the site is in good standing, only waiting.
+    """
+    if outcome in {"countersigned", "duplicate"}:
+        return AnchorState.ANCHORED
+    if problem == "site-not-anchorable":
+        return AnchorState.QUARANTINED
+    if outcome == "diverged" or problem in _DISAGREEMENTS:
+        return AnchorState.DIVERGED
+    if problem == "pending":
+        return AnchorState.ANCHORED if anchored_before else AnchorState.UNANCHORED
+    return AnchorState.PARTITIONED
 
 
 #: The states in which this site may publish a release. A partitioned forge

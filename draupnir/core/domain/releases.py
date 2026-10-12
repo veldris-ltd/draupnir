@@ -131,6 +131,11 @@ class ProjectedRelease:
     documents: Mapping[str, str]
     #: The licence policy version the publication recorded (RF-34), or None.
     licence_policy_version: str | None = None
+    #: What MEGINGJORD registered the release as, as the publication recorded
+    #: it: `model_id`, `receipt_id`, `anchor_seq`, `receipt` (the signed
+    #: anchor receipt) and `estate_posture` (VLD-SAD-MEGINGJORD-001 AC-X5,
+    #: AC-I1i). None for a release registered nowhere.
+    federation: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,6 +280,9 @@ def _release(
             str(payload["licence_policy_version"])
             if payload.get("licence_policy_version")
             else None
+        ),
+        federation=(
+            dict(payload["federation"]) if isinstance(payload.get("federation"), Mapping) else None
         ),
     )
 
