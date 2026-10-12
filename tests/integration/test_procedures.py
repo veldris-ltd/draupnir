@@ -298,3 +298,10 @@ def test_a_procedure_asked_to_stage_puts_the_released_formats_where_the_worker_w
     assert released["kind"] == "quantised" and released["size"] > 0
     with pytest.raises(ImmutableArtefactError):
         store.put(released["uri"], workdir / "anything")
+
+    # And the publication's own facts find the bytes and their evidence.
+    facts = procedure.orchestrator.publication_facts(procedure.artefacts["nvfp4"])
+    assert facts is not None
+    assert facts.artefact_uri == released["uri"]
+    judged = [e for e in facts.evidence.entries if e.artefact_sha256 == released["sha256"]]
+    assert judged and all(e.passed for e in judged)

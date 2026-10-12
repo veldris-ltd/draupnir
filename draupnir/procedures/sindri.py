@@ -727,7 +727,19 @@ def m8_regate_formats(procedure: Procedure, scheduler: Any) -> Mapping[str, Any]
         outcome = gleipnir_gates.evaluate(
             measurements, _baselines(suite.gates, measurements), suite_version=suite.version
         )
-        results[fmt] = outcome.as_payload()
+        # Which bytes were judged, by which suite, and when: what publication
+        # matches the released artefact against (AC-S8). Without the digest
+        # the evidence names no artefact, and a release from this procedure
+        # could be recorded and never published.
+        results[fmt] = {
+            **outcome.as_payload(),
+            "artefactSha256": digest,
+            "artefactKind": "quantised",
+            "format": fmt,
+            "suite": suite.name,
+            "evaluatedAt": datetime.now(UTC).isoformat(),
+            "passed": outcome.passed,
+        }
         if not outcome.passed:
             failing.append(fmt)
 
