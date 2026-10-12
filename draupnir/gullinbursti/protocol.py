@@ -18,8 +18,9 @@ reads exactly that. The site's identity is MEGINGJORD's: a UUID and a key
 identifier MEGINGJORD registered, not names this forge chose.
 
 **A receipt is verified before it is believed.** It is checked offline against
-the anchor key in the bundle, through the package's own verifier, and must name
-this site, this sequence and this hash (AC-R1). A receipt that does not verify
+the keys MEGINGJORD published in the bundle (the one it names, so a key
+rotation does not interrupt anchoring), through the package's own verifier,
+and must name this site, this sequence and this hash (AC-R1). A receipt that does not verify
 is not an anchor, however the server answered.
 
 **A failure is a finding, never an exception that reaches a run** (Decision
@@ -207,8 +208,19 @@ class Bundle:
         return key
 
     def anchor_keyring(self) -> Keyring:
-        """The key a receipt must verify under, as MEGINGJORD published it."""
-        return load_keyring(self.anchor_key.read_bytes())
+        """Every key MEGINGJORD has published to this forge, as one keyring.
+
+        Not only the anchor key `megingjord.toml` names. MEGINGJORD rotates its
+        operational keys yearly without a ceremony (its SAD 14.2, 31.4): it
+        publishes the next set beside the current one before it signs with
+        it, and its bundle carries every key it has published. A receipt names
+        its key, and the package's verifier uses that key and only under the
+        anchor purpose, so receipts under the old key and the new both verify
+        through the changeover, and a key MEGINGJORD never published still
+        does not.
+        """
+        files = {self.anchor_key, *self.anchor_key.parent.glob("meg-*.json")}
+        return load_keyring(*(path.read_bytes() for path in sorted(files)))
 
 
 @dataclass(frozen=True, slots=True)

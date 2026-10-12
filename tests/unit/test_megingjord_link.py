@@ -295,6 +295,32 @@ def test_a_receipt_that_does_not_verify_is_not_an_anchor(bundle: protocol.Bundle
     assert "does not verify" in receipt.reason
 
 
+def test_receipts_under_a_rotated_anchor_key_verify_through_the_changeover(
+    bundle: protocol.Bundle,
+) -> None:
+    """MEGINGJORD's yearly rotation (its SAD 14.2, 31.4) does not interrupt anchoring.
+
+    The next key is published into the bundle before MEGINGJORD signs with it;
+    a receipt under it verifies, and so does one under the key still named.
+    """
+    next_key = "meg-anchor-2027-10"
+    published = PublishedKey(
+        next_key, KeyPurpose.ANCHOR, tuple(s.public_key() for s in anchor_signers(next_key))
+    )
+    (bundle.folder / "keys" / f"{next_key}.json").write_text(json.dumps(published.to_wire()))
+    rotated = protocol.Link.from_bundle(
+        bundle,
+        FakeMegingjord(
+            lambda method, url, body: Answer(201, receipt_for(body["document"], key_id=next_key))
+        ),
+    )
+    assert rotated.countersign(head(), at=WHEN, countersignature="").accepted
+    current = protocol.Link.from_bundle(
+        bundle, FakeMegingjord(lambda method, url, body: Answer(201, receipt_for(body["document"])))
+    )
+    assert current.countersign(head(), at=WHEN, countersignature="").accepted
+
+
 def test_a_receipt_for_another_head_is_not_this_heads(bundle: protocol.Bundle) -> None:
     fake = FakeMegingjord(
         lambda method, url, body: Answer(201, receipt_for(body["document"], seq=11))

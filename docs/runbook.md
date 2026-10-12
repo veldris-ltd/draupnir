@@ -635,6 +635,12 @@ send `enrol-request.json` to MEGINGJORD's administrator, and save the
 certificate they send back in it as `site.crt`. `install.sh --check` then loads
 the bundle as both units will and says which site it speaks for.
 
+**When MEGINGJORD rotates its keys** (yearly, its SAD 31.4), its administrator
+sends a new `keys/` folder for the bundle, and after the switch a new
+`megingjord.toml`: copy them in. GULLINBURSTI trusts every key in `keys/`, so it
+accepts receipts under the old keys and the new and anchoring carries on through
+the change; the worker reads them at its next tick, the API at its next start.
+
 **Who reads the files.** The units are rootless containers, and nginx and the
 API run inside them as user 65532. Under rootless podman that user is a
 subordinate uid on the host, not the service account, so a key at `0600` owned
