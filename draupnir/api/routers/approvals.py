@@ -268,6 +268,11 @@ async def decide_gate(
                 payload=(
                     {
                         "approver": ctx.actor,
+                        # What publication checks the approval says (G8):
+                        # `skidbladnir.publish.verify_approval` refuses an
+                        # approval that does not record its decision, so one
+                        # recorded here without it could never be published.
+                        "decision": "approved",
                         "signature": body.signature,
                         "decided_at": record.decided_at.isoformat(),
                         "signature_verified": verified,

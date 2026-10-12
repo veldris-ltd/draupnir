@@ -322,6 +322,11 @@ def test_approving_a_gate_moves_the_run_to_released(
         "the entry does not record that the signature was verified (RF-06)"
     )
     assert recorded[-1].actor == DEV_ACTOR
+    # The approval as publication reads it: an approval publication refuses
+    # (it recorded no decision) could never be published (G8).
+    from draupnir.skidbladnir.publish import verify_approval
+
+    verify_approval(recorded[-1].payload, observed=str(recorded[-1].payload["artefact_sha256"]))
 
 
 def test_the_sole_approver_exception_is_computed_from_the_chain(

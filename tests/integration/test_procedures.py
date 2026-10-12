@@ -305,3 +305,6 @@ def test_a_procedure_asked_to_stage_puts_the_released_formats_where_the_worker_w
     assert facts.artefact_uri == released["uri"]
     judged = [e for e in facts.evidence.entries if e.artefact_sha256 == released["sha256"]]
     assert judged and all(e.passed for e in judged)
+    from draupnir.skidbladnir.publish import verify_approval
+
+    verify_approval(facts.approval.payload, observed=released["sha256"])

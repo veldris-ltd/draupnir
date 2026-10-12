@@ -796,6 +796,7 @@ def m10_release(procedure: Procedure, scheduler: Any) -> Mapping[str, Any]:
         },
         payload={
             "approver": procedure.approver,
+            "decision": "approved",
             "signature": procedure.artefacts["approval"],
             "signature_verified": True,
             "decided_at": datetime.now(UTC).isoformat(),
