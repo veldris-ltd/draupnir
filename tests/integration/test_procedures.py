@@ -294,6 +294,8 @@ def test_a_procedure_asked_to_stage_puts_the_released_formats_where_the_worker_w
     (entry,) = quantised
     staged = entry.payload["artefacts"]
     assert {item["sha256"] for item in staged} == {procedure.artefacts[fmt] for fmt in FORMATS}
+    # Three formats, three artefacts: one digest each, so a digest names one.
+    assert len({item["sha256"] for item in staged}) == len(FORMATS)
     released = next(item for item in staged if item["sha256"] == procedure.artefacts["nvfp4"])
     assert released["kind"] == "quantised" and released["size"] > 0
     with pytest.raises(ImmutableArtefactError):

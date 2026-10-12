@@ -90,10 +90,14 @@ JOB_TIMEOUT_SECONDS = 120.0
 #: hashes nothing itself -- the procedure hashes what it finds, because the
 #: control at every stage is "hash the bytes that are there" rather than "trust
 #: what the job said it wrote" (AC-S8).
+#: What stands in for an executor: bytes derived from its inputs and from the
+#: output's own name. The name matters: three formats quantised from one merged
+#: model are three different artefacts, and identical bytes would give them one
+#: digest, which nothing that addresses an artefact by its digest can tell apart.
 STAND_IN = (
     "import hashlib,json,pathlib,sys\n"
     "out=pathlib.Path(sys.argv[1]); ins=[pathlib.Path(p) for p in sys.argv[2:]]\n"
-    "d=hashlib.sha256()\n"
+    "d=hashlib.sha256(out.name.encode())\n"
     "for p in ins:\n"
     "    d.update(p.read_bytes() if p.is_file() else p.name.encode())\n"
     "out.parent.mkdir(parents=True,exist_ok=True)\n"
