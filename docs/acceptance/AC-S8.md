@@ -31,6 +31,7 @@ make test-unit
 - `skills/cim-release/scripts/preflight.py`
 - `tests/contract/test_api_write_path.py`
 - `tests/integration/test_object_store.py`
+- `tests/integration/test_procedures.py`
 - `tests/integration/test_release_publication.py`
 - `tests/integration/test_vault_reconciliation.py`
 - `tests/unit/test_evidence.py`
