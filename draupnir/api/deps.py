@@ -118,6 +118,21 @@ def set_estate(telemetry_reader: Telemetry) -> None:
 
 Estate = Annotated[Telemetry, Depends(estate)]
 
+#: The link to MEGINGJORD (`gullinbursti.protocol.Link`), or `None` where this
+#: forge is not federated. Installed by the lifespan from the bundle (G8).
+FEDERATION: Any = None
+
+
+def federation() -> Any:
+    """The current link to MEGINGJORD, resolved at call time."""
+    return FEDERATION
+
+
+def set_federation(link: Any) -> None:
+    """Install the link to MEGINGJORD. Called by the lifespan, and by tests."""
+    global FEDERATION
+    FEDERATION = link
+
 
 def complete(
     key: str,

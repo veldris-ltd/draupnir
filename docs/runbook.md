@@ -460,6 +460,19 @@ command that does.
 **Demonstrated by** `test_a_forge_that_finds_a_divergence_goes_read_only`,
 which also checks that `restore()` does not lift it.
 
+**Quarantined by MEGINGJORD.** The same incident seen from the other end. When
+MEGINGJORD finds a second history for one of this site's sequences, or its
+operator quarantines the site, it refuses every anchor from it
+(`site-not-anchorable`) and refuses to register its releases. The console shows
+the site as `QUARANTINED`, with MEGINGJORD's reason, and the publish control is
+disabled with that reason; a publish attempted anyway is refused in the same
+words. Training and evaluation continue. Nothing at the forge lifts it: it is
+cleared by MEGINGJORD's operator once the investigation above has an answer,
+and the next anchor then succeeds and the state returns to `ANCHORED`.
+Demonstrated by `test_a_quarantined_site_shows_it_and_its_release_says_why`
+and `test_a_release_megingjord_refuses_is_not_published`, and end to end
+against a real MEGINGJORD in its G8 evidence (VLD-SAD-MEGINGJORD-001 AC-X6).
+
 ---
 
 ## 9. Mains loss, uninterruptible supply on battery
@@ -612,9 +625,21 @@ certificate store.
 | Internal CA (certificate only) | `DRAUPNIR_INTERNAL_CA` | — | the proxy, the API and the worker |
 | Proxy client | `DRAUPNIR_PROXY_CLIENT_CERTIFICATE`, `DRAUPNIR_PROXY_CLIENT_PRIVATE_KEY` | client authentication | the console proxy, presenting it to the API |
 | API server | `DRAUPNIR_API_TLS_CERTIFICATE`, `DRAUPNIR_API_TLS_PRIVATE_KEY` | the name `draupnir-api`, server authentication | the API |
-| GULLINBURSTI site | `DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE`, `DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY` | client authentication, from the MEGINGJORD internal PKI | the worker, presenting it to MEGINGJORD |
+| GULLINBURSTI site | the bundle in `DRAUPNIR_MEGINGJORD_BUNDLE` (`site.crt`, `site-mtls.key`) | client authentication, issued under MEGINGJORD's federation root | the worker and the API, presenting it to MEGINGJORD |
 
-The GULLINBURSTI pair is needed only where `DRAUPNIR_REGISTRY_URL` is set.
+The GULLINBURSTI certificate is not issued by the internal CA and is not set on
+its own. It is in the bundle MEGINGJORD's installer writes for this site
+(`/etc/megingjord/sites/<name>/` on the MEGINGJORD server): copy that folder
+here, run its `enrol.sh` (which makes this site's keys, here, where they stay),
+send `enrol-request.json` to MEGINGJORD's administrator, and save the
+certificate they send back in it as `site.crt`. `install.sh --check` then loads
+the bundle as both units will and says which site it speaks for.
+
+**When MEGINGJORD rotates its keys** (yearly, its SAD 31.4), its administrator
+sends a new `keys/` folder for the bundle, and after the switch a new
+`megingjord.toml`: copy them in. GULLINBURSTI trusts every key in `keys/`, so it
+accepts receipts under the old keys and the new and anchoring carries on through
+the change; the worker reads them at its next tick, the API at its next start.
 
 **Who reads the files.** The units are rootless containers, and nginx and the
 API run inside them as user 65532. Under rootless podman that user is a

@@ -162,13 +162,22 @@ class Settings(BaseSettings):
     # same GPUs would be a second thing to keep in step with a driver upgrade.
     prometheus_url: str = ""
 
-    # Where MEGINGJORD answers, empty where this forge is not federated. The
-    # worker has carried this since RF-07 to anchor the chain head; the API
-    # needs it too, because readiness has to be able to say whether the
-    # wide-area link is up (RF-17). `deploy/install.sh` already writes it into
-    # the one environment file both units read, so this names a setting that
-    # was already there rather than adding one.
-    registry_url: str = ""
+    # The folder MEGINGJORD's installer wrote for this forge, completed here by
+    # its `enrol.sh`: where MEGINGJORD answers, the CA it is verified against,
+    # this forge's certificate and keys, its identity as MEGINGJORD knows it,
+    # and the published keys a receipt is checked with. Empty where this forge
+    # is not federated. One setting for both units: the worker anchors the
+    # chain (RF-07), and the API registers a release at publish and reports
+    # the link in readiness (RF-17). It replaced a URL, a signing key and a
+    # certificate pair set separately, which could name two different forges.
+    megingjord_bundle: str = ""
+
+    # This forge's console as a reader reaches it, `https://alviss.sindri...`.
+    # A release registered with MEGINGJORD names where its model card, SBOM,
+    # lineage and training summary are, and MEGINGJORD takes absolute https
+    # addresses only (its release record admits no relative path). Empty means
+    # the origin of `oidc_redirect_uri`, which is the same console.
+    public_origin: str = ""
 
     # Where an OpenTelemetry collector answers, empty where this forge has
     # none -- which is the ordinary case and not a fault (RF-18). Spans were

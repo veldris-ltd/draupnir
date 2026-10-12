@@ -248,6 +248,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # MEGINGJORD is outbound traffic, so it goes through the broker like every
     # other call rather than being the one nobody decided (threat T11).
     settings = get_settings()
+    # The link to MEGINGJORD, from the bundle (G8). Readiness asks it what
+    # protocol it speaks, as this site: MEGINGJORD answers only a client that
+    # presents a site certificate, so an anonymous probe would report a link
+    # that cannot anchor anything as up.
+    link = federation_link(settings)
+    deps.set_federation(link)
     readiness.set_dependencies(
         readiness.Dependencies(
             engine=engine,
@@ -255,9 +261,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             site_id=settings.site_id,
             object_store=readiness.object_store_probe(settings),
             scheduler_url=settings.scheduler_url,
-            registry_url=settings.registry_url,
+            registry_url=f"{link.bundle.endpoint}/v1/protocol" if link else "",
             scheduler_client=probe_client(purpose=SCHEDULING_PURPOSE, policy=SCHEDULING_POLICY),
-            federation_client=probe_client(purpose=FEDERATION_PURPOSE, policy=FEDERATION_POLICY),
+            federation_client=link.client if link else None,
         )
     )
     # The SAD 11.3 signals a scrape can read (RF-18). On the synchronous
@@ -291,9 +297,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         deps.set_reader(EmptyReadModel())
         deps.set_estate(Telemetry(client=None))
         deps.set_store(IdempotencyStore())
+        deps.set_federation(None)
         writing.set_writer(writing.NoWriter())
         writer_engine.dispose()
         await engine.dispose()
+
+
+def federation_link(settings: Any) -> Any:
+    """The link to MEGINGJORD, or `None` where this forge is not federated.
+
+    A bundle that is configured and unusable is logged and leaves the forge
+    unfederated rather than stopping the API: training, evaluation and the
+    console carry on (Decision S8), publish refuses with the reason, and
+    readiness reports the link down.
+    """
+    from draupnir.api import telemetry
+    from draupnir.api.federation import megingjord_link
+    from draupnir.gullinbursti.protocol import BundleError
+    from draupnir.svalinn.transport import TransportError
+
+    try:
+        return megingjord_link(settings.megingjord_bundle)
+    except (BundleError, TransportError) as unusable:
+        telemetry.log("api.federation.unusable", level="error", reason=str(unusable))
+        return None
 
 
 def jwks_client(settings: Any) -> authentication.Client | None:

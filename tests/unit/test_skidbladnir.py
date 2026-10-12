@@ -306,7 +306,7 @@ def test_this_package_implements_no_watermarking() -> None:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         names: list[str] = []
         for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
                 names.append(node.name)
             elif isinstance(node, ast.Name):
                 names.append(node.id)
@@ -359,6 +359,8 @@ def card(**overrides: object) -> modelcard.ModelCard:
         "approver": "akuma",
         "approvedAt": AT.isoformat(),
         "soleApproverException": True,
+        "anchorReceipt": "MEGINGJORD receipt r-1: sequence 42, countersigned under meg-anchor",
+        "estatePosture": "Guided. The root key was made offline and is not on the server.",
     }
     evaluation: dict[str, Any] = {
         "suite": "general-core",

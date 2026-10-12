@@ -27,3 +27,10 @@ divergence, where it is to escalate.
 The dependency on MEGINGJORD is three protocols rather than an import. The two
 are independent siblings, and the real thing between them is mTLS over
 WireGuard rather than a method call.
+
+`protocol` is that real thing (VLD-SAD-MEGINGJORD-001 Prompt G8): MEGINGJORD's
+wire format, from the shared protocol package both repositories consume
+(`veldris-shared-protocol`, vendored). It anchors every chain entry in order,
+verifies each receipt offline before believing it, registers a release with
+proof it was anchored, and is configured by the bundle MEGINGJORD's installer
+writes for the site and nothing else.

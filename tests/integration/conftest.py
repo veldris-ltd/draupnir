@@ -179,15 +179,18 @@ def minio() -> Iterator[dict[str, str]]:
     module = pytest.importorskip(
         "testcontainers.minio", reason="Docker and testcontainers are required"
     )
-    # MinIO's own registry, pinned by digest. testcontainers defaults to
-    # `minio/minio:RELEASE.2022-12-02T19-19-22Z` on Docker Hub, which now refuses
-    # anonymous pulls of MinIO's images, so the pipeline could not start this
-    # container at all. The tag is the same release; Quay's is a separate build
-    # of it (its layers differ from Docker Hub's), chosen deliberately, and the
-    # digest keeps a retagged image from changing under the tests.
+    # Chainguard's build of MinIO, pinned by the digest of its multi-arch index
+    # (RF-51). MinIO's own images can no longer be pulled anonymously from
+    # anywhere: testcontainers' default on Docker Hub is refused, and the Quay
+    # digest this used to pin now answers 401, which turned stage 2.4 red and
+    # stopped the pipeline before it built an image. Chainguard is the registry
+    # the console image is already built from, and its entrypoint is `minio`, so
+    # testcontainers' `server /data` command runs unchanged. Chainguard publishes
+    # only `latest` without a subscription; the digest is what keeps that from
+    # changing under the tests. The build is RELEASE.2026-09-22T19-25-18Z.
     image = (
-        "quay.io/minio/minio"
-        "@sha256:031fd97adca056cdbfd416a26670898d93adb9a79a3cf126aac5a41ddc22c5a3"
+        "cgr.dev/chainguard/minio"
+        "@sha256:59667194421209c2c1eacbe761e24787e047985c5dfa96b15da9b59fe9b55cd0"
     )
     with module.MinioContainer(image=image) as container:
         config = container.get_config()

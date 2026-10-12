@@ -95,10 +95,10 @@ class FederationRecordError(Exception):
 
 def _inspect(value: Any, path: str) -> None:
     """Walk one value, refusing anything that is not a hash, name or number."""
-    if value is None or isinstance(value, (bool, int, float)):
+    if value is None or isinstance(value, bool | int | float):
         return
 
-    if isinstance(value, (bytes, bytearray, memoryview)):
+    if isinstance(value, bytes | bytearray | memoryview):
         raise ContentLeakError(path, "it is raw bytes")
 
     if isinstance(value, str):
@@ -120,7 +120,7 @@ def _inspect(value: Any, path: str) -> None:
             _inspect(item, f"{path}.{key}")
         return
 
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         for index, item in enumerate(value):
             _inspect(item, f"{path}[{index}]")
         return
@@ -189,7 +189,7 @@ def _count(value: Any) -> int:
     """How many leaf fields a structure has."""
     if isinstance(value, Mapping):
         return sum(_count(item) for item in value.values())
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         return sum(_count(item) for item in value)
     return 1
 
@@ -223,7 +223,7 @@ def hashes_in(payload: Mapping[str, Any]) -> tuple[str, ...]:
         elif isinstance(value, Mapping):
             for item in value.values():
                 walk(item)
-        elif isinstance(value, (list, tuple)):
+        elif isinstance(value, list | tuple):
             for item in value:
                 walk(item)
 
@@ -240,7 +240,7 @@ def declared_fields(payloads: Iterable[Mapping[str, Any]]) -> tuple[str, ...]:
             for key, item in value.items():
                 names.add(f"{prefix}{key}")
                 walk(item, f"{prefix}{key}.")
-        elif isinstance(value, (list, tuple)):
+        elif isinstance(value, list | tuple):
             for item in value:
                 walk(item, prefix)
 
@@ -381,6 +381,11 @@ class Receipt:
     outcome: AnchorOutcome
     anchor: Anchor | None
     reason: str
+    #: The registry's problem type where it refused, by slug (`fork-detected`,
+    #: `site-not-anchorable`, ...), or why nothing was asked (`unreachable`).
+    #: The anchor state an operator sees turns on which, so it is kept as a
+    #: field rather than left to be parsed back out of the reason.
+    problem: str = ""
 
     @property
     def accepted(self) -> bool:

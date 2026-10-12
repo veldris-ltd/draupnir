@@ -1165,6 +1165,17 @@
             },
             "title": "Nodes",
             "type": "array"
+          },
+          "registration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RegistrationOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What MEGINGJORD registered the release as, with its anchor receipt and the estate posture it was released under. Null before publication."
           }
         },
         "required": [
@@ -1797,6 +1808,48 @@
         "title": "Readiness",
         "type": "object"
       },
+      "RegistrationOut": {
+        "additionalProperties": false,
+        "description": "What MEGINGJORD registered a release as. VLD-SAD-MEGINGJORD-001 AC-X5, AC-I1i.",
+        "properties": {
+          "anchorSeq": {
+            "description": "The anchored sequence the release was registered against: the first this site's chain was countersigned at or beyond the approval.",
+            "title": "Anchorseq",
+            "type": "integer"
+          },
+          "estatePosture": {
+            "additionalProperties": true,
+            "description": "The estate's security posture as installed, which MEGINGJORD stamped onto the registration: profile, root key custody, storage, backups (AC-I1i).",
+            "title": "Estateposture",
+            "type": "object"
+          },
+          "modelId": {
+            "description": "MEGINGJORD's identifier for the registered model.",
+            "title": "Modelid",
+            "type": "string"
+          },
+          "receipt": {
+            "additionalProperties": true,
+            "description": "MEGINGJORD's signed anchor receipt for that sequence, document and envelope. Verifies offline with MEGINGJORD's published anchor key and nothing of MEGINGJORD's code (AC-R1, AC-R7).",
+            "title": "Receipt",
+            "type": "object"
+          },
+          "receiptId": {
+            "description": "The anchor receipt the registration was accepted on.",
+            "title": "Receiptid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "modelId",
+          "receiptId",
+          "anchorSeq",
+          "receipt",
+          "estatePosture"
+        ],
+        "title": "RegistrationOut",
+        "type": "object"
+      },
       "ReleasePackageOut": {
         "additionalProperties": false,
         "description": "A release package: card, SBOM, lineage and the Article 53 artefacts. S17.",
@@ -1868,6 +1921,17 @@
             ],
             "description": "When it was published.",
             "title": "Publishedat"
+          },
+          "registration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RegistrationOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What MEGINGJORD registered the release as, with its anchor receipt and the estate posture it was released under (VLD-SAD-MEGINGJORD-001 AC-X5, AC-I1i). Null for a release registered nowhere."
           },
           "sbomUri": {
             "description": "The software bill of materials.",
@@ -2442,8 +2506,20 @@
         "additionalProperties": false,
         "description": "One forge in the Forge Matrix. SAD 11A, Decision S12: a site, not a node.",
         "properties": {
+          "anchorReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the site is not anchored, in MEGINGJORD's words where it refused, from the latest anchoring attempt the chain records. Null when anchored.",
+            "title": "Anchorreason"
+          },
           "anchorState": {
-            "description": "`ANCHORED`, `UNANCHORED` or `PARTITIONED`. A partitioned site continues to train and cannot release (Decision S8).",
+            "description": "`ANCHORED`, `UNANCHORED`, `PARTITIONED`, `DIVERGED` or `QUARANTINED`. Only an anchored site may release. A partitioned site continues to train and cannot release (Decision S8); a quarantined one is refused anchoring by MEGINGJORD and so cannot obtain a receipt (VLD-SAD-MEGINGJORD-001 AC-X6).",
             "title": "Anchorstate",
             "type": "string"
           },

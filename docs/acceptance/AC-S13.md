@@ -16,6 +16,7 @@ make test-degraded
 
 ## Evidence
 
+- `draupnir/api/registration.py`
 - `draupnir/api/routers/approvals.py`
 - `draupnir/core/application/orchestrator.py`
 - `draupnir/core/domain/federation.py`

@@ -16,6 +16,7 @@ plus an alias generator does that once rather than per field.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -378,6 +379,53 @@ class LedgerSlice(Wire):
     )
 
 
+class RegistrationOut(Wire):
+    """What MEGINGJORD registered a release as. VLD-SAD-MEGINGJORD-001 AC-X5, AC-I1i."""
+
+    model_id: str = Field(description="MEGINGJORD's identifier for the registered model.")
+    receipt_id: str = Field(description="The anchor receipt the registration was accepted on.")
+    anchor_seq: int = Field(
+        description=(
+            "The anchored sequence the release was registered against: the first this "
+            "site's chain was countersigned at or beyond the approval."
+        )
+    )
+    receipt: dict[str, Any] = Field(
+        description=(
+            "MEGINGJORD's signed anchor receipt for that sequence, document and envelope. "
+            "Verifies offline with MEGINGJORD's published anchor key and nothing of "
+            "MEGINGJORD's code (AC-R1, AC-R7)."
+        )
+    )
+    estate_posture: dict[str, Any] = Field(
+        description=(
+            "The estate's security posture as installed, which MEGINGJORD stamped onto "
+            "the registration: profile, root key custody, storage, backups (AC-I1i)."
+        )
+    )
+
+
+def registration_of(federation: Any) -> RegistrationOut | None:
+    """The registration a release row recorded, or None where there was none."""
+    if not isinstance(federation, dict) or not federation.get("model_id"):
+        return None
+    receipt = federation.get("receipt")
+    if isinstance(receipt, str):
+        # Recorded as the compact JSON MEGINGJORD signed. Anything else is not
+        # a receipt, and the release says it carries none rather than failing.
+        try:
+            receipt = json.loads(receipt)
+        except ValueError:
+            receipt = {}
+    return RegistrationOut(
+        model_id=str(federation["model_id"]),
+        receipt_id=str(federation.get("receipt_id", "")),
+        anchor_seq=int(federation.get("anchor_seq", 0)),
+        receipt=receipt if isinstance(receipt, dict) else {},
+        estate_posture=dict(federation.get("estate_posture") or {}),
+    )
+
+
 class LineageOut(Wire):
     """A lineage attestation. AC-F11."""
 
@@ -398,6 +446,13 @@ class LineageOut(Wire):
         description=(
             "The entity tag `publishRelease` is conditional on, over the approval and any "
             "publication already recorded (RF-32). Send it back as `If-Match`."
+        ),
+    )
+    registration: RegistrationOut | None = Field(
+        default=None,
+        description=(
+            "What MEGINGJORD registered the release as, with its anchor receipt and the "
+            "estate posture it was released under. Null before publication."
         ),
     )
 
@@ -483,12 +538,21 @@ class SiteOut(Wire):
     control_plane_uri: str = Field(description="Its ALVISS endpoint.")
     anchor_state: str = Field(
         description=(
-            "`ANCHORED`, `UNANCHORED` or `PARTITIONED`. A partitioned site continues to "
-            "train and cannot release (Decision S8)."
+            "`ANCHORED`, `UNANCHORED`, `PARTITIONED`, `DIVERGED` or `QUARANTINED`. Only an "
+            "anchored site may release. A partitioned site continues to train and cannot "
+            "release (Decision S8); a quarantined one is refused anchoring by MEGINGJORD "
+            "and so cannot obtain a receipt (VLD-SAD-MEGINGJORD-001 AC-X6)."
         )
     )
     last_anchored_at: datetime | None = Field(
         default=None, description="When its chain head was last countersigned."
+    )
+    anchor_reason: str | None = Field(
+        default=None,
+        description=(
+            "Why the site is not anchored, in MEGINGJORD's words where it refused, from the "
+            "latest anchoring attempt the chain records. Null when anchored."
+        ),
     )
 
 
@@ -815,6 +879,14 @@ class ReleasePackageOut(Wire):
     approver: str = Field(description="Who approved it.")
     sole_approver_exception: bool = Field(
         description="Whether it was approved by a sole approver. Disclosed, not hidden."
+    )
+    registration: RegistrationOut | None = Field(
+        default=None,
+        description=(
+            "What MEGINGJORD registered the release as, with its anchor receipt and the "
+            "estate posture it was released under (VLD-SAD-MEGINGJORD-001 AC-X5, AC-I1i). "
+            "Null for a release registered nowhere."
+        ),
     )
 
 

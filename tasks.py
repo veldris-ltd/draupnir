@@ -136,6 +136,11 @@ UNIT_COVERAGE: tuple[str, ...] = (
     # verifies their signatures (SAD 8.2). Five hundred lines of it, under no
     # floor.
     "draupnir.api.assurance",
+    # G8: the link to MEGINGJORD, built from its bundle, and the registration
+    # at publish. Exercised against a fake MEGINGJORD answering with receipts
+    # signed by a real anchor key.
+    "draupnir.api.federation",
+    "draupnir.api.registration",
     "draupnir.core.plugins",
 )
 
@@ -944,6 +949,12 @@ def audit() -> int:
             # that name exists on PyPI -- so exporting them makes the audit
             # resolve a stranger's package instead of ours.
             "--no-emit-workspace",
+            # Nor the shared protocol, vendored from veldris-ltd/shared-protocol
+            # and on no index (vendor/README.md): the audit would otherwise look
+            # its name up on PyPI and either fail or find a stranger's package.
+            # Its one dependency, cryptography, is exported and audited.
+            "--no-emit-package",
+            "veldris-shared-protocol",
             "--no-hashes",
             "--format",
             "requirements-txt",

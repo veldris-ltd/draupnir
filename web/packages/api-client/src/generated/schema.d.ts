@@ -1975,6 +1975,8 @@ export interface components {
             nodes?: {
                 [key: string]: unknown;
             }[];
+            /** @description What MEGINGJORD registered the release as, with its anchor receipt and the estate posture it was released under. Null before publication. */
+            registration?: components["schemas"]["RegistrationOut"] | null;
         };
         /**
          * Measurement
@@ -2364,6 +2366,41 @@ export interface components {
             status: "ready" | "degraded";
         };
         /**
+         * RegistrationOut
+         * @description What MEGINGJORD registered a release as. VLD-SAD-MEGINGJORD-001 AC-X5, AC-I1i.
+         */
+        RegistrationOut: {
+            /**
+             * Anchorseq
+             * @description The anchored sequence the release was registered against: the first this site's chain was countersigned at or beyond the approval.
+             */
+            anchorSeq: number;
+            /**
+             * Estateposture
+             * @description The estate's security posture as installed, which MEGINGJORD stamped onto the registration: profile, root key custody, storage, backups (AC-I1i).
+             */
+            estatePosture: {
+                [key: string]: unknown;
+            };
+            /**
+             * Modelid
+             * @description MEGINGJORD's identifier for the registered model.
+             */
+            modelId: string;
+            /**
+             * Receipt
+             * @description MEGINGJORD's signed anchor receipt for that sequence, document and envelope. Verifies offline with MEGINGJORD's published anchor key and nothing of MEGINGJORD's code (AC-R1, AC-R7).
+             */
+            receipt: {
+                [key: string]: unknown;
+            };
+            /**
+             * Receiptid
+             * @description The anchor receipt the registration was accepted on.
+             */
+            receiptId: string;
+        };
+        /**
          * ReleasePackageOut
          * @description A release package: card, SBOM, lineage and the Article 53 artefacts. S17.
          */
@@ -2413,6 +2450,8 @@ export interface components {
              * @description When it was published.
              */
             publishedAt?: string | null;
+            /** @description What MEGINGJORD registered the release as, with its anchor receipt and the estate posture it was released under (VLD-SAD-MEGINGJORD-001 AC-X5, AC-I1i). Null for a release registered nowhere. */
+            registration?: components["schemas"]["RegistrationOut"] | null;
             /**
              * Sbomuri
              * @description The software bill of materials.
@@ -2769,8 +2808,13 @@ export interface components {
          */
         SiteOut: {
             /**
+             * Anchorreason
+             * @description Why the site is not anchored, in MEGINGJORD's words where it refused, from the latest anchoring attempt the chain records. Null when anchored.
+             */
+            anchorReason?: string | null;
+            /**
              * Anchorstate
-             * @description `ANCHORED`, `UNANCHORED` or `PARTITIONED`. A partitioned site continues to train and cannot release (Decision S8).
+             * @description `ANCHORED`, `UNANCHORED`, `PARTITIONED`, `DIVERGED` or `QUARANTINED`. Only an anchored site may release. A partitioned site continues to train and cannot release (Decision S8); a quarantined one is refused anchoring by MEGINGJORD and so cannot obtain a receipt (VLD-SAD-MEGINGJORD-001 AC-X6).
              */
             anchorState: string;
             /**

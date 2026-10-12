@@ -20,6 +20,12 @@ paths = [
 ]
 regexes = [
   '''draupnir-dev-secret''',
+  # MEGINGJORD's key identifiers, e.g. meg-anchor-2026-10. Public by design:
+  # every receipt names its key_id, and the published key files are named by
+  # it (VLD-SAD-MEGINGJORD-001 12.5). Matched on the exact identifier shape, as
+  # MEGINGJORD's own configuration matches it, so a credential cannot hide
+  # behind it. The test anchor key's name is one.
+  '''meg-(anchor|policy|ckpt)-[0-9]{4}-[0-9]{2}''',
   # Python type annotations for cryptographic key objects. `generic-api-key`
   # matches any identifier ending in "key" followed by a value, so
   # `signing_key: ed25519.Ed25519PrivateKey` reads to it as a credential being

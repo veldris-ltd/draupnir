@@ -197,7 +197,7 @@ function nodeOf(node: Record<string, unknown>, index: number): LineageNode {
  * it enabled to fail would tell the approver the action was available, let them
  * take it, and then take it back.
  */
-function PublishPanel({
+export function PublishPanel({
   artefact,
   etag,
 }: {
@@ -212,6 +212,11 @@ function PublishPanel({
   // Named separately: `partitioned` does not narrow `here` for TypeScript,
   // and reaching for `here!` to work around that is how a null slips in.
   const siteName = here?.name ?? 'This site';
+  // MEGINGJORD's own refusal, where it has refused this site: quarantined, or
+  // its record of this chain disagreeing with the chain (G8, AC-X6). The
+  // control is disabled with the reason, in MEGINGJORD's words, rather than
+  // left available to fail.
+  const refused = refusedBy(here?.anchorState, here?.anchorReason ?? null, siteName);
 
   const [confirm, setConfirm] = useState(false);
   const [outcome, setOutcome] = useState<string | null>(null);
@@ -249,12 +254,18 @@ function PublishPanel({
         </p>
       ) : null}
 
+      {refused === null ? null : (
+        <p className="cn-publish__blocked" role="status" data-testid="publish-blocked">
+          <strong>{refused.headline}</strong> {refused.explanation}
+        </p>
+      )}
+
       <Button
-        state={partitioned ? 'partitioned' : 'ready'}
+        state={partitioned ? 'partitioned' : refused === null ? 'ready' : 'readOnly'}
         stateMessage={
           partitioned
             ? 'Unavailable: this site is partitioned from the federation and the chain head cannot be countersigned.'
-            : undefined
+            : refused?.control
         }
         onClick={() => {
           setConfirm(true);
@@ -353,4 +364,37 @@ interface LedgerRow {
   subjectType: string;
   transition: string;
   entryHash: string;
+}
+
+/**
+ * Why MEGINGJORD will not let this site release, or `null` where it has not
+ * refused it. Partitioned is not here: that is the link, not a refusal, and
+ * has its own wording above.
+ */
+function refusedBy(
+  state: string | undefined,
+  reason: string | null,
+  siteName: string,
+): { headline: string; explanation: string; control: string } | null {
+  const said = reason === null ? '' : ` MEGINGJORD's reason: ${reason}`;
+  if (state === 'QUARANTINED') {
+    return {
+      headline: `${siteName} is quarantined by MEGINGJORD.`,
+      explanation:
+        "MEGINGJORD will not anchor this site's chain, so it cannot obtain a receipt and no " +
+        'release from it can be registered or published. Training and evaluation continue. ' +
+        `The control below is disabled for this reason.${said}`,
+      control: 'Unavailable: MEGINGJORD has quarantined this site, so it cannot obtain a receipt.',
+    };
+  }
+  if (state === 'DIVERGED') {
+    return {
+      headline: `${siteName}'s chain disagrees with MEGINGJORD's record of it.`,
+      explanation:
+        'The forge is read only until the difference is investigated (SAD 11A.4), and no ' +
+        `release may leave it. The control below is disabled for this reason.${said}`,
+      control: "Unavailable: this site's chain disagrees with MEGINGJORD's record of it.",
+    };
+  }
+  return null;
 }

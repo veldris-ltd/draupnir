@@ -458,30 +458,36 @@ def test_the_worker_reads_the_baseline_the_installer_writes() -> None:
     assert by_hand.fabric_baseline_gbps == pytest.approx(190.0)
 
 
-def test_the_worker_reads_the_certificate_it_presents_to_megingjord() -> None:
-    """RF-37. The federation link is authenticated with what install.sh writes."""
+def test_the_worker_reads_the_bundle_it_speaks_to_megingjord_with() -> None:
+    """RF-37 and G8. The link is the bundle install.sh writes, and nothing else."""
     installer = (Path(__file__).parents[2] / "deploy" / "install.sh").read_text(encoding="utf-8")
-    names = (
+    for name in ("DRAUPNIR_MEGINGJORD_BUNDLE", "DRAUPNIR_INTERNAL_CA"):
+        assert f"{name}=${{" in installer, f"install.sh does not write {name}"
+    # The separate settings the bundle replaced are gone, so a forge cannot
+    # be configured as one site with another's certificate.
+    for retired in (
+        "DRAUPNIR_REGISTRY_URL",
+        "DRAUPNIR_SITE_SIGNING_KEY",
         "DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE",
         "DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY",
-        "DRAUPNIR_INTERNAL_CA",
-    )
-    for name in names:
-        assert f"{name}=${{" in installer, f"install.sh does not write {name}"
+    ):
+        assert retired not in installer, f"install.sh still writes {retired}"
 
     configured = WorkerSettings.from_environment(
         {
-            "DRAUPNIR_FEDERATION_CLIENT_CERTIFICATE": "/etc/draupnir/tls/federation.pem",
-            "DRAUPNIR_FEDERATION_CLIENT_PRIVATE_KEY": "/etc/draupnir/tls/federation.key",
+            "DRAUPNIR_MEGINGJORD_BUNDLE": "/etc/draupnir/megingjord",
             "DRAUPNIR_INTERNAL_CA": "/etc/draupnir/tls/internal-ca.pem",
         }
     )
-    unconfigured = WorkerSettings.from_environment({"DRAUPNIR_INTERNAL_CA": ""})
+    unconfigured = WorkerSettings.from_environment(
+        {"DRAUPNIR_MEGINGJORD_BUNDLE": "", "DRAUPNIR_INTERNAL_CA": ""}
+    )
 
-    assert configured.federation_certificate == Path("/etc/draupnir/tls/federation.pem")
-    assert configured.federation_private_key == Path("/etc/draupnir/tls/federation.key")
+    assert configured.megingjord_bundle == Path("/etc/draupnir/megingjord")
+    assert configured.signing_key == Path("/etc/draupnir/megingjord/site-signing.key")
     assert configured.internal_ca == Path("/etc/draupnir/tls/internal-ca.pem")
-    assert unconfigured.federation_certificate is None
+    assert unconfigured.megingjord_bundle is None
+    assert unconfigured.signing_key is None
     assert unconfigured.internal_ca is None
 
 
@@ -747,6 +753,150 @@ def test_a_successful_anchor_reports_no_alarm() -> None:
     assert recorded.seq == 7
 
 
+class SequencedRegistry(StubRegistry):
+    """Countersigns up to `refuse_at`, then refuses with MEGINGJORD's problem."""
+
+    def __init__(self, refuse_at: int, problem: str = "pending") -> None:
+        super().__init__()
+        self.refuse_at = refuse_at
+        self.problem = problem
+
+    def countersign(self, head: Any, *, at: Any, countersignature: str) -> Any:
+        from draupnir.core.domain.federation import AnchorOutcome, Receipt
+
+        if head.head.seq >= self.refuse_at:
+            self.submitted.append(head.head.seq)
+            return Receipt(AnchorOutcome.REJECTED, None, "not yet", problem=self.problem)
+        return super().countersign(head, at=at, countersignature=countersignature)
+
+
+def test_every_entry_since_megingjords_head_is_anchored_in_order() -> None:
+    """VLD-SAD-MEGINGJORD-001 12.2 rule 6: its head plus one, then the next."""
+    registry = StubRegistry()
+
+    finding, recorded = duties.anchor(
+        an_agent(), registry, (a_head(5), a_head(6), a_head(7)), now=datetime.now(UTC)
+    )
+
+    assert registry.submitted == [5, 6, 7]
+    assert not finding.alarm
+    assert recorded is not None
+    assert recorded.through == 7
+    assert recorded.as_payload()["anchored_through"] == 7
+
+
+def test_a_batch_refused_part_way_records_how_far_it_got() -> None:
+    """The receipt kept is the last one issued; the refusal is the one that stopped it."""
+    registry = SequencedRegistry(refuse_at=7)
+    agent = an_agent()
+
+    finding, recorded = duties.anchor(
+        agent, registry, (a_head(5), a_head(6), a_head(7), a_head(8)), now=datetime.now(UTC)
+    )
+
+    assert registry.submitted == [5, 6, 7]
+    assert recorded is not None
+    assert recorded.seq == 7
+    assert recorded.through == 6
+    assert recorded.countersignature
+    assert recorded.problem == "pending"
+    assert recorded.as_payload()["problem"] == "pending"
+    assert "anchored through sequence 6, then" in finding.detail
+    # What was refused stays queued, for the next tick, and is not queued twice.
+    assert agent.unanchored == (7, 8)
+    duties.anchor(agent, registry, (a_head(7), a_head(8)), now=datetime.now(UTC))
+    assert agent.unanchored == (7, 8)
+
+
+class FakeChain:
+    """A chain of `length` entries, each naming the one before."""
+
+    def __init__(self, length: int) -> None:
+        self.entries = [
+            SimpleNamespace(
+                seq=seq,
+                entry_hash=f"{seq:064x}",
+                prev_hash=f"{seq - 1:064x}" if seq > 1 else GENESIS_HASH,
+            )
+            for seq in range(1, length + 1)
+        ]
+
+    def head(self) -> Any:
+        return self.entries[-1]
+
+    def length(self) -> int:
+        return len(self.entries)
+
+    def verify_chain(self, from_seq: int = 1, to_seq: int | None = None) -> int | None:
+        del from_seq, to_seq
+        return None
+
+    def stream(self, from_seq: int = 1, to_seq: int | None = None) -> Any:
+        last = to_seq if to_seq is not None else len(self.entries)
+        return iter(self.entries[from_seq - 1 : last])
+
+
+class Remote(StubRegistry):
+    """A registry that says where it is, as MEGINGJORD's `/head` does."""
+
+    def __init__(self, seq: int | None) -> None:
+        super().__init__()
+        self.seq = seq
+
+    def head(self) -> Any:
+        from draupnir.gullinbursti.protocol import RemoteHead
+
+        return RemoteHead(
+            state="ACTIVE",
+            seq=self.seq,
+            entry_hash=None if self.seq is None else f"{self.seq:064x}",
+        )
+
+
+def maintenance_for(chain: FakeChain, registry: Any) -> Any:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from draupnir.worker.loop import Maintenance
+
+    return Maintenance(
+        chain=chain,
+        agent=an_agent(),
+        registry=registry,
+        signing_key=Ed25519PrivateKey.generate(),
+    )
+
+
+def test_the_heads_offered_start_after_megingjords_head() -> None:
+    """Each names the entry before it, which is the anchor before it (rule 7)."""
+    heads = maintenance_for(FakeChain(9), Remote(6))._heads()
+
+    assert [item.head.seq for item in heads] == [7, 8, 9]
+    assert heads[0].previous_hash == f"{6:064x}"
+    assert heads[2].previous_hash == f"{8:064x}"
+
+
+def test_a_forge_megingjord_has_never_heard_from_starts_at_its_head() -> None:
+    """The first anchor names no predecessor; what came before stays local."""
+    offered = maintenance_for(FakeChain(9), Remote(None))._heads()
+
+    assert offered.head.seq == 9
+    assert offered.previous_hash is None
+
+
+def test_a_registry_that_cannot_say_where_it_is_is_offered_the_head() -> None:
+    offered = maintenance_for(FakeChain(9), StubRegistry())._heads()
+    assert offered.head.seq == 9
+
+
+def test_a_long_partition_is_caught_up_over_several_ticks() -> None:
+    from draupnir.worker.loop import BACKLOG
+
+    heads = maintenance_for(FakeChain(BACKLOG + 50), Remote(10))._heads()
+
+    assert len(heads) == BACKLOG
+    assert heads[0].head.seq == 11
+
+
 def test_a_forge_with_no_link_alarms_rather_than_pretending() -> None:
     """Every estate today. The alarm names what is missing."""
     from datetime import UTC, datetime
@@ -885,55 +1035,6 @@ def test_a_payload_carrying_a_weight_is_refused() -> None:
     # tensor is the case a name-based rule would miss.
     with _pytest.raises(ContentLeakError):
         sealed({"seq": 7, "notes": "z" * 400}, name="anchor record")
-
-
-def test_the_remote_registry_refuses_a_countersignature_that_is_not_there() -> None:
-    """Countersigned and unsigned is not countersigned.
-
-    Accepting it would record an anchor nobody can verify, which is worse than
-    no anchor: the freshness duty goes quiet and the truncation SAD 11A.3
-    exists to detect goes unnoticed.
-    """
-    from datetime import UTC, datetime
-
-    from draupnir.gullinbursti import federation
-
-    class Answer:
-        status_code = 200
-
-        def json(self) -> Any:
-            return {"outcome": "countersigned", "anchoredAt": "2026-09-09T00:00:00+00:00"}
-
-    class Client:
-        def post(self, url: str, *, json: Any = None, headers: Any = None) -> Any:
-            del url, json, headers
-            return Answer()
-
-    receipt = federation.RemoteRegistry(client=Client()).countersign(
-        a_head(), at=datetime.now(UTC), countersignature=""
-    )
-
-    assert not receipt.accepted
-    assert "no countersignature" in receipt.reason
-
-
-def test_an_unreachable_registry_is_a_receipt_not_an_exception() -> None:
-    """A partition is a degraded mode, not a fault that reaches a run."""
-    from datetime import UTC, datetime
-
-    from draupnir.gullinbursti import federation
-
-    class Client:
-        def post(self, url: str, *, json: Any = None, headers: Any = None) -> Any:
-            del url, json, headers
-            raise OSError("connection refused")
-
-    receipt = federation.RemoteRegistry(client=Client()).countersign(
-        a_head(), at=datetime.now(UTC), countersignature=""
-    )
-
-    assert not receipt.accepted
-    assert "could not be reached" in receipt.reason
 
 
 # ---------------------------------------------------------------------------

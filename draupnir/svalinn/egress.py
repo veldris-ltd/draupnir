@@ -514,8 +514,8 @@ class BrokeredClient:
         """Decide the submission, then make it. RF-07.
 
         The client had only `get`, so the one caller that submits rather than
-        fetches -- `federation.RemoteRegistry`, anchoring the chain head to
-        MEGINGJORD -- had no brokered client it could be given. Either the
+        fetches -- GULLINBURSTI anchoring the chain head to MEGINGJORD, now
+        `gullinbursti.protocol.Link` -- had no brokered client it could be given. Either the
         anchor path went unwired or it would have taken a raw `httpx.Client`
         around the broker entirely, which is threat T11 exactly.
 

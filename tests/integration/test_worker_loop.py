@@ -375,7 +375,7 @@ class _StandInRegistry:
 
     Wraps the real `AnchorStore` rather than reimplementing it, because the
     property under test is that a worker tick reaches a registry at all --
-    `Gullinbursti.drain` cannot tell this from `RemoteRegistry` over HTTP, and
+    `Gullinbursti.drain` cannot tell this from `protocol.Link` over HTTP, and
     a path only exercised during an outage is a path that does not work.
 
     It supplies its own countersignature, which is the half `AnchorStore`
@@ -481,7 +481,6 @@ def test_a_tick_anchors_the_chain_and_the_duty_stops_alarming(
             site_id=site,
             scratch=tmp_path / "worker",
             interval=0.05,
-            registry_url="https://megingjord.veldris.internal",
             signing_key=signing_key,
         ),
         scheduler=draupnir_local_subprocess.driver,
@@ -534,7 +533,6 @@ def test_a_refusing_registry_alarms_and_says_training_continues(
             site_id=site,
             scratch=tmp_path / "worker",
             interval=0.05,
-            registry_url="https://megingjord.veldris.internal",
             signing_key=signing_key,
         ),
         scheduler=draupnir_local_subprocess.driver,

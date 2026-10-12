@@ -56,6 +56,12 @@ PROVENANCE_FIELDS: tuple[str, ...] = (
     "approver",
     "approvedAt",
     "soleApproverException",
+    # What MEGINGJORD registered the release as (VLD-SAD-MEGINGJORD-001 AC-R7,
+    # AC-I1i): the anchor receipt it was registered against, and the estate's
+    # security posture as installed. Not recorded for a release registered
+    # nowhere, which the card then says.
+    "anchorReceipt",
+    "estatePosture",
 )
 
 EVALUATION_FIELDS: tuple[str, ...] = (

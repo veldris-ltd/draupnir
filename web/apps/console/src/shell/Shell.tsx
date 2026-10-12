@@ -256,7 +256,14 @@ function SiteSwitcher({
 
 function AnchorBadge({ state }: { state: string | undefined }): JSX.Element | null {
   if (state === undefined) return null;
-  const tone = state === 'ANCHORED' ? 'success' : state === 'PARTITIONED' ? 'warning' : 'neutral';
+  const tone =
+    state === 'ANCHORED'
+      ? 'success'
+      : state === 'PARTITIONED'
+        ? 'warning'
+        : state === 'QUARANTINED' || state === 'DIVERGED'
+          ? 'danger'
+          : 'neutral';
   return (
     <Badge tone={tone}>
       <span className="jg-sr-only">Federation anchor state: </span>

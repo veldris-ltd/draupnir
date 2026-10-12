@@ -485,12 +485,22 @@ class Anchored:
     write in this system happens.
     """
 
+    #: The last head this attempt submitted, and what became of it.
     seq: int
     entry_hash: str
     outcome: str
+    #: The receipt for `through`: MEGINGJORD's signed document, which verifies
+    #: offline under its published anchor key (AC-R1). Empty if nothing was.
     countersignature: str
     reason: str
     anchored_at: datetime | None = None
+    #: The highest sequence countersigned by this attempt, 0 if none. Not
+    #: always `seq`: one attempt submits every entry since MEGINGJORD's head
+    #: (SAD 12.2 rule 6), and the last of them may be the one refused.
+    through: int = 0
+    #: MEGINGJORD's problem type for the refusal, by slug, or "" (see
+    #: `federation.Receipt.problem`). What the site's anchor state turns on.
+    problem: str = ""
 
     @property
     def accepted(self) -> bool:
@@ -505,8 +515,9 @@ class Anchored:
             "outcome": self.outcome,
             "countersignature": self.countersignature,
             "reason": self.reason,
-            "anchored_through": self.seq if self.accepted else 0,
+            "anchored_through": self.through,
             "anchored_at": self.anchored_at.isoformat() if self.anchored_at else "",
+            "problem": self.problem,
         }
 
 
@@ -576,7 +587,16 @@ def anchor(
             None,
         )
 
-    agent.submit(head, at=now)
+    # One head or several. MEGINGJORD accepts a sequence only at its head plus
+    # one (SAD 12.2 rule 6), so the loop offers every entry since the head it
+    # holds, in order; a sequence already queued from an earlier tick is not
+    # queued twice.
+    heads = head if isinstance(head, tuple) else (head,)
+    queued = set(agent.unanchored)
+    for item in heads:
+        if item.head.seq not in queued:
+            agent.submit(item, at=now)
+    attempted = sorted(agent.queue, key=lambda item: item.seq)
     receipts = agent.drain(registry, at=now, countersignature="")
     if not receipts:
         return (
@@ -593,13 +613,18 @@ def anchor(
         )
 
     last = receipts[-1]
+    tried = attempted[len(receipts) - 1].head
+    proofs = [item.anchor for item in receipts if item.accepted and item.anchor is not None]
+    proof = proofs[-1] if proofs else None
     recorded = Anchored(
-        seq=head.head.seq,
-        entry_hash=head.head.entry_hash,
+        seq=tried.head.seq,
+        entry_hash=tried.head.entry_hash,
         outcome=str(last.outcome),
-        countersignature=last.anchor.countersignature if last.anchor else "",
+        countersignature=proof.countersignature if proof else "",
         reason=last.reason,
-        anchored_at=last.anchor.countersigned_at if last.anchor else None,
+        anchored_at=proof.countersigned_at if proof else None,
+        through=proof.seq if proof else 0,
+        problem=last.problem,
     )
 
     if not last.accepted:
@@ -608,7 +633,12 @@ def anchor(
                 Duty.ANCHOR,
                 stale.alarm,
                 (
-                    f"the registry did not anchor sequence {recorded.seq}: {last.reason}. "
+                    (
+                        f"anchored through sequence {recorded.through}, then "
+                        if recorded.through
+                        else ""
+                    )
+                    + f"the registry did not anchor sequence {recorded.seq}: {last.reason}. "
                     "Training and evaluation continue; release is unavailable until the "
                     f"chain head is countersigned (Decision S8, AC-S13). {since}."
                 ),

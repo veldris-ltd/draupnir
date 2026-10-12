@@ -38,6 +38,10 @@ dependencies = [
   # that could not come up.
   "psycopg[binary]>=3.2",
   "alembic>=1.14",
+  # The wire format GULLINBURSTI speaks to MEGINGJORD (SAD 33.1). A versioned
+  # package both ends consume, vendored as a wheel because it is on no index;
+  # vendor/README.md says where it comes from and how to check it.
+  "veldris-shared-protocol>=1.2,<2",
   "minio>=7.2",
   # Signing, SAD 11H stage 3.4 and Decision S9
   "cryptography>=44.0",
@@ -154,6 +158,7 @@ members = ["plugins/*"]
 exclude = ["packaging/*"]
 
 [tool.uv.sources]
+veldris-shared-protocol = { path = "vendor/veldris_shared_protocol-1.2.0-py3-none-any.whl" }
 veldris-draupnir-llamafactory = { workspace = true }
 veldris-draupnir-lmeval = { workspace = true }
 veldris-draupnir-local-subprocess = { workspace = true }

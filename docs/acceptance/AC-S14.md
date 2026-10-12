@@ -17,9 +17,11 @@ make test-unit
 ## Evidence
 
 - `draupnir/core/domain/federation.py`
+- `draupnir/gullinbursti/protocol.py`
 - `draupnir/megingjord/registry.py`
 - `draupnir/svalinn/egress.py`
 - `tests/unit/test_federation.py`
+- `tests/unit/test_megingjord_link.py`
 
 ---
 

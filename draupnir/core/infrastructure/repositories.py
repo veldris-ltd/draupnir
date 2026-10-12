@@ -567,14 +567,15 @@ class ReleaseProjection(ScopedRepository):
                 text(
                     "INSERT INTO release (id, artefact_id, approval_id, model_card_uri, sbom_uri, "
                     " lineage_uri, training_summary_uri, copyright_policy_uri, signature, "
-                    " anchored_at, published_at, licence_policy_version) "
+                    " anchored_at, published_at, licence_policy_version, federation) "
                     "VALUES (:id, :artefact_id, :approval_id, :model_card, :sbom, :lineage, "
                     " :training_summary, :copyright_policy, :signature, :anchored_at, "
-                    " :published_at, :licence_policy_version) "
+                    " :published_at, :licence_policy_version, CAST(:federation AS jsonb)) "
                     "ON CONFLICT (id) DO UPDATE SET artefact_id = EXCLUDED.artefact_id, "
                     "approval_id = EXCLUDED.approval_id, signature = EXCLUDED.signature, "
                     "anchored_at = EXCLUDED.anchored_at, published_at = EXCLUDED.published_at, "
-                    "licence_policy_version = EXCLUDED.licence_policy_version"
+                    "licence_policy_version = EXCLUDED.licence_policy_version, "
+                    "federation = EXCLUDED.federation"
                 ),
                 [
                     {
@@ -590,6 +591,9 @@ class ReleaseProjection(ScopedRepository):
                         "anchored_at": release.anchored_at,
                         "published_at": release.published_at,
                         "licence_policy_version": release.licence_policy_version,
+                        "federation": (
+                            json.dumps(dict(release.federation)) if release.federation else None
+                        ),
                     }
                     for release in bound
                 ],

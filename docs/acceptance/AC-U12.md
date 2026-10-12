@@ -18,6 +18,7 @@ make test-frontend
 
 - `web/apps/console/src/App.test.tsx`
 - `web/apps/console/src/api/useResource.ts`
+- `web/apps/console/src/screens/Audit.test.tsx`
 - `web/apps/console/src/screens/Audit.tsx`
 - `web/apps/console/src/shell/Shell.tsx`
 
