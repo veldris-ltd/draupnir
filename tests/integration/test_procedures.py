@@ -23,7 +23,7 @@ from draupnir.core.domain.states import RunState
 from draupnir.core.infrastructure.orchestration import for_connection
 from draupnir.core.infrastructure.repositories import LedgerRepository, RunProjection
 from draupnir.procedures import Procedure, run
-from draupnir.procedures.sindri import STEPS, restore_writable
+from draupnir.procedures.sindri import FORMATS, STEPS, restore_writable
 
 pytestmark = pytest.mark.integration
 
@@ -257,3 +257,44 @@ def test_the_same_specification_over_the_same_inputs_is_reported_as_a_duplicate(
     # And the identifiers differ, because they always do: UUIDv7 sorts by
     # creation time. It is the identity that is shared.
     assert second.run_id != first.run_id
+
+
+def test_a_procedure_asked_to_stage_puts_the_released_formats_where_the_worker_would(
+    owner: Connection, site: str, workdir: Path, scheduler: object, tmp_path: Path
+) -> None:
+    """G8. Published from, not only recorded: the bytes are in HODD, sealed.
+
+    Publication re-hashes the release's bytes where the chain says they are
+    (AC-S8), so a procedure whose formats stayed in its working directory
+    released a model nobody could publish. Asked to stage, it puts and seals
+    each format as the worker does (RF-08) and records where, which is what
+    the release projection and `publishRelease` read.
+    """
+    from draupnir.hodd.reconcile import initialise
+    from draupnir.hodd.stores import ImmutableArtefactError, PosixStoreDriver
+
+    store = PosixStoreDriver(root=tmp_path / "vault", local_site=site)
+    (tmp_path / "vault").mkdir()
+    initialise(store)
+    scope = SiteScope(site)
+    procedure = Procedure(
+        orchestrator=for_connection(owner, scope, actor="operator@veldris.internal"),
+        workdir=workdir,
+        jurisdiction=JURISDICTION,
+        store=store,
+    )
+
+    run(procedure, scheduler)
+
+    quantised = [
+        entry
+        for entry in procedure.orchestrator.history(procedure.run_id)
+        if entry.transition.endswith(f"->{RunState.QUANTISED}")
+    ]
+    (entry,) = quantised
+    staged = entry.payload["artefacts"]
+    assert {item["sha256"] for item in staged} == {procedure.artefacts[fmt] for fmt in FORMATS}
+    released = next(item for item in staged if item["sha256"] == procedure.artefacts["nvfp4"])
+    assert released["kind"] == "quantised" and released["size"] > 0
+    with pytest.raises(ImmutableArtefactError):
+        store.put(released["uri"], workdir / "anything")

@@ -62,6 +62,7 @@ from draupnir.gleipnir.policy import PolicyDriverAdapter
 from draupnir.hamarr import checkpoints, tiers
 from draupnir.hodd import curation
 from draupnir.hodd.register import LicenceRegister, SourceRecord
+from draupnir.hodd.stores import artefact_uri
 from draupnir.interfaces.types import JobPlan, JobState, RunSpec
 from draupnir.motsognir.execution import BASE_ENVIRONMENT
 from draupnir.raun import suites as raun_suites
@@ -163,6 +164,12 @@ class Procedure:
     #: the operator's runner sets it from the clock, because a retrieval is
     #: what actually varies.
     corpus_seed: str = ""
+    #: Where the released formats are put, as the worker puts them: a HODD
+    #: store driver, or None. Without one the formats stay in the working
+    #: directory and the release can be recorded but not published, because
+    #: publication re-hashes the bytes where the chain says they are (AC-S8).
+    #: The procedure that ends in a publication passes one (`--stage-artefacts`).
+    store: Any = None
 
     def path(self, *parts: str) -> Path:
         """A path inside this procedure's working directory.
@@ -663,10 +670,27 @@ def m7_merge_and_quantise(procedure: Procedure, scheduler: Any) -> Mapping[str, 
     procedure.artefacts["merged"] = chosen.artefact_sha256 or ""
 
     built: dict[str, str] = {}
+    staged: list[dict[str, Any]] = []
     for fmt in FORMATS:
         target = procedure.path("artefacts", f"{fmt}.bin")
         _dispatch(procedure, scheduler, _stand_in_plan(procedure, target, [merged_path]))
         built[fmt] = procedure.record(fmt, target)
+        if procedure.store is not None:
+            # Put and sealed at once, as the worker does (RF-08): AC-S8's
+            # re-hash at publication then detects any change after the gates.
+            uri = artefact_uri(
+                procedure.orchestrator.site_id, "quantised", str(procedure.run_id), f"{fmt}.bin"
+            )
+            procedure.store.put(uri, target)
+            procedure.store.seal(uri)
+            staged.append(
+                {
+                    "uri": uri,
+                    "sha256": built[fmt],
+                    "kind": "quantised",
+                    "size": target.stat().st_size,
+                }
+            )
 
     applied = procedure.orchestrator.transition(
         procedure.run_id,
@@ -677,6 +701,7 @@ def m7_merge_and_quantise(procedure: Procedure, scheduler: Any) -> Mapping[str, 
             "sweep_result": sweep.for_model_card(),
             "formats_built": built,
             "scheduler_job_id": job_id,
+            **({"artefacts": staged} if staged else {}),
         },
     )
     return _evidence(

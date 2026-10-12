@@ -48,6 +48,14 @@ def _scheduler() -> Any:
     return draupnir_local_subprocess.driver
 
 
+def _store() -> Any:
+    """This site's store, as the worker and the API resolve it."""
+    from draupnir.core.infrastructure.config import get_settings
+    from draupnir.hodd.stores import store_for
+
+    return store_for(get_settings())
+
+
 def _ensure_site(url: str, site_id: str) -> None:
     """Register the site if the database does not know it yet.
 
@@ -88,6 +96,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--evidence", type=Path, default=EVIDENCE)
     parser.add_argument("--actor", default="operator@veldris.internal")
+    parser.add_argument(
+        "--stage-artefacts",
+        action="store_true",
+        help=(
+            "put the released formats in this site's store (HODD), as the worker does, so "
+            "the release can be published"
+        ),
+    )
     args = parser.parse_args(argv)
 
     _ensure_site(args.database_url, args.site)
@@ -113,6 +129,7 @@ def main(argv: list[str] | None = None) -> int:
                 # identity -- which AC-F2 refuses, correctly, and which would
                 # make this demonstration runnable exactly once.
                 corpus_seed=started.isoformat(),
+                store=_store() if args.stage_artefacts else None,
             )
             try:
                 results = run(procedure, _scheduler())
